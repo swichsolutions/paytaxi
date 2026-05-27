@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<ApiAuditLog> ApiAuditLogs => Set<ApiAuditLog>();
     public DbSet<YandexBalanceCache> YandexBalanceCaches => Set<YandexBalanceCache>();
     public DbSet<OtpCode> OtpCodes => Set<OtpCode>();
+    public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
 
     // ── Enum ↔ snake_case text converters ────────────────────────────
     // Stored as text + Postgres check constraint (not native enum) so we can
@@ -162,6 +163,20 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(o => o.PhoneHash);
             e.Property(o => o.PhoneHash).HasMaxLength(64).IsRequired();
+        });
+
+        modelBuilder.Entity<AdminUser>(e =>
+        {
+            e.Property(a => a.Email).HasMaxLength(200).IsRequired();
+            e.Property(a => a.PasswordHash).HasMaxLength(200).IsRequired();
+            e.Property(a => a.Name).HasMaxLength(200);
+            e.Property(a => a.Role).HasMaxLength(20).IsRequired();
+            e.HasIndex(a => a.Email).IsUnique();
+            e.HasOne(a => a.Park).WithMany().HasForeignKey(a => a.ParkId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_AdminUsers_Role",
+                "\"Role\" IN ('super_admin', 'park_admin')"));
         });
 
         base.OnModelCreating(modelBuilder);

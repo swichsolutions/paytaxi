@@ -7,6 +7,12 @@ namespace PayTaxi.Core.Interfaces;
 public interface IJwtTokenService
 {
     DriverTokenResult IssueDriverToken(Guid driverId, Guid parkId, string phoneHash);
+
+    /// <summary>
+    /// Mints an admin JWT. <paramref name="parkId"/> is null for super-admin,
+    /// set for park-scoped manager accounts.
+    /// </summary>
+    DriverTokenResult IssueAdminToken(Guid adminUserId, string email, string role, Guid? parkId);
 }
 
 public record DriverTokenResult(

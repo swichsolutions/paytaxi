@@ -40,11 +40,11 @@
 
     <div class="topbar__divider"></div>
 
-    <button class="topbar__user" (click)="logout()" aria-label="Account menu">
-      <div class="topbar__avatar">NM</div>
+    <button class="topbar__user" (click)="logout()" aria-label="Logout">
+      <div class="topbar__avatar">{{ adminInitials() }}</div>
       <div class="topbar__user-meta">
-        <span class="topbar__user-name">Nika Maisuradze</span>
-        <span class="topbar__user-role">Park Manager</span>
+        <span class="topbar__user-name">{{ adminName() }}</span>
+        <span class="topbar__user-role">{{ adminRole() }}</span>
       </div>
       <svg class="topbar__user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="6 9 12 15 18 9"/>

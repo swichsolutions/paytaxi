@@ -2,6 +2,7 @@ import { Component, computed, inject, output } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs';
+import { AdminAuthService } from '../../services/admin-auth.service';
 
 @Component({
   selector: 'app-admin-topbar',
@@ -12,6 +13,21 @@ export class AdminTopbarComponent {
   toggle = output<void>();
 
   private router = inject(Router);
+  private auth = inject(AdminAuthService);
+
+  readonly admin = computed(() => this.auth.admin());
+
+  readonly adminName = computed(() => this.admin()?.name ?? this.admin()?.email ?? 'Admin');
+  readonly adminRole = computed(() => {
+    const a = this.admin();
+    if (!a) return '';
+    if (a.role === 'super_admin') return 'Super Admin';
+    return a.parkName ? `Manager · ${a.parkName}` : 'Park Manager';
+  });
+  readonly adminInitials = computed(() => {
+    const name = this.adminName();
+    return name.split(/[\s@]/).slice(0, 2).map(s => s[0] ?? '').join('').toUpperCase();
+  });
 
   private url = toSignal(
     this.router.events.pipe(
@@ -37,6 +53,7 @@ export class AdminTopbarComponent {
   }
 
   logout() {
+    this.auth.logout();
     this.router.navigate(['/admin/login']);
   }
 }

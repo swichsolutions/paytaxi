@@ -31,6 +31,7 @@ public static class SeedData
         {
             log.LogInformation("Database already seeded — skipping park seed");
             await EnsureBankCardsSeededAsync(db, log);
+            await EnsureAdminUsersSeededAsync(db, log);
             return;
         }
 
@@ -110,6 +111,58 @@ public static class SeedData
             parks.Length, parks.Sum(p => p.Drivers.Count));
 
         await EnsureBankCardsSeededAsync(db, log);
+        await EnsureAdminUsersSeededAsync(db, log);
+    }
+
+    /// <summary>
+    /// Seeds one super-admin + one park-admin per park, idempotently.
+    /// Dev passwords match the spec (super: <c>swich2026!</c>, park: <c>park{n}!</c>).
+    /// </summary>
+    private static async Task EnsureAdminUsersSeededAsync(AppDbContext db, ILogger log)
+    {
+        if (await db.AdminUsers.AnyAsync())
+        {
+            log.LogInformation("Admin users already seeded");
+            return;
+        }
+
+        var parks = await db.Parks.AsNoTracking().OrderBy(p => p.Name).ToListAsync();
+        if (parks.Count == 0) return;
+
+        var admins = new List<AdminUser>
+        {
+            new()
+            {
+                Email = "ops@swich.dev",
+                Name = "Swich Operator",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("swich2026!"),
+                Role = "super_admin",
+                ParkId = null,
+                IsActive = true,
+            },
+        };
+
+        foreach (var (park, idx) in parks.Select((p, i) => (p, i + 1)))
+        {
+            admins.Add(new AdminUser
+            {
+                Email = $"manager@{park.Slug}.local",
+                Name = $"Manager · {park.Name}",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword($"park{idx}!"),
+                Role = "park_admin",
+                ParkId = park.Id,
+                IsActive = true,
+            });
+        }
+
+        db.AdminUsers.AddRange(admins);
+        await db.SaveChangesAsync();
+        log.LogInformation("Seeded {Count} admin users (1 super, {ParkAdmins} per park)",
+            admins.Count, admins.Count - 1);
+        log.LogInformation("Dev creds — super: ops@swich.dev / swich2026!");
+        foreach (var (park, idx) in parks.Select((p, i) => (p, i + 1)))
+            log.LogInformation("Dev creds — park {Park}: manager@{Slug}.local / park{Idx}!",
+                park.Name, park.Slug, idx);
     }
 
     /// <summary>

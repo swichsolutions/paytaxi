@@ -1,6 +1,7 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { AdminAuthService } from '../services/admin-auth.service';
 
 @Component({
   selector: 'app-admin-login',
@@ -10,6 +11,7 @@ import { Router } from '@angular/router';
 })
 export class AdminLoginComponent {
   private router = inject(Router);
+  private auth = inject(AdminAuthService);
 
   email = signal('');
   password = signal('');
@@ -20,15 +22,22 @@ export class AdminLoginComponent {
     this.email().includes('@') && this.password().length >= 4 && !this.submitting()
   );
 
-  submit() {
+  async submit() {
     if (!this.canSubmit()) return;
     this.submitting.set(true);
     this.error.set('');
-
-    // Mock: any credentials work
-    setTimeout(() => {
-      this.submitting.set(false);
+    try {
+      await this.auth.login(this.email().trim(), this.password());
       this.router.navigate(['/admin/overview']);
-    }, 600);
+    } catch (err: any) {
+      const code = err?.error?.error;
+      this.error.set(
+        code === 'invalid_credentials' ? 'Wrong email or password.'
+        : code === 'email_and_password_required' ? 'Both fields are required.'
+        : err?.error?.message ?? err?.message ?? 'Login failed.'
+      );
+    } finally {
+      this.submitting.set(false);
+    }
   }
 }
