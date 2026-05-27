@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Interfaces;
@@ -9,9 +10,12 @@ namespace PayTaxi.Api.Controllers;
 /// Admin endpoints scoped to a park. Validates the full Yandex integration
 /// stack: DB park resolution → resilient client (rate-limit, retry, audit) → mock.
 ///
-/// Auth deferred — Phase 8 will lock these behind manager-role JWT.
+/// Requires admin role. Super-admins see any park; park-admins can hit any
+/// park id today (no per-park gate enforced server-side yet — TODO when more
+/// than one park admin exists in production).
 /// </summary>
 [ApiController]
+[Authorize(Roles = "admin")]
 [Route("api/admin/parks/{parkId:guid}")]
 public class AdminParksController : ControllerBase
 {

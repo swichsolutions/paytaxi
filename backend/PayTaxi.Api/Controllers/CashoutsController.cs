@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Interfaces;
@@ -9,9 +10,11 @@ namespace PayTaxi.Api.Controllers;
 /// Cashout endpoints for the manager admin panel. The saga itself lives in
 /// <see cref="ICashoutOrchestrator"/>; this controller only translates HTTP.
 ///
-/// Auth deferred to Phase 8 along with the rest of the admin surface.
+/// Driver-initiated cashouts go through <see cref="DriverController"/>.CreateMyCashout
+/// instead, which derives driverId from the JWT.
 /// </summary>
 [ApiController]
+[Authorize(Roles = "admin")]
 [Route("api/admin/parks/{parkId:guid}/cashouts")]
 public class CashoutsController : ControllerBase
 {

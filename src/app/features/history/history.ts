@@ -48,15 +48,9 @@ export class HistoryComponent implements OnInit {
 
   async ngOnInit() {
     await this.session.ensureLoaded();
-    const parkId = this.session.parkId();
-    if (!parkId) {
-      this.loadError.set('No park context available.');
-      this.loading.set(false);
-      return;
-    }
     try {
       const resp = await firstValueFrom(this.http.get<ApiCashoutsResponse>(
-        `http://localhost:5196/api/admin/parks/${parkId}/cashouts?take=50`));
+        `http://localhost:5196/api/driver/me/cashouts?take=50`));
       this.cashouts.set(resp.cashouts);
     } catch (err: any) {
       this.loadError.set(`Could not load cashouts: ${err?.message ?? err}`);

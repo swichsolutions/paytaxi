@@ -95,22 +95,18 @@ export class CashoutComponent implements OnInit {
   }
 
   async confirm() {
-    const parkId = this.session.parkId();
-    const driver = this.session.driver();
     const card = this.selectedCard();
-    if (!parkId || !driver || !card) return;
+    if (!card) return;
 
     this.submitting.set(true);
     this.submitError.set(null);
     try {
       const result = await firstValueFrom(this.http.post<CashoutSagaResult>(
-        `http://localhost:5196/api/admin/parks/${parkId}/cashouts`,
+        `http://localhost:5196/api/driver/cashouts`,
         {
-          driverId: driver.id,
           cardId: card.id,
           amount: this.amount(),
           idempotencyKey: this.idempotencyKey,
-          initiatedBy: `driver:${driver.id}`,
         }));
       this.result.set(result);
       this.confirmed.set(true);

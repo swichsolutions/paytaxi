@@ -17,15 +17,16 @@
 - **Option C — Driver app cashout wired to backend.** New `DriverSessionService` auto-discovers an active driver-with-card on bootstrap (stand-in until real driver-auth in Phase 8). Driver dashboard hero shows real driver name + park + balance from backend. Driver 3-step cashout flow now POSTs through the same `/api/admin/parks/{parkId}/cashouts` saga endpoint. Verified end-to-end: a driver-side 20 GEL cashout hits the saga, writes ledger entries, populates bank+Yandex IDs.
 - **Driver history wired to backend.** `/history` now reads cashouts from `GET /api/admin/parks/{parkId}/cashouts` (filtered to the session driver). Rides are still mock — no rides endpoint exists yet. Closes the demo loop: cash out → land on history → see your new cashout listed with bank ref + status.
 - **Real driver auth (phone + OTP → JWT).** New `POST /api/driver/auth/{request-otp,verify-otp}` endpoints; OTP stored as SHA-256 with 5-min expiry and 5-attempt cap. JWT carries `sub=driverId`, `parkId`, `phoneHash`, `role=driver`. Frontend `AuthService` keeps the token in `localStorage`, an HTTP interceptor adds `Authorization: Bearer` to all backend calls, and an `authGuard` redirects unauthenticated users from `/dashboard|cashout|history|profile` to `/login`. `DriverSessionService` now boots from JWT claims when present; auto-discovery is the fallback for demo convenience only. Dev OTP returned in the request-otp response (and logged to backend) until SMS gateway is wired in Phase 8.
-- **Real admin auth (email + password → JWT).** New `AdminUser` entity + `AddAdminUsers` migration. Seed creates one super-admin (`ops@swich.dev` / `swich2026!`) and one park-admin per park (`manager@{slug}.local` / `park{N}!`). `POST /api/admin/auth/login` returns a JWT with `role=admin`, `adminScope={super_admin|park_admin}`, `sub=adminUserId`, optional `parkId`. Frontend `AdminAuthService` keeps tokens in separate `localStorage` keys (so a tab can be logged in as driver and admin independently). HTTP interceptor became URL-aware — picks admin token for `/api/admin/*`, driver token for `/api/driver/*`, and falls back to the other if the preferred slot is empty (transitional, until the cashout endpoint splits per-role). `adminAuthGuard` redirects unauthenticated visitors to `/admin/login`. Admin topbar now shows the real admin name + role from the JWT, and the user-pill triggers a real logout.
+- **Real admin auth (email + password → JWT).** New `AdminUser` entity + `AddAdminUsers` migration. Seed creates one super-admin (`ops@swich.dev` / `swich2026!`) and one park-admin per park (`manager@{slug}.local` / `park{N}!`). `POST /api/admin/auth/login` returns a JWT with `role=admin`, `adminScope={super_admin|park_admin}`, `sub=adminUserId`, optional `parkId`. Frontend `AdminAuthService` keeps tokens in separate `localStorage` keys (so a tab can be logged in as driver and admin independently). HTTP interceptor became URL-aware — picks admin token for `/api/admin/*`, driver token for `/api/driver/*`. `adminAuthGuard` redirects unauthenticated visitors to `/admin/login`. Admin topbar shows the real admin name + role from the JWT; user-pill triggers logout.
+- **Driver-scoped endpoints + locked-down admin endpoints.** New `DriverController` at `/api/driver/{me,me/cashouts,cashouts}` derives `driverId` + `parkId` from the JWT — clients cannot tamper with URL/body to fetch another driver's data. Driver app migrated off `/api/admin/*` entirely. Admin controllers (`AdminParksController`, `CashoutsController`) now carry `[Authorize(Roles="admin")]`. Interceptor cross-fallback dropped — strict per-scope routing. Server-side verified: unauthenticated `/api/admin/*` returns 401; driver token on admin endpoint returns 403; unauthenticated `/api/driver/*` returns 401.
 
 ---
 
 ## Last thing we worked on
 
-Admin auth shipped end-to-end. Logged in as `ops@swich.dev`, topbar shows "Swich Operator · Super Admin", subsequent admin API calls carry `Authorization: Bearer`. Logout clears the admin token and the guard bounces visits to `/admin/login`.
+Driver-scoped endpoints + admin endpoint lockdown shipped. The driver app no longer touches `/api/admin/*` for anything. Admin endpoints reject non-admin tokens (verified live: 401 without token, 403 with driver token). Driver endpoints reject unauthenticated callers (401).
 
-The admin endpoints themselves are NOT yet locked down with `[Authorize]` — doing so would break the driver app, which still calls `/api/admin/parks/{id}/drivers` and `/api/admin/parks/{id}/cashouts`. Driver-scoped endpoints (`/api/driver/...`) come next; only then is it safe to apply `[Authorize(Roles="admin")]` to the admin controllers.
+The auth story is now end-to-end: both halves have real login, real JWTs, real backend enforcement.
 
 Current park lineup in DB:
 
@@ -41,10 +42,10 @@ Current park lineup in DB:
 
 Phase 3 + Option C complete. Natural next steps, in roughly increasing scope:
 
-- **Driver-scoped endpoints.** Driver app still calls `/api/admin/...` which trusts the supplied `driverId`. Add `/api/driver/me/{balance,cashouts}` and `/api/driver/cashouts` (POST) that derive driverId from the JWT `sub` claim and ignore any body field.
-- **Lock down admin endpoints.** Once driver-scoped endpoints exist, apply `[Authorize(Roles="admin")]` to `AdminParksController` and `CashoutsController` (the admin one). The saga's POST endpoint should accept either a manager JWT (any park or scoped park) or a driver JWT (own driverId only) — or split into two endpoints.
-- **Admin login rate limiting + lockout.** Currently brute-forceable. Add per-email throttling.
+- **Park-admin scope enforcement.** Today a park-admin JWT can hit any park's endpoints (no per-park gate enforced). Apply a filter so park-admins only see their own `parkId`.
+- **Login hardening.** Rate-limit `/api/admin/auth/login` and `/api/driver/auth/{request-otp,verify-otp}` per IP and per identifier. Account lockout after N failed login attempts.
 - **Background balance sync worker.** Phase 2 carry-over. `IHostedService` that iterates active parks and refreshes `YandexBalanceCache` rows.
+- **Real SMS sender.** `ISmsSender` interface + provider implementation; remove `devCode` from request-otp response.
 - **Phase 4 — real BOG/TBC adapters.** Blocked on sandbox credentials from the banks (typically 2–6 weeks).
 
 Other known small issues:

@@ -6,18 +6,17 @@ import { AdminAuthService } from '../../admin/services/admin-auth.service';
 /**
  * Attaches the right Authorization header to outbound backend calls.
  *
- *   /api/admin/auth/*    → no token (login itself)
- *   /api/admin/*         → admin JWT  (manager console)
+ *   /api/admin/auth/*    → no token (login endpoint)
  *   /api/driver/auth/*   → no token (OTP request/verify)
+ *   /api/admin/*         → admin JWT
  *   /api/driver/*        → driver JWT
- *   anything else        → driver JWT if present (legacy paths the driver
- *                          app still uses; remove once /api/driver/* split lands)
  *   non-localhost:5196   → no token (third-party hosts)
+ *
+ * Strict per-scope: an admin tab can't accidentally invoke driver-scoped
+ * endpoints with an admin token, and vice versa. Mismatches result in 401/403
+ * from the backend, which is what we want.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
-  const driverAuth = inject(AuthService);
-  const adminAuth  = inject(AdminAuthService);
-
   if (!req.url.startsWith('http://localhost:5196')) return next(req);
 
   // Login endpoints never carry a token
@@ -27,14 +26,10 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
     return next(req);
   }
 
-  const useAdmin = req.url.includes('/api/admin/');
-  const token = useAdmin ? adminAuth.token() : driverAuth.token();
+  const token = req.url.includes('/api/admin/')
+    ? inject(AdminAuthService).token()
+    : inject(AuthService).token();
 
-  // Fallback: if the path is admin but no admin token, try the driver token
-  // so the driver app's current calls to /api/admin/* keep working until the
-  // driver-scoped split lands.
-  const effective = token ?? (useAdmin ? driverAuth.token() : adminAuth.token());
-
-  if (!effective) return next(req);
-  return next(req.clone({ setHeaders: { Authorization: `Bearer ${effective}` } }));
+  if (!token) return next(req);
+  return next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }));
 };
