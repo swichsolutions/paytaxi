@@ -81,8 +81,8 @@
           @for (card of cards; track card.id) {
             <button
               class="card-row"
-              [class.card-row--selected]="selectedCard().id === card.id"
-              (click)="selectedCard.set(card)"
+              [class.card-row--selected]="selectedCard()?.id === card.id"
+              (click)="pickCard(card)"
             >
               <div class="card-row__bank" [class.card-row__bank--bog]="card.bankType === 'BOG'" [class.card-row__bank--tbc]="card.bankType === 'TBC'">
                 {{ card.bankType }}
@@ -93,8 +93,8 @@
                   <span class="badge badge--processing">{{ t.defaultCard }}</span>
                 }
               </div>
-              <div class="card-row__check" [class.card-row__check--active]="selectedCard().id === card.id">
-                @if (selectedCard().id === card.id) {
+              <div class="card-row__check" [class.card-row__check--active]="selectedCard()?.id === card.id">
+                @if (selectedCard()?.id === card.id) {
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="20 6 9 17 4 12"/>
                   </svg>
@@ -137,15 +137,19 @@
           <div class="summary-row">
             <span class="summary-row__label">{{ t.toCard }}</span>
             <span class="summary-row__value">
-              {{ selectedCard().bankType }} {{ selectedCard().maskedPan }}
+              {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}
             </span>
           </div>
         </div>
 
-        <button class="btn btn--primary" (click)="confirm()">
-          {{ t.confirmCashout }}
+        @if (submitError()) {
+          <p class="amount-error">{{ submitError() }}</p>
+        }
+
+        <button class="btn btn--primary" (click)="confirm()" [disabled]="submitting()">
+          @if (submitting()) { Submitting… } @else { {{ t.confirmCashout }} }
         </button>
-        <button class="btn btn--ghost btn--sm" (click)="prevStep()">
+        <button class="btn btn--ghost btn--sm" (click)="prevStep()" [disabled]="submitting()">
           {{ t.cancel }}
         </button>
 
@@ -154,15 +158,24 @@
     }
   }
 
-  @if (confirmed()) {
+  @if (confirmed() && result(); as r) {
     <div class="co-success">
       <div class="co-success__icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"/>
         </svg>
       </div>
-      <h2>{{ t.cashoutSubmitted }}</h2>
-      <p>{{ formatGel(net()) }} {{ t.willArriveShortly }}</p>
+      <h2>
+        @if (r.status === 'Completed') { {{ t.cashoutSubmitted }} }
+        @else { Cashout {{ r.status }} }
+      </h2>
+      <p>
+        @if (r.status === 'Completed') {
+          {{ formatGel(r.net) }} {{ t.willArriveShortly }}
+        } @else {
+          {{ r.failureReason }}
+        }
+      </p>
     </div>
   }
 </div>

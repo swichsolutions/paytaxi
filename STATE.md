@@ -14,18 +14,19 @@
 - **Phase 2 — Yandex Fleet API integration (mock edition).** `MockYandexFleetClient` returning realistic data for 3 parks × 8 drivers, with simulated latency and 3% transient failures. Wrapped by `ResilientYandexFleetClient` decorator chain (rate-limit → retry with exponential backoff → audit log). 5 admin API endpoints under `/api/admin/parks/...`. End-to-end verified against real Postgres — smoke test confirmed 5 concurrent calls serialised at exactly 500ms intervals, all 9 calls audit-logged with SHA-256 param hashes.
 - **Park multi-tenancy schema migration.** Added `OperatingModel`, `AuthorizationLimit`, `Status`, `Slug`, `LegalEntityName`, `TaxId`, `BankProvider`, `BankAccountIban` to `Parks` table with Postgres check constraints. Two-phase pattern — `IsActive` preserved (delete in follow-up migration). Existing rows backfilled cleanly.
 - **Phase 3 — Cashout Saga (Option B).** `MockBankPayoutProvider` with 3% transient failures, 250ms latency, idempotency-key dedup. `CashoutOrchestrator` saga implements reserve → A.5 limit check (atomic SQL decrement) → bank payout → Yandex deduct → confirm, with compensation on bank failure and `ReviewRequired` on post-bank Yandex failure. Double-entry ledger written at every transition. New `POST /api/admin/parks/{parkId}/cashouts` endpoint. Admin manual-cashout modal rewritten to fetch real parks/drivers/cards from backend and POST through the saga. Verified end-to-end: Model A.5 path decrements `AuthorizationLimit` (125000 → 124900 after 100 GEL test), Model A path skips it, idempotency replay returns prior cashout, over-limit attempts fail without touching bank/Yandex. `YandexFleet:ReadOnlyMode=false` in dev only.
+- **Option C — Driver app cashout wired to backend.** New `DriverSessionService` auto-discovers an active driver-with-card on bootstrap (stand-in until real driver-auth in Phase 8). Driver dashboard hero shows real driver name + park + balance from backend. Driver 3-step cashout flow now POSTs through the same `/api/admin/parks/{parkId}/cashouts` saga endpoint. Verified end-to-end: a driver-side 20 GEL cashout hits the saga, writes ledger entries, populates bank+Yandex IDs.
 
 ---
 
 ## Last thing we worked on
 
-Phase 3 cashout saga shipped end-to-end. Smoke-tested via curl against `paytaxi_dev`:
-- Model A.5 cashout 100 GEL (Tbilisi #3, Levan Kobakhidze) → `Completed`, 5 ledger entries (`CashoutReserved` → `BankTransferSent` → `YandexDeducted` → `FeeCollected` → `CashoutCompleted`), `AuthorizationLimit` 125,000 → 124,900.
-- Idempotency replay of same key → returned same `cashoutId`, `wasDeduped: true`, no side-effects.
-- Model A cashout 50 GEL (Tbilisi #5, Badri Macharashvili) → `Completed`, no `AuthorizationLimit` touch (NULL preserved).
-- Over-limit Model A.5 attempt → `Status=Failed`, `INSUFFICIENT_AUTHORIZATION_LIMIT`, ledger has `CashoutReserved` + `CashoutReversed`, bank/Yandex never called, limit unchanged at 124,900.
+Phase 3 + Option C both shipped and verified live. The cashout saga is reachable from both the admin manual-cashout modal AND the driver app's own cashout flow — same endpoint, same orchestrator, same ledger.
 
-Backend has been stopped. Admin modal will demo correctly when both backend and frontend are running.
+Latest smoke-tests via browser:
+- Admin modal in Batumi #1 (Model A) → 20 GEL cashout → `Status=Completed`, bank transfer ID + Yandex transaction ID populated.
+- Driver app `/cashout` → 20 GEL cashout → same flow end-to-end.
+
+`DriverSessionService` auto-discovers a usable driver on bootstrap; will be replaced by real JWT-derived session in Phase 8.
 
 Current park lineup in DB:
 
@@ -37,16 +38,19 @@ Current park lineup in DB:
 
 ---
 
-## Next concrete task — Phase 3 follow-ups (Option C and beyond)
+## Next concrete task — pick one
 
-**Wire the driver-side cashout flow (Option C).** The 3-step cashout UI at `src/app/cashout/` is built with mock data; it should POST through the same `POST /api/admin/parks/{parkId}/cashouts` endpoint (or a driver-scoped twin) once a real driver-auth JWT exists. Until then a query-param park/driver hack could demo it.
+Phase 3 + Option C complete. Natural next steps, in roughly increasing scope:
 
-Other open items:
-- **Real driver authentication.** Modal currently has no auth header; the saga endpoint trusts the caller. Phase 8 will lock this down.
-- **`Cashouts.IdempotencyKey` uniqueness collisions.** A double-click on the modal within the same lifecycle is safe (same UUID dedups). A different modal open generates a new UUID — that's correct, but means accidental double-issue at the operator level is NOT guarded. Consider a soft "you cashed out X to this driver Y minutes ago" check before submit.
-- **Background balance sync worker.** Still not built (was Phase 2 deferred).
-- **Real `YandexFleetClient` HTTP impl** waiting for credentials.
-- **Real BOG/TBC bank adapters** (Phase 4) — stubs still throw `NotImplementedException`; mock provider handles all keys while `BankPayout:UseMock=true`.
+- **Driver history page wiring.** Today `/history` still reads from `MockDataService`. A real read from `GET /api/admin/parks/{parkId}/cashouts` would close the demo loop (cash out → see it in history).
+- **Driver app needs its own endpoint with driver scoping.** The driver app currently posts through `/api/admin/parks/{parkId}/cashouts`, which trusts the caller's `driverId`. Once auth lands, introduce `POST /api/driver/cashouts` that derives driverId from the JWT.
+- **Real auth (Phase 8 sliver).** Issue JWTs for admin email/password and driver phone+OTP. Modal/driver both currently send no Authorization header.
+- **Background balance sync worker.** Phase 2 carry-over. `IHostedService` that iterates active parks and refreshes `YandexBalanceCache` rows.
+- **Phase 4 — real BOG/TBC adapters.** Blocked on sandbox credentials from the banks (typically 2–6 weeks).
+
+Other known small issues:
+- **Double-click protection at the operator level.** Modal UUID dedups same-instance retries, but a different modal open generates a new UUID — no guard against "you already cashed out to this driver 30 seconds ago".
+- **`/api/admin/parks/{parkId}/smoke-test`** still exposed — remove or feature-flag before prod.
 
 ### Phase 3 — Cashout Saga (DONE)
 
