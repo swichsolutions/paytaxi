@@ -29,7 +29,8 @@ public static class SeedData
 
         if (await db.Parks.AnyAsync())
         {
-            log.LogInformation("Database already seeded — skipping");
+            log.LogInformation("Database already seeded — skipping park seed");
+            await EnsureBankCardsSeededAsync(db, log);
             return;
         }
 
@@ -107,6 +108,58 @@ public static class SeedData
         await db.SaveChangesAsync();
         log.LogInformation("Seed complete: {ParkCount} parks, {DriverCount} drivers",
             parks.Length, parks.Sum(p => p.Drivers.Count));
+
+        await EnsureBankCardsSeededAsync(db, log);
+    }
+
+    /// <summary>
+    /// Back-fills 2 mock bank cards per driver (BOG default + TBC) if none exist.
+    /// Safe to re-run: only inserts when a driver has zero cards.
+    /// Mock tokens are deterministic from driver Id so retries don't duplicate.
+    /// </summary>
+    private static async Task EnsureBankCardsSeededAsync(AppDbContext db, ILogger log)
+    {
+        var driversNeedingCards = await db.Drivers
+            .Where(d => !d.BankCards.Any())
+            .Select(d => new { d.Id, d.Name })
+            .ToListAsync();
+
+        if (driversNeedingCards.Count == 0)
+        {
+            log.LogInformation("Bank cards: all drivers already have at least one card");
+            return;
+        }
+
+        var rng = new Random(42); // deterministic across reseeds
+        var cards = new List<BankCard>(driversNeedingCards.Count * 2);
+        foreach (var d in driversNeedingCards)
+        {
+            var bogLast4 = rng.Next(1000, 10000).ToString();
+            var tbcLast4 = rng.Next(1000, 10000).ToString();
+            cards.Add(new BankCard
+            {
+                DriverId = d.Id,
+                MaskedPan = $"**** {bogLast4}",
+                TokenReferenceEncrypted = $"mock_tok_bog_{d.Id:N}",
+                BankType = "BOG",
+                IsDefault = true,
+                IsActive = true,
+            });
+            cards.Add(new BankCard
+            {
+                DriverId = d.Id,
+                MaskedPan = $"**** {tbcLast4}",
+                TokenReferenceEncrypted = $"mock_tok_tbc_{d.Id:N}",
+                BankType = "TBC",
+                IsDefault = false,
+                IsActive = true,
+            });
+        }
+
+        db.BankCards.AddRange(cards);
+        await db.SaveChangesAsync();
+        log.LogInformation("Seeded {Count} bank cards for {DriverCount} drivers",
+            cards.Count, driversNeedingCards.Count);
     }
 
     private static Park BuildPark(

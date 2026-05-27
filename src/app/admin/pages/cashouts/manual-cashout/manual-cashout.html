@@ -27,46 +27,69 @@
 </header>
 
 <div class="modal__body">
-  <!-- ── Step 1: Pick driver ──────────────────────────────────── -->
+  <!-- ── Step 1: Pick park + driver ──────────────────────────── -->
   @if (step() === 1) {
     <div class="mc-step">
-      <p class="mc-hint">Search by driver name, phone or car plate. Only active drivers are shown.</p>
-      <div class="mc-search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="11" cy="11" r="7"/>
-          <line x1="20" y1="20" x2="16.5" y2="16.5"/>
-        </svg>
-        <input
-          autofocus
-          type="text"
-          placeholder="Start typing a name…"
-          [ngModel]="driverSearch()"
-          (ngModelChange)="driverSearch.set($event)"
-          class="mc-search__input"
-        />
-      </div>
+      @if (loading()) {
+        <p class="mc-hint">Loading parks and drivers…</p>
+      } @else if (loadError()) {
+        <p class="mc-error">{{ loadError() }}</p>
+      } @else {
+        @if (parks().length > 1) {
+          <label class="mc-hint" for="park-pick">Park</label>
+          <select
+            id="park-pick"
+            class="mc-search__input"
+            [ngModel]="selectedParkId()"
+            (ngModelChange)="selectPark($event)"
+          >
+            @for (p of parks(); track p.id) {
+              <option [value]="p.id">{{ p.name }} ({{ p.operatingModel }})</option>
+            }
+          </select>
+        }
 
-      <div class="mc-driver-list">
-        @for (d of filteredDrivers(); track d.id) {
-          <button class="mc-driver" (click)="pickDriver(d)">
-            <div class="mc-driver__avatar">{{ initials(d.name) }}</div>
-            <div class="mc-driver__main">
-              <span class="mc-driver__name">{{ d.name }}</span>
-              <span class="mc-driver__meta">{{ d.phone }} · {{ d.carPlate }}</span>
-            </div>
-            <div class="mc-driver__balance">
-              <span class="mc-driver__balance-label">balance</span>
-              <span class="mc-driver__balance-amount gel">{{ formatGel(d.balance, 2) }}</span>
-            </div>
-            <svg class="mc-driver__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 6 15 12 9 18"/>
-            </svg>
-          </button>
-        }
-        @if (filteredDrivers().length === 0) {
-          <p class="mc-empty">No active drivers match.</p>
-        }
-      </div>
+        <p class="mc-hint">Search by driver name, car plate or Yandex profile ID. Only active drivers are shown.</p>
+        <div class="mc-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="7"/>
+            <line x1="20" y1="20" x2="16.5" y2="16.5"/>
+          </svg>
+          <input
+            autofocus
+            type="text"
+            placeholder="Start typing a name…"
+            [ngModel]="driverSearch()"
+            (ngModelChange)="driverSearch.set($event)"
+            class="mc-search__input"
+          />
+        </div>
+
+        <div class="mc-driver-list">
+          @for (d of filteredDrivers(); track d.id) {
+            <button class="mc-driver" (click)="pickDriver(d)" [disabled]="d.cards.length === 0">
+              <div class="mc-driver__avatar">{{ initials(d.name) }}</div>
+              <div class="mc-driver__main">
+                <span class="mc-driver__name">{{ d.name ?? '(unnamed)' }}</span>
+                <span class="mc-driver__meta">
+                  {{ d.yandex?.carPlate ?? '—' }} · {{ d.yandexProfileId ?? 'no Yandex link' }}
+                  @if (d.cards.length === 0) { · <em>no card on file</em> }
+                </span>
+              </div>
+              <div class="mc-driver__balance">
+                <span class="mc-driver__balance-label">balance</span>
+                <span class="mc-driver__balance-amount gel">{{ formatGel(d.yandex?.balance ?? 0, 2) }}</span>
+              </div>
+              <svg class="mc-driver__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 6 15 12 9 18"/>
+              </svg>
+            </button>
+          }
+          @if (filteredDrivers().length === 0) {
+            <p class="mc-empty">No active drivers match.</p>
+          }
+        </div>
+      }
     </div>
   }
 
@@ -77,7 +100,7 @@
         <div class="mc-picked__avatar">{{ initials(d.name) }}</div>
         <div class="mc-picked__main">
           <span class="mc-picked__name">{{ d.name }}</span>
-          <span class="mc-picked__sub">Available · <b class="gel">{{ formatGel(d.balance, 2) }}</b></span>
+          <span class="mc-picked__sub">Available · <b class="gel">{{ formatGel(driverBalance(), 2) }}</b></span>
         </div>
         <button class="mc-picked__change" (click)="back()">Change</button>
       </div>
@@ -96,7 +119,7 @@
             <span>Net: <b class="gel mc-fee__net">{{ formatGel(net(), 2) }}</b></span>
           </div>
         }
-        @if (amount() > d.balance) {
+        @if (amount() > driverBalance()) {
           <p class="mc-error">Exceeds available balance</p>
         }
         @if (amount() > 0 && amount() < 5) {
@@ -126,7 +149,7 @@
 
       <div class="mc-card-list">
         <span class="mc-card-list__label">DESTINATION CARD</span>
-        @for (card of mockCards; track card.id) {
+        @for (card of d.cards; track card.id) {
           <button
             class="mc-card"
             [class.mc-card--selected]="selectedCardId() === card.id"
@@ -154,7 +177,7 @@
       <div class="mc-confirm">
         <span class="mc-confirm__label">YOU ARE ABOUT TO TRANSFER</span>
         <div class="mc-confirm__amount gel">{{ formatGel(net(), 2) }}</div>
-        <span class="mc-confirm__to">to {{ d.name }} · {{ selectedCard().bankType }} {{ selectedCard().maskedPan }}</span>
+        <span class="mc-confirm__to">to {{ d.name }} · {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}</span>
       </div>
 
       <div class="mc-summary">
@@ -176,6 +199,10 @@
         </div>
       </div>
 
+      @if (submitError()) {
+        <p class="mc-error">{{ submitError() }}</p>
+      }
+
       <p class="mc-warn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/>
@@ -187,16 +214,37 @@
     </div>
   }
 
-  <!-- ── Step 4: Success ──────────────────────────────────────── -->
-  @if (step() === 4) {
+  <!-- ── Step 4: Result ──────────────────────────────────────── -->
+  @if (step() === 4 && result(); as r) {
     <div class="mc-success">
-      <div class="mc-success__icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
+      <div class="mc-success__icon" [class.mc-success__icon--warn]="r.status !== 'Completed'">
+        @if (r.status === 'Completed') {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        } @else {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        }
       </div>
-      <h3>Cashout queued</h3>
-      <p>{{ formatGel(net(), 2) }} will be transferred to {{ selectedDriver()?.name }} within minutes. You can track progress in the queue.</p>
+      <h3>
+        @switch (r.status) {
+          @case ('Completed')      { Cashout completed }
+          @case ('ReviewRequired') { Needs manual review }
+          @case ('Failed')         { Cashout failed }
+          @default                  { Cashout {{ r.status }} }
+        }
+      </h3>
+      <p>
+        @if (r.status === 'Completed') {
+          {{ formatGel(r.net, 2) }} was transferred to {{ selectedDriver()?.name }}. Bank ref {{ r.bankTransferId }} · Yandex ref {{ r.yandexTransactionId }}.
+        } @else {
+          {{ r.failureReason }}
+        }
+      </p>
     </div>
   }
 </div>

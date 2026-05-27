@@ -1,14 +1,14 @@
-import { Component, computed, inject, output, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../../services/admin-mock.service';
-import { AdminDriver } from '../../../mock/admin-data';
-import { BankType } from '../../../../core/mock/data';
+import { AdminApiService, ApiCard, ApiDriver, ApiPark, CashoutSagaResult } from '../../../services/admin-api.service';
 
-interface MockCard {
-  id: string;
-  bankType: BankType;
-  maskedPan: string;
-  isDefault: boolean;
+interface SubmittedEvent {
+  parkId: string;
+  driverId: string;
+  amount: number;
+  cardId: string;
+  result: CashoutSagaResult;
 }
 
 @Component({
@@ -17,32 +17,68 @@ interface MockCard {
   templateUrl: './manual-cashout.html',
   styleUrl: './manual-cashout.scss',
 })
-export class ManualCashoutComponent {
+export class ManualCashoutComponent implements OnInit {
   svc = inject(AdminMockService);
+  private api = inject(AdminApiService);
+
   close = output<void>();
-  submitted = output<{ driverId: string; amount: number; cardId: string }>();
+  submitted = output<SubmittedEvent>();
 
   step = signal<1 | 2 | 3 | 4>(1);
   driverSearch = signal('');
-  selectedDriver = signal<AdminDriver | null>(null);
+  selectedDriver = signal<ApiDriver | null>(null);
   amountStr = signal('');
-  selectedCardId = signal('card_001');
+  selectedCardId = signal<string>('');
   submitting = signal(false);
 
-  // Mock cards available for any driver (in a real impl this would be per-driver)
-  mockCards: MockCard[] = [
-    { id: 'card_001', bankType: 'BOG', maskedPan: '**** 4521', isDefault: true },
-    { id: 'card_002', bankType: 'TBC', maskedPan: '**** 8834', isDefault: false },
-  ];
+  // Backend-loaded state
+  loading = signal(true);
+  loadError = signal<string | null>(null);
+  parks = signal<ApiPark[]>([]);
+  selectedParkId = signal<string>('');
+  drivers = signal<ApiDriver[]>([]);
+  result = signal<CashoutSagaResult | null>(null);
+  submitError = signal<string | null>(null);
+
+  // Idempotency key — generated once per modal lifetime so retries dedupe correctly.
+  private readonly idempotencyKey = crypto.randomUUID();
+
+  async ngOnInit() {
+    try {
+      const parks = await this.api.listParks();
+      this.parks.set(parks);
+      if (parks.length > 0) {
+        await this.selectPark(parks[0].id);
+      } else {
+        this.loadError.set('No parks configured on the backend.');
+      }
+    } catch (err: any) {
+      this.loadError.set(`Failed to load parks: ${err?.message ?? err}`);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  async selectPark(parkId: string) {
+    this.selectedParkId.set(parkId);
+    this.selectedDriver.set(null);
+    this.drivers.set([]);
+    try {
+      const resp = await this.api.listDrivers(parkId);
+      this.drivers.set(resp.drivers);
+    } catch (err: any) {
+      this.loadError.set(`Failed to load drivers: ${err?.message ?? err}`);
+    }
+  }
 
   filteredDrivers = computed(() => {
     const term = this.driverSearch().trim().toLowerCase();
-    let list = this.svc.drivers().filter(d => d.status === 'active');
+    let list = this.drivers().filter(d => d.status?.toLowerCase() === 'active');
     if (term) {
       list = list.filter(d =>
-        d.name.toLowerCase().includes(term) ||
-        d.phone.includes(term) ||
-        d.carPlate.toLowerCase().includes(term),
+        (d.name ?? '').toLowerCase().includes(term) ||
+        (d.yandex?.carPlate ?? '').toLowerCase().includes(term) ||
+        (d.yandexProfileId ?? '').toLowerCase().includes(term),
       );
     }
     return list.slice(0, 8);
@@ -52,16 +88,23 @@ export class ManualCashoutComponent {
   fee    = computed(() => Math.max(2, parseFloat((this.amount() * 0.01).toFixed(2))));
   net    = computed(() => Math.max(0, this.amount() - this.fee()));
 
+  driverBalance = computed(() => this.selectedDriver()?.yandex?.balance ?? 0);
+
   canProceedStep2 = computed(() => {
     const d = this.selectedDriver();
     const a = this.amount();
-    return d !== null && a >= 5 && a <= d.balance;
+    return d !== null && a >= 5 && a <= this.driverBalance();
   });
 
-  selectedCard = computed(() => this.mockCards.find(c => c.id === this.selectedCardId()) ?? this.mockCards[0]);
+  selectedCard = computed<ApiCard | null>(() => {
+    const cards = this.selectedDriver()?.cards ?? [];
+    return cards.find(c => c.id === this.selectedCardId()) ?? cards[0] ?? null;
+  });
 
-  pickDriver(d: AdminDriver) {
+  pickDriver(d: ApiDriver) {
     this.selectedDriver.set(d);
+    // Default to first card (which is the default-flagged one, ordered server-side)
+    this.selectedCardId.set(d.cards[0]?.id ?? '');
     this.step.set(2);
   }
 
@@ -78,8 +121,8 @@ export class ManualCashoutComponent {
   }
 
   setMax() {
-    const d = this.selectedDriver();
-    if (d) this.amountStr.set(String(Math.floor(d.balance)));
+    const balance = this.driverBalance();
+    if (balance > 0) this.amountStr.set(String(Math.floor(balance)));
   }
 
   next() {
@@ -91,15 +134,38 @@ export class ManualCashoutComponent {
     else if (this.step() === 3) this.step.set(2);
   }
 
-  confirm() {
+  async confirm() {
     const d = this.selectedDriver();
-    if (!d) return;
+    const card = this.selectedCard();
+    const parkId = this.selectedParkId();
+    if (!d || !card || !parkId) return;
+
     this.submitting.set(true);
-    setTimeout(() => {
-      this.submitting.set(false);
+    this.submitError.set(null);
+    try {
+      const result = await this.api.createCashout(parkId, {
+        driverId: d.id,
+        cardId: card.id,
+        amount: this.amount(),
+        idempotencyKey: this.idempotencyKey,
+        initiatedBy: this.svc.user().name,
+      });
+      this.result.set(result);
       this.step.set(4);
-      this.submitted.emit({ driverId: d.id, amount: this.amount(), cardId: this.selectedCardId() });
-    }, 700);
+      this.submitted.emit({
+        parkId,
+        driverId: d.id,
+        amount: this.amount(),
+        cardId: card.id,
+        result,
+      });
+    } catch (err: any) {
+      // HttpErrorResponse: surface server message if present
+      const serverMsg = err?.error?.message ?? err?.error?.error ?? err?.message ?? 'Unknown error';
+      this.submitError.set(serverMsg);
+    } finally {
+      this.submitting.set(false);
+    }
   }
 
   closeModal() {
@@ -107,5 +173,5 @@ export class ManualCashoutComponent {
   }
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }
-  initials(n: string)         { return this.svc.initials(n); }
+  initials(n: string | null)  { return this.svc.initials(n ?? '??'); }
 }

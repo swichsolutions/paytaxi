@@ -70,6 +70,7 @@ public class AdminParksController : ControllerBase
 
         var drivers = await _db.Drivers
             .AsNoTracking()
+            .Include(d => d.BankCards.Where(b => b.IsActive))
             .Where(d => d.ParkId == parkId)
             .OrderBy(d => d.Name)
             .ToListAsync(ct);
@@ -89,6 +90,15 @@ public class AdminParksController : ControllerBase
                     name = yp.Name,
                 }
                 : null,
+            cards = d.BankCards
+                .OrderByDescending(b => b.IsDefault)
+                .Select(b => new
+                {
+                    id = b.Id,
+                    maskedPan = b.MaskedPan,
+                    bankType = b.BankType,
+                    isDefault = b.IsDefault,
+                }),
         });
 
         return Ok(new

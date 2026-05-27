@@ -35,9 +35,32 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
-// ── Bank adapters (keyed by BankType string on Park row) ─────────
-builder.Services.AddKeyedScoped<IBankPayoutAdapter, BogPayoutAdapter>("BOG");
-builder.Services.AddKeyedScoped<IBankPayoutAdapter, TbcPayoutAdapter>("TBC");
+// ── Bank adapters ────────────────────────────────────────────────
+// Keyed registrations let the saga resolve by Park.BankProvider string.
+// When BankPayout:UseMock=true (default in dev), all keys point at the mock
+// so any park — regardless of its configured BankProvider — uses the mock.
+// Phase 4 will flip UseMock=false and the real BOG/TBC adapters take over.
+var useMockBank = builder.Configuration.GetValue("BankPayout:UseMock", true);
+
+builder.Services.Configure<MockBankPayoutOptions>(
+    builder.Configuration.GetSection(MockBankPayoutOptions.SectionName));
+
+if (useMockBank)
+{
+    builder.Services.AddSingleton<MockBankPayoutProvider>();
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("MOCK", (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("BOG",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("TBC",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("bog",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("tbc",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+}
+else
+{
+    builder.Services.AddKeyedScoped<IBankPayoutAdapter, BogPayoutAdapter>("BOG");
+    builder.Services.AddKeyedScoped<IBankPayoutAdapter, TbcPayoutAdapter>("TBC");
+    builder.Services.AddKeyedScoped<IBankPayoutAdapter, BogPayoutAdapter>("bog");
+    builder.Services.AddKeyedScoped<IBankPayoutAdapter, TbcPayoutAdapter>("tbc");
+}
 
 // ── Yandex Fleet integration ─────────────────────────────────────
 // Options bound from "YandexFleet" section in appsettings
@@ -80,6 +103,9 @@ else
             opts:    sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<YandexFleetOptions>>(),
             log:     sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ResilientYandexFleetClient>>()));
 }
+
+// ── Cashout saga ─────────────────────────────────────────────────
+builder.Services.AddScoped<ICashoutOrchestrator, CashoutOrchestrator>();
 
 // ── CORS for Angular dev server ──────────────────────────────────
 builder.Services.AddCors(opts =>
