@@ -15,6 +15,7 @@
 - **Park multi-tenancy schema migration.** Added `OperatingModel`, `AuthorizationLimit`, `Status`, `Slug`, `LegalEntityName`, `TaxId`, `BankProvider`, `BankAccountIban` to `Parks` table with Postgres check constraints. Two-phase pattern — `IsActive` preserved (delete in follow-up migration). Existing rows backfilled cleanly.
 - **Phase 3 — Cashout Saga (Option B).** `MockBankPayoutProvider` with 3% transient failures, 250ms latency, idempotency-key dedup. `CashoutOrchestrator` saga implements reserve → A.5 limit check (atomic SQL decrement) → bank payout → Yandex deduct → confirm, with compensation on bank failure and `ReviewRequired` on post-bank Yandex failure. Double-entry ledger written at every transition. New `POST /api/admin/parks/{parkId}/cashouts` endpoint. Admin manual-cashout modal rewritten to fetch real parks/drivers/cards from backend and POST through the saga. Verified end-to-end: Model A.5 path decrements `AuthorizationLimit` (125000 → 124900 after 100 GEL test), Model A path skips it, idempotency replay returns prior cashout, over-limit attempts fail without touching bank/Yandex. `YandexFleet:ReadOnlyMode=false` in dev only.
 - **Option C — Driver app cashout wired to backend.** New `DriverSessionService` auto-discovers an active driver-with-card on bootstrap (stand-in until real driver-auth in Phase 8). Driver dashboard hero shows real driver name + park + balance from backend. Driver 3-step cashout flow now POSTs through the same `/api/admin/parks/{parkId}/cashouts` saga endpoint. Verified end-to-end: a driver-side 20 GEL cashout hits the saga, writes ledger entries, populates bank+Yandex IDs.
+- **Driver history wired to backend.** `/history` now reads cashouts from `GET /api/admin/parks/{parkId}/cashouts` (filtered to the session driver). Rides are still mock — no rides endpoint exists yet. Closes the demo loop: cash out → land on history → see your new cashout listed with bank ref + status.
 
 ---
 
@@ -42,8 +43,7 @@ Current park lineup in DB:
 
 Phase 3 + Option C complete. Natural next steps, in roughly increasing scope:
 
-- **Driver history page wiring.** Today `/history` still reads from `MockDataService`. A real read from `GET /api/admin/parks/{parkId}/cashouts` would close the demo loop (cash out → see it in history).
-- **Driver app needs its own endpoint with driver scoping.** The driver app currently posts through `/api/admin/parks/{parkId}/cashouts`, which trusts the caller's `driverId`. Once auth lands, introduce `POST /api/driver/cashouts` that derives driverId from the JWT.
+- **Driver app needs its own endpoint with driver scoping.** The driver app currently posts/reads through `/api/admin/...`, which trusts the caller's `driverId`. Once auth lands, introduce `/api/driver/...` endpoints that derive driverId from the JWT.
 - **Real auth (Phase 8 sliver).** Issue JWTs for admin email/password and driver phone+OTP. Modal/driver both currently send no Authorization header.
 - **Background balance sync worker.** Phase 2 carry-over. `IHostedService` that iterates active parks and refreshes `YandexBalanceCache` rows.
 - **Phase 4 — real BOG/TBC adapters.** Blocked on sandbox credentials from the banks (typically 2–6 weeks).
