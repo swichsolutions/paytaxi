@@ -1,0 +1,254 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">Drivers</h1>
+      <p class="page-head__sub">All drivers linked to this park, with their Yandex balances and recent activity.</p>
+    </div>
+    <div class="page-head__actions">
+      <button class="btn-admin btn-admin--secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Export CSV</span>
+      </button>
+      <button class="btn-admin btn-admin--brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="10" cy="8" r="4"/>
+          <path d="M2 21c0-4 3-7 8-7"/>
+          <line x1="18" y1="13" x2="18" y2="21"/>
+          <line x1="14" y1="17" x2="22" y2="17"/>
+        </svg>
+        <span>Onboard driver</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar__search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/>
+        <line x1="20" y1="20" x2="16.5" y2="16.5"/>
+      </svg>
+      <input
+        type="text"
+        placeholder="Search by name, phone or plate…"
+        [ngModel]="search()"
+        (ngModelChange)="search.set($event)"
+        class="toolbar__search-input"
+      />
+    </div>
+
+    <div class="toolbar__chips">
+      <button
+        class="chip"
+        [class.chip--active]="status() === 'all'"
+        (click)="setStatus('all')"
+      >
+        All
+        <span class="chip__count">{{ counts().all }}</span>
+      </button>
+      <button
+        class="chip"
+        [class.chip--active]="status() === 'active'"
+        (click)="setStatus('active')"
+      >
+        Active
+        <span class="chip__count">{{ counts().active }}</span>
+      </button>
+      <button
+        class="chip"
+        [class.chip--active]="status() === 'inactive'"
+        (click)="setStatus('inactive')"
+      >
+        Inactive
+        <span class="chip__count">{{ counts().inactive }}</span>
+      </button>
+      <button
+        class="chip"
+        [class.chip--active]="status() === 'suspended'"
+        (click)="setStatus('suspended')"
+      >
+        Suspended
+        <span class="chip__count">{{ counts().suspended }}</span>
+      </button>
+    </div>
+
+    <div class="toolbar__meta">
+      <span class="toolbar__meta-label">Showing</span>
+      <span class="toolbar__meta-value">{{ filtered().length }}</span>
+      <span class="toolbar__meta-label">·</span>
+      <span class="toolbar__meta-label">Cashed out this month</span>
+      <span class="toolbar__meta-value gel">{{ formatGel(sumThisMonth(), 0) }}</span>
+    </div>
+  </div>
+
+  <!-- Driver table -->
+  <div class="table-card">
+    <div class="table">
+      <div class="table__head">
+        <div class="table__cell table__cell--driver">
+          <button class="th" (click)="setSort('name')" [attr.data-active]="sortKey() === 'name' ? sortDir() : null">
+            Driver
+            <span class="th__caret">@if (sortKey() === 'name') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
+          </button>
+        </div>
+        <div class="table__cell table__cell--status">Status</div>
+        <div class="table__cell table__cell--num">
+          <button class="th th--right" (click)="setSort('balance')" [attr.data-active]="sortKey() === 'balance' ? sortDir() : null">
+            Balance
+            <span class="th__caret">@if (sortKey() === 'balance') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
+          </button>
+        </div>
+        <div class="table__cell table__cell--num">
+          <button class="th th--right" (click)="setSort('cashedOut')" [attr.data-active]="sortKey() === 'cashedOut' ? sortDir() : null">
+            This month
+            <span class="th__caret">@if (sortKey() === 'cashedOut') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
+          </button>
+        </div>
+        <div class="table__cell table__cell--meta">
+          <button class="th" (click)="setSort('lastSeen')" [attr.data-active]="sortKey() === 'lastSeen' ? sortDir() : null">
+            Last seen
+            <span class="th__caret">@if (sortKey() === 'lastSeen') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
+          </button>
+        </div>
+        <div class="table__cell table__cell--action"></div>
+      </div>
+
+      @if (filtered().length === 0) {
+        <div class="table__empty">
+          <p>No drivers match these filters.</p>
+        </div>
+      }
+
+      @for (d of filtered(); track d.id) {
+        <button
+          class="table__row"
+          [class.table__row--selected]="selectedId() === d.id"
+          (click)="open(d.id)"
+        >
+          <div class="table__cell table__cell--driver">
+            <div class="driver-id">
+              <div class="driver-id__avatar">{{ initials(d.name) }}</div>
+              <div class="driver-id__text">
+                <span class="driver-id__name">{{ d.name }}</span>
+                <span class="driver-id__sub">{{ d.phone }} · {{ d.carPlate }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="table__cell table__cell--status">
+            <span class="status-pill" [attr.data-status]="d.status">
+              <span class="status-pill__dot"></span>
+              {{ d.status }}
+            </span>
+          </div>
+          <div class="table__cell table__cell--num">
+            <span class="num gel">{{ formatGel(d.balance, 2) }}</span>
+          </div>
+          <div class="table__cell table__cell--num">
+            <span class="num gel">{{ formatGel(d.totalCashedOutMonth, 0) }}</span>
+            <span class="num__sub">{{ d.cashoutCountMonth }} cashouts</span>
+          </div>
+          <div class="table__cell table__cell--meta">
+            <span class="meta">{{ formatRel(d.lastSeenAt) }}</span>
+          </div>
+          <div class="table__cell table__cell--action">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 6 15 12 9 18"/>
+            </svg>
+          </div>
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- Detail drawer -->
+  @if (selected(); as d) {
+    <div class="drawer-overlay" (click)="closeDetail()"></div>
+    <aside class="drawer">
+      <header class="drawer__head">
+        <div class="drawer__head-main">
+          <div class="drawer__avatar">{{ initials(d.name) }}</div>
+          <div class="drawer__id">
+            <h2>{{ d.name }}</h2>
+            <span class="drawer__id-sub">{{ d.phone }} · {{ d.carPlate }}</span>
+            <span class="status-pill status-pill--inline" [attr.data-status]="d.status">
+              <span class="status-pill__dot"></span>
+              {{ d.status }}
+            </span>
+          </div>
+        </div>
+        <button class="drawer__close" (click)="closeDetail()" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </header>
+
+      <section class="drawer__stats">
+        <div class="drawer__stat">
+          <span class="drawer__stat-label">Available balance</span>
+          <span class="drawer__stat-value gel">{{ formatGel(d.balance, 2) }}</span>
+        </div>
+        <div class="drawer__stat">
+          <span class="drawer__stat-label">Cashed out · month</span>
+          <span class="drawer__stat-value gel">{{ formatGel(d.totalCashedOutMonth, 0) }}</span>
+        </div>
+        <div class="drawer__stat">
+          <span class="drawer__stat-label">Cashout count</span>
+          <span class="drawer__stat-value">{{ d.cashoutCountMonth }}</span>
+        </div>
+      </section>
+
+      <section class="drawer__section">
+        <h3 class="drawer__section-title">Yandex link</h3>
+        <div class="drawer__kv">
+          <span class="drawer__kv-label">Profile ID</span>
+          <code class="drawer__kv-code">{{ d.yandexProfileId }}</code>
+        </div>
+        <div class="drawer__kv">
+          <span class="drawer__kv-label">Joined</span>
+          <span class="drawer__kv-value">{{ d.joinedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }}</span>
+        </div>
+        <div class="drawer__kv">
+          <span class="drawer__kv-label">Last seen</span>
+          <span class="drawer__kv-value">{{ formatRel(d.lastSeenAt) }}</span>
+        </div>
+      </section>
+
+      <section class="drawer__section">
+        <header class="drawer__section-head">
+          <h3 class="drawer__section-title">Recent cashouts</h3>
+          <span class="drawer__section-count">{{ selectedCashouts().length }}</span>
+        </header>
+        <div class="drawer__co-list">
+          @for (c of selectedCashouts(); track c.id) {
+            <div class="drawer__co-row">
+              <div class="drawer__co-main">
+                <span class="drawer__co-amount gel">{{ formatGel(c.amount, 0) }}</span>
+                <span class="drawer__co-bank">{{ c.bankType }} {{ c.maskedPan }}</span>
+              </div>
+              <span class="status-pill status-pill--sm" [attr.data-status]="c.status">{{ c.status }}</span>
+              <span class="drawer__co-time">{{ formatRel(c.createdAt) }}</span>
+            </div>
+          }
+          @if (selectedCashouts().length === 0) {
+            <p class="drawer__co-empty">No recent cashouts.</p>
+          }
+        </div>
+      </section>
+
+      <footer class="drawer__footer">
+        <button class="btn-admin btn-admin--secondary">
+          Suspend
+        </button>
+        <button class="btn-admin btn-admin--brand">
+          New cashout for {{ d.name.split(' ')[0] }}
+        </button>
+      </footer>
+    </aside>
+  }
+</div>

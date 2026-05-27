@@ -1,0 +1,54 @@
+<header class="topbar">
+  <div class="topbar__left">
+    <button class="topbar__menu" (click)="emitToggle()" aria-label="Toggle sidebar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="4" y1="7" x2="20" y2="7"/>
+        <line x1="4" y1="12" x2="20" y2="12"/>
+        <line x1="4" y1="17" x2="14" y2="17"/>
+      </svg>
+    </button>
+    <div class="topbar__crumbs">
+      <span class="topbar__crumb topbar__crumb--root">Console</span>
+      <svg class="topbar__crumb-sep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 18 15 12 9 6"/>
+      </svg>
+      <span class="topbar__crumb topbar__crumb--current">{{ pageTitle() }}</span>
+    </div>
+  </div>
+
+  <div class="topbar__search">
+    <svg class="topbar__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="11" cy="11" r="7"/>
+      <line x1="20" y1="20" x2="16.5" y2="16.5"/>
+    </svg>
+    <input
+      type="text"
+      placeholder="Search drivers, cashouts, transaction id…"
+      class="topbar__search-input"
+    />
+    <kbd class="topbar__search-kbd">/</kbd>
+  </div>
+
+  <div class="topbar__right">
+    <button class="topbar__icon-btn" aria-label="Notifications">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+        <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+      </svg>
+      <span class="topbar__icon-dot"></span>
+    </button>
+
+    <div class="topbar__divider"></div>
+
+    <button class="topbar__user" (click)="logout()" aria-label="Account menu">
+      <div class="topbar__avatar">NM</div>
+      <div class="topbar__user-meta">
+        <span class="topbar__user-name">Nika Maisuradze</span>
+        <span class="topbar__user-role">Park Manager</span>
+      </div>
+      <svg class="topbar__user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="6 9 12 15 18 9"/>
+      </svg>
+    </button>
+  </div>
+</header>

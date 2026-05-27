@@ -1,0 +1,103 @@
+.nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--max-w);
+  height: var(--nav-h);
+  background-color: var(--color-dark);
+  background-image: var(--dark-texture), linear-gradient(to top, #0a1420, var(--color-dark));
+  display: flex;
+  align-items: center;
+  border-top: 1px solid rgba(255,255,255,0.07);
+  z-index: 200;
+
+  @media (min-width: 600px) {
+    border-radius: 0 0 32px 32px;
+  }
+}
+
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: color 0.15s ease;
+  position: relative;
+  height: 100%;
+
+  svg {
+    width: 22px;
+    height: 22px;
+    transition: transform 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  span { flex-shrink: 0; }
+
+  &:hover  { color: rgba(255, 255, 255, 0.75); }
+
+  &.active {
+    color: var(--color-brand);
+
+    svg { filter: drop-shadow(0 0 4px rgba(255,184,0,0.5)); }
+
+    &::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 25%;
+      right: 25%;
+      height: 2px;
+      background: var(--color-brand);
+      border-radius: 0 0 2px 2px;
+    }
+  }
+
+  &:active svg { transform: scale(0.88); }
+
+  // Cashout center button — same size as others, just has an orb wrapper
+  &--cashout {
+    color: rgba(255, 255, 255, 0.45);
+
+    &.active {
+      // Keep text white so it stays visible on dark background
+      color: rgba(255, 255, 255, 0.9);
+
+      &::before { display: none; }
+
+      .cashout-orb {
+        background: var(--color-brand);
+        box-shadow: 0 0 0 3px rgba(255,184,0,0.2), 0 4px 16px rgba(255,184,0,0.4);
+      }
+      .cashout-orb svg {
+        stroke: var(--color-brand-text);
+        filter: none;
+      }
+    }
+  }
+}
+
+// Orb is same height as icon area — no overflow above nav
+.cashout-orb {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1.5px solid rgba(255,255,255,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+  flex-shrink: 0;
+
+  svg { width: 20px; height: 20px; }
+}

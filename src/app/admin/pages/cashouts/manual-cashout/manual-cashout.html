@@ -1,0 +1,231 @@
+<header class="modal__head">
+  <div class="modal__head-left">
+    @if (step() > 1 && step() < 4) {
+      <button class="modal__back" (click)="back()" aria-label="Back">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 12H5M12 5l-7 7 7 7"/>
+        </svg>
+      </button>
+    }
+    <div class="modal__head-text">
+      <h2>Create manual cashout</h2>
+      <div class="modal__steps">
+        <span class="mstep" [class.mstep--done]="step() > 1" [class.mstep--active]="step() === 1">Driver</span>
+        <span class="mstep-sep"></span>
+        <span class="mstep" [class.mstep--done]="step() > 2" [class.mstep--active]="step() === 2">Amount</span>
+        <span class="mstep-sep"></span>
+        <span class="mstep" [class.mstep--done]="step() > 3" [class.mstep--active]="step() === 3">Confirm</span>
+      </div>
+    </div>
+  </div>
+  <button class="modal__close" (click)="closeModal()" aria-label="Close">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
+    </svg>
+  </button>
+</header>
+
+<div class="modal__body">
+  <!-- ── Step 1: Pick driver ──────────────────────────────────── -->
+  @if (step() === 1) {
+    <div class="mc-step">
+      <p class="mc-hint">Search by driver name, phone or car plate. Only active drivers are shown.</p>
+      <div class="mc-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/>
+          <line x1="20" y1="20" x2="16.5" y2="16.5"/>
+        </svg>
+        <input
+          autofocus
+          type="text"
+          placeholder="Start typing a name…"
+          [ngModel]="driverSearch()"
+          (ngModelChange)="driverSearch.set($event)"
+          class="mc-search__input"
+        />
+      </div>
+
+      <div class="mc-driver-list">
+        @for (d of filteredDrivers(); track d.id) {
+          <button class="mc-driver" (click)="pickDriver(d)">
+            <div class="mc-driver__avatar">{{ initials(d.name) }}</div>
+            <div class="mc-driver__main">
+              <span class="mc-driver__name">{{ d.name }}</span>
+              <span class="mc-driver__meta">{{ d.phone }} · {{ d.carPlate }}</span>
+            </div>
+            <div class="mc-driver__balance">
+              <span class="mc-driver__balance-label">balance</span>
+              <span class="mc-driver__balance-amount gel">{{ formatGel(d.balance, 2) }}</span>
+            </div>
+            <svg class="mc-driver__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 6 15 12 9 18"/>
+            </svg>
+          </button>
+        }
+        @if (filteredDrivers().length === 0) {
+          <p class="mc-empty">No active drivers match.</p>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ── Step 2: Amount + card ────────────────────────────────── -->
+  @if (step() === 2 && selectedDriver(); as d) {
+    <div class="mc-step">
+      <div class="mc-picked">
+        <div class="mc-picked__avatar">{{ initials(d.name) }}</div>
+        <div class="mc-picked__main">
+          <span class="mc-picked__name">{{ d.name }}</span>
+          <span class="mc-picked__sub">Available · <b class="gel">{{ formatGel(d.balance, 2) }}</b></span>
+        </div>
+        <button class="mc-picked__change" (click)="back()">Change</button>
+      </div>
+
+      <div class="mc-amount">
+        <div class="mc-amount__display">
+          <span class="mc-amount__sym">₾</span>
+          <span class="mc-amount__val gel">{{ amountStr() || '0' }}</span>
+          <button class="mc-amount__max" (click)="setMax()">MAX</button>
+        </div>
+
+        @if (amount() > 0 && canProceedStep2()) {
+          <div class="mc-fee">
+            <span>Fee: <b class="gel">{{ formatGel(fee(), 2) }}</b></span>
+            <span class="mc-fee__sep">·</span>
+            <span>Net: <b class="gel mc-fee__net">{{ formatGel(net(), 2) }}</b></span>
+          </div>
+        }
+        @if (amount() > d.balance) {
+          <p class="mc-error">Exceeds available balance</p>
+        }
+        @if (amount() > 0 && amount() < 5) {
+          <p class="mc-error">Minimum cashout is ₾ 5.00</p>
+        }
+
+        <div class="mc-keypad">
+          @for (row of keypad; track $index) {
+            <div class="mc-keypad__row">
+              @for (k of row; track k) {
+                <button class="mc-key" (click)="pressKey(k)">
+                  @if (k === '⌫') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/>
+                      <line x1="18" y1="9" x2="12" y2="15"/>
+                      <line x1="12" y1="9" x2="18" y2="15"/>
+                    </svg>
+                  } @else {
+                    {{ k }}
+                  }
+                </button>
+              }
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="mc-card-list">
+        <span class="mc-card-list__label">DESTINATION CARD</span>
+        @for (card of mockCards; track card.id) {
+          <button
+            class="mc-card"
+            [class.mc-card--selected]="selectedCardId() === card.id"
+            (click)="selectedCardId.set(card.id)"
+          >
+            <div class="bank-chip" [attr.data-bank]="card.bankType">{{ card.bankType }}</div>
+            <span class="mc-card__pan gel">{{ card.maskedPan }}</span>
+            @if (card.isDefault) { <span class="mc-card__tag">DEFAULT</span> }
+            <div class="mc-card__check" [class.mc-card__check--on]="selectedCardId() === card.id">
+              @if (selectedCardId() === card.id) {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              }
+            </div>
+          </button>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ── Step 3: Confirm ──────────────────────────────────────── -->
+  @if (step() === 3 && selectedDriver(); as d) {
+    <div class="mc-step">
+      <div class="mc-confirm">
+        <span class="mc-confirm__label">YOU ARE ABOUT TO TRANSFER</span>
+        <div class="mc-confirm__amount gel">{{ formatGel(net(), 2) }}</div>
+        <span class="mc-confirm__to">to {{ d.name }} · {{ selectedCard().bankType }} {{ selectedCard().maskedPan }}</span>
+      </div>
+
+      <div class="mc-summary">
+        <div class="mc-summary__row">
+          <span>Cashout amount</span>
+          <span class="gel">{{ formatGel(amount(), 2) }}</span>
+        </div>
+        <div class="mc-summary__row">
+          <span>Park fee</span>
+          <span class="gel">{{ formatGel(fee(), 2) }}</span>
+        </div>
+        <div class="mc-summary__row mc-summary__row--accent">
+          <span>Driver receives</span>
+          <span class="gel">{{ formatGel(net(), 2) }}</span>
+        </div>
+        <div class="mc-summary__row">
+          <span>Initiated by</span>
+          <span class="mc-summary__pill">MANAGER · {{ svc.user().name }}</span>
+        </div>
+      </div>
+
+      <p class="mc-warn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="8" x2="12" y2="12"/>
+          <line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        <span>Manager-initiated cashouts are logged in the audit trail and posted to Yandex on the driver's behalf.</span>
+      </p>
+    </div>
+  }
+
+  <!-- ── Step 4: Success ──────────────────────────────────────── -->
+  @if (step() === 4) {
+    <div class="mc-success">
+      <div class="mc-success__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <h3>Cashout queued</h3>
+      <p>{{ formatGel(net(), 2) }} will be transferred to {{ selectedDriver()?.name }} within minutes. You can track progress in the queue.</p>
+    </div>
+  }
+</div>
+
+<footer class="modal__foot">
+  @if (step() === 1) {
+    <button class="btn-admin btn-admin--secondary" (click)="closeModal()">Cancel</button>
+  }
+  @if (step() === 2) {
+    <button class="btn-admin btn-admin--secondary" (click)="back()">Back</button>
+    <button class="btn-admin btn-admin--primary" [disabled]="!canProceedStep2()" (click)="next()">
+      Review cashout
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 12h14M12 5l7 7-7 7"/>
+      </svg>
+    </button>
+  }
+  @if (step() === 3) {
+    <button class="btn-admin btn-admin--secondary" (click)="back()">Back</button>
+    <button class="btn-admin btn-admin--brand" [disabled]="submitting()" (click)="confirm()">
+      @if (submitting()) {
+        <span class="mc-spin"></span>
+        <span>Submitting…</span>
+      } @else {
+        <span>Confirm &amp; submit</span>
+      }
+    </button>
+  }
+  @if (step() === 4) {
+    <button class="btn-admin btn-admin--brand" (click)="closeModal()">Done</button>
+  }
+</footer>

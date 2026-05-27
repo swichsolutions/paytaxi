@@ -1,0 +1,111 @@
+<div class="profile">
+  <header class="prof-header">
+    <div class="prof-avatar">{{ svc.initials(driver.name) }}</div>
+    <div class="prof-info">
+      <h1>{{ driver.name }}</h1>
+      <p>{{ maskedPhone(driver.phone) }}</p>
+    </div>
+  </header>
+
+  <!-- My Cards -->
+  <section class="prof-section">
+    <div class="prof-section__label section-label">{{ t.myCards }}</div>
+    <div class="prof-card">
+      @for (card of cards; track card.id) {
+        <div class="prof-row">
+          <div class="bank-chip" [class.bank-chip--bog]="card.bankType === 'BOG'" [class.bank-chip--tbc]="card.bankType === 'TBC'">
+            {{ card.bankType }}
+          </div>
+          <div class="prof-row__info">
+            <span class="prof-row__title gel">{{ card.maskedPan }}</span>
+            @if (card.isDefault) {
+              <span class="badge badge--processing">{{ t.defaultCard }}</span>
+            }
+          </div>
+          <button class="remove-btn" (click)="removeCard(card.id)" aria-label="{{ t.remove }}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+            </svg>
+          </button>
+        </div>
+      }
+      @if (cards.length === 0) {
+        <div class="prof-row prof-row--empty">{{ t.noCardsAdded }}</div>
+      }
+    </div>
+  </section>
+
+  <!-- Notifications -->
+  <section class="prof-section">
+    <div class="prof-section__label section-label">{{ t.notifications }}</div>
+    <div class="prof-card">
+      <div class="prof-row">
+        <div class="prof-row__info">
+          <span class="prof-row__title">{{ t.smsAlerts }}</span>
+          <span class="prof-row__sub">{{ t.smsAlertsDesc }}</span>
+        </div>
+        <button
+          class="toggle"
+          [class.toggle--on]="notificationsOn()"
+          (click)="notificationsOn.update(v => !v)"
+          [attr.aria-checked]="notificationsOn()"
+          role="switch"
+          aria-label="{{ t.notifications }}"
+        >
+          <span class="toggle__thumb"></span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Language -->
+  <section class="prof-section">
+    <div class="prof-section__label section-label">{{ t.language }}</div>
+    <div class="prof-card">
+      <div class="lang-options">
+        <button class="lang-option" [class.lang-option--active]="svc.lang() === 'en'" (click)="setLang('en')">
+          <span class="lang-option__flag">🇬🇧</span>
+          <span>English</span>
+          @if (svc.lang() === 'en') {
+            <svg class="lang-option__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          }
+        </button>
+        <button class="lang-option" [class.lang-option--active]="svc.lang() === 'ka'" (click)="setLang('ka')">
+          <span class="lang-option__flag">🇬🇪</span>
+          <span>ქართული</span>
+          @if (svc.lang() === 'ka') {
+            <svg class="lang-option__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          }
+        </button>
+        <button class="lang-option" [class.lang-option--active]="svc.lang() === 'ru'" (click)="setLang('ru')">
+          <span class="lang-option__flag">🇷🇺</span>
+          <span>Русский</span>
+          @if (svc.lang() === 'ru') {
+            <svg class="lang-option__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          }
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Logout -->
+  <div class="prof-logout">
+    <button class="btn btn--danger" (click)="logout()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+        <polyline points="16 17 21 12 16 7"/>
+        <line x1="21" y1="12" x2="9" y2="12"/>
+      </svg>
+      {{ t.logout }}
+    </button>
+  </div>
+</div>

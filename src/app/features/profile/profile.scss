@@ -1,0 +1,184 @@
+.profile { padding-bottom: var(--space-10); }
+
+.prof-header {
+  background-color: var(--color-dark);
+  background-image: var(--dark-texture), linear-gradient(160deg, #1A2E47 0%, var(--color-dark) 60%);
+  padding: var(--space-8) var(--space-6) var(--space-8);
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.prof-avatar {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: var(--color-brand-text);
+  font-size: var(--text-xl);
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+  // Amber ring border
+  box-shadow: 0 0 0 3px var(--color-dark), 0 0 0 6px var(--color-brand), 0 4px 20px rgba(255,184,0,0.3);
+}
+
+.prof-info {
+  h1 { font-size: var(--text-xl); font-weight: 800; color: #fff; letter-spacing: -0.02em; }
+  p  { font-size: var(--text-sm); color: rgba(255,255,255,0.4); margin-top: 3px; }
+}
+
+// ── Sections ──────────────────────────────────────────────────────
+.prof-section {
+  padding: var(--space-5) var(--space-5) 0;
+
+  &__label { margin-bottom: var(--space-2); }
+}
+
+.prof-card {
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+
+.prof-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+
+  &:last-child { border-bottom: none; }
+
+  &--empty {
+    font-size: var(--text-sm);
+    color: var(--color-text-3);
+    justify-content: center;
+    padding: var(--space-6);
+  }
+
+  &__info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__title {
+    font-size: var(--text-sm);
+    font-weight: 700;
+    color: var(--color-text);
+    letter-spacing: 0.03em;
+  }
+
+  &__sub {
+    font-size: var(--text-xs);
+    color: var(--color-text-3);
+  }
+}
+
+.bank-chip {
+  width: 50px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+
+  &--bog { background: #E8F0FE; color: #1A56DB; }
+  &--tbc { background: #FFF4E5; color: #E67E22; }
+}
+
+.remove-btn {
+  color: var(--color-text-3);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  transition: all 0.15s;
+  flex-shrink: 0;
+
+  svg { width: 16px; height: 16px; }
+  &:hover { background: var(--color-error-bg); color: var(--color-error); }
+}
+
+// ── Toggle ────────────────────────────────────────────────────────
+.toggle {
+  width: 48px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  padding: 3px;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+
+  &--on { background: var(--color-success); }
+
+  &__thumb {
+    display: block;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    transition: transform 0.2s ease;
+  }
+
+  &--on &__thumb { transform: translateX(20px); }
+}
+
+// ── Language options ──────────────────────────────────────────────
+.lang-options {
+  display: flex;
+  flex-direction: column;
+}
+
+.lang-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--color-text-2);
+  transition: all 0.12s;
+  width: 100%;
+  text-align: left;
+
+  &:last-child { border-bottom: none; }
+  &:hover { background: var(--color-surface); color: var(--color-text); }
+
+  &--active {
+    color: var(--color-text);
+    font-weight: 700;
+    background: rgba(255,184,0,0.04);
+  }
+
+  &__flag { font-size: var(--text-xl); line-height: 1; }
+
+  // Push checkmark to the right
+  span:nth-child(2) { flex: 1; }
+
+  &__check {
+    width: 18px;
+    height: 18px;
+    color: var(--color-brand);
+    flex-shrink: 0;
+    stroke: var(--color-brand);
+  }
+}
+
+// ── Logout ────────────────────────────────────────────────────────
+.prof-logout {
+  padding: var(--space-8) var(--space-5) 0;
+}

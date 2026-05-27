@@ -1,0 +1,276 @@
+.login {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+// ── Header (dark, ~45% height) ───────────────────────────────────
+.login__header {
+  background-color: var(--color-dark);
+  background-image: var(--dark-texture), linear-gradient(160deg, #1A2E47 0%, var(--color-dark) 60%);
+  min-height: 46dvh;
+  padding: var(--space-6) var(--space-6) var(--space-10);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  position: relative;
+  overflow: hidden;
+
+  // Large outer circle
+  &::before {
+    content: '';
+    position: absolute;
+    width: 380px;
+    height: 380px;
+    border-radius: 50%;
+    border: 64px solid rgba(255,184,0,0.065);
+    bottom: -150px;
+    right: -100px;
+    pointer-events: none;
+  }
+
+  // Small inner circle top-left
+  &::after {
+    content: '';
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255,184,0,0.1);
+    top: -60px;
+    left: -50px;
+    pointer-events: none;
+  }
+}
+
+.lang-bar {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  z-index: 1;
+}
+
+.lang-btn {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  transition: all 0.15s;
+
+  &:hover { color: rgba(255, 255, 255, 0.7); }
+  &--active {
+    color: var(--color-brand);
+    background: rgba(255, 184, 0, 0.14);
+  }
+}
+
+.lang-sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  z-index: 1;
+
+  &__mark {
+    width: 80px;
+    height: 80px;
+    border-radius: 24px;
+    background: var(--color-brand);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 8px rgba(255,184,0,0.12), 0 12px 40px rgba(255,184,0,0.45);
+
+    span {
+      font-size: 3rem;
+      font-weight: 900;
+      color: var(--color-brand-text);
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+  }
+
+  &__text {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.05em;
+  }
+}
+
+.logo__tagline {
+  font-size: var(--text-sm);
+  color: rgba(255, 255, 255, 0.35);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  z-index: 1;
+}
+
+// ── Body (white) ─────────────────────────────────────────────────
+.login__body {
+  flex: 1;
+  background: var(--color-bg);
+  border-radius: 28px 28px 0 0;
+  margin-top: -24px;
+  padding: var(--space-8) var(--space-6) var(--space-6);
+  position: relative;
+  z-index: 2;
+  box-shadow: 0 -8px 32px rgba(0,0,0,0.2);
+}
+
+.form-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  position: relative;
+}
+
+.back-btn {
+  position: absolute;
+  top: -4px;
+  left: -8px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--color-text-2);
+
+  svg { width: 20px; height: 20px; }
+  &:hover { background: var(--color-surface); }
+}
+
+.step-text {
+  padding-top: var(--space-2);
+
+  h2 {
+    font-size: var(--text-2xl);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--color-text);
+  }
+
+  p {
+    font-size: var(--text-sm);
+    color: var(--color-text-2);
+    margin-top: 5px;
+  }
+}
+
+// ── Phone input ──────────────────────────────────────────────────
+.phone-field {
+  display: flex;
+  align-items: center;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.2s;
+  height: 62px;
+  margin-top: var(--space-2);
+
+  &:focus-within {
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 4px rgba(255,184,0,0.16);
+  }
+}
+
+.phone-prefix {
+  padding: 0 var(--space-4);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text);
+  border-right: 2px solid var(--color-border);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  background: var(--color-surface);
+  flex-shrink: 0;
+}
+
+.phone-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  padding: 0 var(--space-4);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text);
+  background: transparent;
+  font-variant-numeric: tabular-nums;
+  height: 100%;
+  letter-spacing: 0.06em;
+
+  &::placeholder { color: var(--color-text-3); font-weight: 400; }
+}
+
+// ── OTP digits ───────────────────────────────────────────────────
+.otp-row {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  margin-top: var(--space-2);
+}
+
+.otp-digit {
+  flex: 1;
+  height: 72px;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--color-text);
+  background: var(--color-surface);
+  outline: none;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.2s, transform 0.15s;
+  font-variant-numeric: tabular-nums;
+  caret-color: var(--color-brand);
+
+  &:focus {
+    border-color: var(--color-brand);
+    background: var(--color-bg);
+    box-shadow: 0 0 0 4px rgba(255, 184, 0, 0.2);
+    transform: scale(1.06);
+  }
+
+  &--filled {
+    border-color: var(--color-dark);
+    background: var(--color-bg);
+  }
+}
+
+// ── Resend ───────────────────────────────────────────────────────
+.resend-row {
+  text-align: center;
+  margin-top: var(--space-1);
+}
+
+.resend-timer {
+  font-size: var(--text-sm);
+  color: var(--color-text-3);
+  font-weight: 500;
+}
+
+.resend-link {
+  font-size: var(--text-sm);
+  color: var(--color-brand);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:hover { color: var(--color-brand-dark); }
+}

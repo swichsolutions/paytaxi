@@ -1,1 +1,197 @@
-/* You can add global styles to this file, and also import other style files */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100..900;1,100..900&display=swap');
+
+:root {
+  --color-brand:       #FFB800;
+  --color-brand-dark:  #E5A600;
+  --color-brand-text:  #121A2E;
+  --color-bg:          #FFFFFF;
+  --color-surface:     #F8F9FC;
+  --color-surface-2:   #EFF2F7;
+  --color-dark:        #0F1B2D;
+  --color-dark-mid:    #1E2E45;
+  --color-dark-subtle: #2A3F5C;
+  --color-text:        #121A2E;
+  --color-text-2:      #64748B;
+  --color-text-3:      #94A3B8;
+  --color-inverse:     #FFFFFF;
+  --color-success:     #00C896;
+  --color-success-bg:  rgba(0,200,150,0.1);
+  --color-error:       #E53935;
+  --color-error-bg:    rgba(229,57,53,0.1);
+  --color-warning-bg:  rgba(255,184,0,0.12);
+  --color-warning-fg:  #9A6F00;
+  --color-info-bg:     rgba(79,70,229,0.1);
+  --color-info:        #4F46E5;
+  --color-border:      #E2E8F0;
+
+  --font: 'Noto Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --text-xs:      0.6875rem;
+  --text-sm:      0.8125rem;
+  --text-base:    1rem;
+  --text-lg:      1.125rem;
+  --text-xl:      1.25rem;
+  --text-2xl:     1.5rem;
+  --text-3xl:     2rem;
+  --text-display: 3.25rem;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-7:  28px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --radius-xl:   18px;
+  --radius-full: 999px;
+
+  --shadow-sm: 0 1px 3px rgba(15,27,45,0.08);
+  --shadow-md: 0 4px 16px rgba(15,27,45,0.12);
+  --shadow-lg: 0 12px 36px rgba(15,27,45,0.16);
+  --shadow-brand: 0 4px 20px rgba(255,184,0,0.35);
+
+  --nav-h: 68px;
+  --max-w: 480px;
+
+  // Admin console
+  --admin-bg:                #F5F7FB;
+  --admin-surface:           #F8FAFC;
+  --admin-surface-2:         #EEF2F8;
+  --admin-border:            #E4E9F1;
+  --admin-border-strong:     #CBD5E1;
+  --admin-sidebar-w:         252px;
+  --admin-sidebar-w-collapsed: 72px;
+  --admin-topbar-h:          64px;
+
+  --dark-texture: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 18px,
+    rgba(255,255,255,0.04) 18px,
+    rgba(255,255,255,0.04) 19px
+  );
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font);
+  font-size: var(--text-base);
+  color: var(--color-text);
+  background: #C8CDD6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+  line-height: 1.5;
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: var(--font); cursor: pointer; border: none; background: none; padding: 0; }
+input, textarea { font-family: var(--font); }
+
+.gel {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+// Status badges — pill shape with colored left-border accent
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px 3px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1.4;
+  border-left: 3px solid transparent;
+
+  &--completed  {
+    background: var(--color-success-bg);
+    color: #008A60;
+    border-left-color: #00C896;
+  }
+  &--pending    {
+    background: var(--color-warning-bg);
+    color: var(--color-warning-fg);
+    border-left-color: var(--color-brand);
+  }
+  &--failed     {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border-left-color: var(--color-error);
+  }
+  &--processing {
+    background: var(--color-info-bg);
+    color: var(--color-info);
+    border-left-color: var(--color-info);
+  }
+}
+
+// Buttons
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 56px;
+  padding: 0 var(--space-6);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  font-weight: 700;
+  width: 100%;
+  transition: all 0.14s ease;
+  outline: none;
+  letter-spacing: 0.01em;
+
+  &--primary {
+    background: var(--color-brand);
+    color: var(--color-brand-text);
+    box-shadow: var(--shadow-brand);
+    &:hover  { background: var(--color-brand-dark); box-shadow: 0 4px 24px rgba(255,184,0,0.45); }
+    &:active { transform: scale(0.982); box-shadow: var(--shadow-sm); }
+    &:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+  }
+
+  &--secondary {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1.5px solid var(--color-border);
+    &:hover  { background: var(--color-surface-2); }
+    &:active { transform: scale(0.982); }
+  }
+
+  &--ghost {
+    background: transparent;
+    color: var(--color-text-2);
+    &:hover { background: var(--color-surface); }
+  }
+
+  &--danger {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    box-shadow: none;
+    &:hover { background: rgba(229,57,53,0.16); }
+  }
+
+  &--sm { height: 44px; font-size: var(--text-sm); }
+}
+
+.section-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-2);
+}

@@ -1,0 +1,182 @@
+.history { padding-bottom: var(--space-8); }
+
+.hist-header {
+  background-color: var(--color-dark);
+  background-image: var(--dark-texture), linear-gradient(160deg, #1A2E47 0%, var(--color-dark) 60%);
+  padding: var(--space-8) var(--space-6) var(--space-7);
+
+  h1 {
+    font-size: var(--text-2xl);
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+}
+
+// ── Segmented filter control ─────────────────────────────────────
+.filter-tabs {
+  display: flex;
+  padding: var(--space-4) var(--space-5);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.filter-tab {
+  flex: 1;
+  padding: 9px var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-text-2);
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  transition: all 0.15s;
+  letter-spacing: 0.01em;
+  text-align: center;
+
+  // Connected segmented look
+  &:first-child {
+    border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+    border-right-width: 0;
+  }
+  &:not(:first-child):not(:last-child) {
+    border-radius: 0;
+    border-right-width: 0;
+  }
+  &:last-child {
+    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  }
+
+  &:hover:not(&--active) {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    z-index: 1;
+    position: relative;
+  }
+
+  &--active {
+    background: var(--color-dark);
+    color: var(--color-brand);
+    border-color: var(--color-dark);
+    z-index: 2;
+    position: relative;
+  }
+}
+
+// ── Transaction list ──────────────────────────────────────────────
+.tx-list { padding: var(--space-3) var(--space-5); }
+
+.tx-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  transition: background 0.12s;
+  position: relative;
+  padding-left: calc(var(--space-3) + 14px); // room for the left bar
+
+  &:last-child { border-bottom: none; }
+
+  // 3px colored left bar
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  &--cashout::before {
+    background: var(--color-brand);
+    opacity: 1;
+  }
+
+  &--ride::before {
+    background: var(--color-info);
+    opacity: 1;
+  }
+
+  &__icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    svg { width: 18px; height: 18px; }
+
+    &--cashout { background: rgba(255,184,0,0.1); color: var(--color-brand-dark); }
+    &--ride    { background: rgba(79,70,229,0.1); color: var(--color-info); }
+  }
+
+  &__main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  &__sub { font-size: var(--text-xs); color: var(--color-text-3); font-weight: 500; }
+
+  &__right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  &__amount {
+    font-size: var(--text-sm);
+    font-weight: 700;
+    color: var(--color-text);
+
+    &--green { color: var(--color-success); }
+  }
+}
+
+// ── Empty state ───────────────────────────────────────────────────
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-8);
+  gap: var(--space-4);
+  color: var(--color-text-3);
+  text-align: center;
+
+  &__icon {
+    width: 64px;
+    height: 64px;
+    background: var(--color-surface);
+    border-radius: var(--radius-xl);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    svg { width: 28px; height: 28px; }
+  }
+
+  p { font-size: var(--text-sm); font-weight: 500; }
+}

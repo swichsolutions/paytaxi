@@ -1,0 +1,119 @@
+<div class="login">
+  <!-- Left brand panel -->
+  <aside class="login__brand">
+    <div class="login__brand-inner">
+      <div class="login__logo-row">
+        <div class="login__logo">
+          <span>₾</span>
+        </div>
+        <div class="login__brand-text">
+          <span class="login__brand-name">PayTaxi</span>
+          <span class="login__brand-tag">Admin Console</span>
+        </div>
+      </div>
+
+      <h1 class="login__headline">
+        Operate the float.<br/>
+        <span class="login__headline-accent">Settle in minutes.</span>
+      </h1>
+      <p class="login__sub">
+        Manage cashouts, drivers and reconciliation for your taxipark — 24/7.
+      </p>
+
+      <div class="login__stats">
+        <div class="login__stat">
+          <span class="login__stat-num gel">₾ 1.2M</span>
+          <span class="login__stat-label">Settled this month</span>
+        </div>
+        <div class="login__stat">
+          <span class="login__stat-num">312</span>
+          <span class="login__stat-label">Active drivers</span>
+        </div>
+        <div class="login__stat">
+          <span class="login__stat-num">99.4%</span>
+          <span class="login__stat-label">Cashout success</span>
+        </div>
+      </div>
+
+      <div class="login__footer">
+        <span>v0.5.0 · Phase 5 preview</span>
+        <span class="login__footer-dot"></span>
+        <span>Tbilisi · GE</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right form panel -->
+  <main class="login__panel">
+    <div class="login__form-wrap">
+      <div class="login__greet">
+        <span class="login__greet-tag">SIGN IN</span>
+        <h2 class="login__greet-title">Welcome back, manager.</h2>
+        <p class="login__greet-sub">Enter your park credentials to continue.</p>
+      </div>
+
+      <form class="login__form" (ngSubmit)="submit()">
+        <label class="field">
+          <span class="field__label">Work email</span>
+          <input
+            type="email"
+            class="field__input"
+            placeholder="manager@taxipark.ge"
+            autocomplete="email"
+            [ngModel]="email()"
+            (ngModelChange)="email.set($event)"
+            name="email"
+          />
+        </label>
+
+        <label class="field">
+          <span class="field__label">
+            <span>Password</span>
+            <a class="field__hint">Forgot?</a>
+          </span>
+          <input
+            type="password"
+            class="field__input"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            [ngModel]="password()"
+            (ngModelChange)="password.set($event)"
+            name="password"
+          />
+        </label>
+
+        @if (error()) {
+          <div class="login__error">{{ error() }}</div>
+        }
+
+        <button type="submit" class="login__submit" [disabled]="!canSubmit()">
+          @if (submitting()) {
+            <span class="login__spinner"></span>
+            <span>Signing in…</span>
+          } @else {
+            <span>Sign in</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+          }
+        </button>
+
+        <div class="login__divider">
+          <span>or</span>
+        </div>
+
+        <button type="button" class="login__sso">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <span>Continue with single sign-on</span>
+        </button>
+      </form>
+
+      <p class="login__legal">
+        Mock login · any email and 4+ character password works for the demo.
+      </p>
+    </div>
+  </main>
+</div>

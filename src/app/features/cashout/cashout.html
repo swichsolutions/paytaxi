@@ -1,0 +1,168 @@
+<div class="cashout">
+  <!-- Header -->
+  <header class="co-header">
+    <button class="co-back" (click)="prevStep()" aria-label="{{ t.back }}">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 12H5M12 5l-7 7 7 7"/>
+      </svg>
+    </button>
+    <h1 class="co-title">{{ t.cashout }}</h1>
+    <div class="co-steps">
+      <span class="step-dot" [class.step-dot--done]="step() > 1" [class.step-dot--active]="step() === 1"></span>
+      <span class="step-line" [class.step-line--done]="step() > 1"></span>
+      <span class="step-dot" [class.step-dot--done]="step() > 2" [class.step-dot--active]="step() === 2"></span>
+      <span class="step-line" [class.step-line--done]="step() > 2"></span>
+      <span class="step-dot" [class.step-dot--done]="step() > 3" [class.step-dot--active]="step() === 3"></span>
+    </div>
+  </header>
+
+  @if (!confirmed()) {
+    <!-- ── Step 1: Amount ──────────────────────────────── -->
+    @if (step() === 1) {
+      <div class="co-body">
+        <div class="amount-display">
+          <span class="amount-display__balance gel">{{ t.balance }}: {{ formatGel(balance()) }}</span>
+          <div class="amount-display__row">
+            <span class="amount-display__symbol">₾</span>
+            <span class="amount-display__value gel">{{ amountStr() || '0' }}<span class="amount-display__cursor">|</span></span>
+          </div>
+        </div>
+
+        @if (amount() > 0 && canProceed()) {
+          <div class="fee-preview">
+            <span>{{ t.fee }}: <b class="gel">{{ formatGel(fee()) }}</b></span>
+            <span class="fee-sep">·</span>
+            <span>{{ t.youReceive }}: <b class="gel fee-preview__net">{{ formatGel(net()) }}</b></span>
+          </div>
+        }
+        @if (amount() > balance()) {
+          <p class="amount-error">{{ t.exceedsBalance }}</p>
+        }
+        @if (amount() > 0 && amount() < 5) {
+          <p class="amount-error">{{ t.minCashout }}</p>
+        }
+
+        <div class="keypad">
+          @for (row of keypad; track $index) {
+            <div class="keypad__row">
+              @for (k of row; track k) {
+                <button
+                  class="keypad__key"
+                  [class.keypad__key--backspace]="k === '⌫'"
+                  (click)="pressKey(k)"
+                  [attr.aria-label]="k === '⌫' ? 'Backspace' : k"
+                >
+                  @if (k === '⌫') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/>
+                      <line x1="18" y1="9" x2="12" y2="15"/>
+                      <line x1="12" y1="9" x2="18" y2="15"/>
+                    </svg>
+                  } @else {
+                    {{ k }}
+                  }
+                </button>
+              }
+            </div>
+          }
+        </div>
+
+        <button class="btn btn--primary" (click)="nextStep()" [disabled]="!canProceed()">
+          {{ t.next }}
+        </button>
+      </div>
+    }
+
+    <!-- ── Step 2: Card select ─────────────────────────── -->
+    @if (step() === 2) {
+      <div class="co-body">
+        <h2 class="co-step-title">{{ t.selectCard }}</h2>
+        <div class="card-list">
+          @for (card of cards; track card.id) {
+            <button
+              class="card-row"
+              [class.card-row--selected]="selectedCard().id === card.id"
+              (click)="selectedCard.set(card)"
+            >
+              <div class="card-row__bank" [class.card-row__bank--bog]="card.bankType === 'BOG'" [class.card-row__bank--tbc]="card.bankType === 'TBC'">
+                {{ card.bankType }}
+              </div>
+              <div class="card-row__info">
+                <span class="card-row__pan gel">{{ card.maskedPan }}</span>
+                @if (card.isDefault) {
+                  <span class="badge badge--processing">{{ t.defaultCard }}</span>
+                }
+              </div>
+              <div class="card-row__check" [class.card-row__check--active]="selectedCard().id === card.id">
+                @if (selectedCard().id === card.id) {
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                }
+              </div>
+            </button>
+          }
+
+          <button class="add-card-row">
+            <span class="add-card-row__icon">+</span>
+            <span>{{ t.addCard }}</span>
+          </button>
+        </div>
+
+        <button class="btn btn--primary" (click)="nextStep()" [disabled]="!selectedCard()">
+          {{ t.next }}
+        </button>
+      </div>
+    }
+
+    <!-- ── Step 3: Confirm ─────────────────────────────── -->
+    @if (step() === 3) {
+      <div class="co-body">
+        <h2 class="co-step-title">{{ t.confirmDetails }}</h2>
+        <div class="summary-card">
+          <div class="summary-row">
+            <span class="summary-row__label">{{ t.amount }}</span>
+            <span class="summary-row__value gel">{{ formatGel(amount()) }}</span>
+          </div>
+          <div class="summary-row">
+            <span class="summary-row__label">{{ t.fee }}</span>
+            <span class="summary-row__value gel">{{ formatGel(fee()) }}</span>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-row summary-row--total">
+            <span class="summary-row__label">{{ t.youReceive }}</span>
+            <span class="summary-row__value summary-row__value--accent gel">{{ formatGel(net()) }}</span>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-row">
+            <span class="summary-row__label">{{ t.toCard }}</span>
+            <span class="summary-row__value">
+              {{ selectedCard().bankType }} {{ selectedCard().maskedPan }}
+            </span>
+          </div>
+        </div>
+
+        <button class="btn btn--primary" (click)="confirm()">
+          {{ t.confirmCashout }}
+        </button>
+        <button class="btn btn--ghost btn--sm" (click)="prevStep()">
+          {{ t.cancel }}
+        </button>
+
+        <p class="disclaimer">{{ t.disclaimer }}</p>
+      </div>
+    }
+  }
+
+  @if (confirmed()) {
+    <div class="co-success">
+      <div class="co-success__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <h2>{{ t.cashoutSubmitted }}</h2>
+      <p>{{ formatGel(net()) }} {{ t.willArriveShortly }}</p>
+    </div>
+  }
+</div>

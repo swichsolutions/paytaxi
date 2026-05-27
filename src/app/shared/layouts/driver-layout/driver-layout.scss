@@ -1,0 +1,38 @@
+.shell {
+  display: flex;
+  justify-content: center;
+  min-height: 100dvh;
+  background: #C8CDD6;
+
+  @media (min-width: 600px) {
+    padding: 28px 16px;
+    align-items: flex-start;
+    background: #BEC5CF;
+  }
+}
+
+.frame {
+  width: 100%;
+  max-width: var(--max-w);
+  min-height: 100dvh;
+  background: var(--color-bg);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+
+  @media (min-width: 600px) {
+    min-height: calc(100dvh - 56px);
+    border-radius: 32px;
+    overflow: hidden;
+    box-shadow: 0 32px 96px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0,0,0,0.06);
+  }
+}
+
+.scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+
+  &.has-nav { padding-bottom: var(--nav-h); }
+}

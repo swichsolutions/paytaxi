@@ -1,0 +1,307 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.sidebar {
+  height: 100%;
+  background-color: var(--color-dark);
+  background-image:
+    var(--dark-texture),
+    linear-gradient(180deg, #15243A 0%, var(--color-dark) 100%);
+  color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,184,0,0.08), transparent 70%);
+    bottom: -80px;
+    left: -120px;
+    pointer-events: none;
+  }
+}
+
+// ── Brand ─────────────────────────────────────────────────────────
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sidebar__logo {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--color-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(255, 184, 0, 0.35);
+
+  span {
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: var(--color-brand-text);
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+}
+
+.sidebar__brand-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+
+  .sidebar--collapsed & { display: none; }
+}
+
+.sidebar__brand-name {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.sidebar__brand-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--color-brand);
+  text-transform: uppercase;
+}
+
+// ── Park strip ────────────────────────────────────────────────────
+.sidebar__park {
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  .sidebar--collapsed & { display: none; }
+}
+
+.sidebar__park-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.sidebar__park-name {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: -0.01em;
+}
+
+// ── Nav ──────────────────────────────────────────────────────────
+.sidebar__nav {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4) var(--space-3) var(--space-2);
+  gap: 2px;
+  position: relative;
+  z-index: 1;
+
+  &--secondary {
+    margin-top: auto;
+    padding-bottom: var(--space-4);
+  }
+}
+
+.sidebar__nav-label {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.32);
+  padding: 0 var(--space-3);
+  margin-bottom: var(--space-2);
+
+  .sidebar--collapsed & { display: none; }
+}
+
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-3);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  transition: background 0.15s, color 0.15s;
+  position: relative;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #fff;
+  }
+
+  &--active {
+    background: rgba(255, 184, 0, 0.12);
+    color: var(--color-brand);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: -12px;
+      top: 8px;
+      bottom: 8px;
+      width: 3px;
+      border-radius: 0 2px 2px 0;
+      background: var(--color-brand);
+    }
+  }
+
+  &--muted {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
+  .sidebar--collapsed & {
+    justify-content: center;
+    padding: 12px;
+
+    &--active::before { left: -8px; }
+  }
+}
+
+.sidebar__link-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.sidebar__link-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  .sidebar--collapsed & { display: none; }
+}
+
+.sidebar__link-tag {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+
+  .sidebar--collapsed & { display: none; }
+}
+
+// ── Float status card ─────────────────────────────────────────────
+.sidebar__float {
+  margin: var(--space-3);
+  padding: var(--space-4);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      135deg,
+      transparent,
+      transparent 14px,
+      rgba(255, 255, 255, 0.025) 14px,
+      rgba(255, 255, 255, 0.025) 15px
+    );
+    pointer-events: none;
+  }
+
+  .sidebar--collapsed & { display: none; }
+}
+
+.sidebar__float-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--space-2);
+  position: relative;
+}
+
+.sidebar__float-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00C896;
+  box-shadow: 0 0 0 3px rgba(0, 200, 150, 0.2);
+}
+
+.sidebar__float-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sidebar__float-amount {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  margin-bottom: var(--space-3);
+  position: relative;
+}
+
+.sidebar__float-meter {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+  position: relative;
+}
+
+.sidebar__float-bar {
+  height: 100%;
+  background: linear-gradient(to right, var(--color-brand), #FFD451);
+  border-radius: 2px;
+}
+
+.sidebar__float-meta {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 500;
+  position: relative;
+}

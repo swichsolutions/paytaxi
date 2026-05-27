@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayTaxi.Api", "PayTaxi.Api\PayTaxi.Api.csproj", "{B299B6AB-7FBA-4DE6-85B9-822C4D09A52D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayTaxi.Core", "PayTaxi.Core\PayTaxi.Core.csproj", "{6F593A15-B720-41C6-8119-23C9C163C450}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayTaxi.Infrastructure", "PayTaxi.Infrastructure\PayTaxi.Infrastructure.csproj", "{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B299B6AB-7FBA-4DE6-85B9-822C4D09A52D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B299B6AB-7FBA-4DE6-85B9-822C4D09A52D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B299B6AB-7FBA-4DE6-85B9-822C4D09A52D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B299B6AB-7FBA-4DE6-85B9-822C4D09A52D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6F593A15-B720-41C6-8119-23C9C163C450}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6F593A15-B720-41C6-8119-23C9C163C450}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6F593A15-B720-41C6-8119-23C9C163C450}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6F593A15-B720-41C6-8119-23C9C163C450}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

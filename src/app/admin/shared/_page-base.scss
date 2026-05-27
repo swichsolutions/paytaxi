@@ -1,0 +1,156 @@
+:host { display: block; }
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+// ── Page header ───────────────────────────────────────────────────
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.page-head__left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.page-head__title {
+  font-size: clamp(1.7rem, 2.5vw, 2.1rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--color-text);
+  line-height: 1.05;
+}
+
+.page-head__sub {
+  font-size: 13.5px;
+  color: var(--color-text-2);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  max-width: 56ch;
+}
+
+.page-head__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+// ── Card ──────────────────────────────────────────────────────────
+.admin-card {
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.admin-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.admin-card__title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: -0.01em;
+}
+
+// ── Buttons (admin variants) ──────────────────────────────────────
+.btn-admin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 40px;
+  padding: 0 var(--space-4);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+  cursor: pointer;
+
+  svg { width: 15px; height: 15px; }
+
+  &--primary {
+    background: var(--color-dark);
+    color: var(--color-brand);
+    &:hover { background: #1A2E47; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,27,45,0.22); }
+    &:active { transform: translateY(0); }
+  }
+
+  &--brand {
+    background: var(--color-brand);
+    color: var(--color-brand-text);
+    box-shadow: 0 4px 14px rgba(255, 184, 0, 0.28);
+    &:hover { background: var(--color-brand-dark); }
+    &:active { transform: translateY(0); }
+  }
+
+  &--secondary {
+    background: #fff;
+    color: var(--color-text);
+    border-color: var(--admin-border);
+    &:hover { background: var(--admin-surface); border-color: var(--admin-border-strong); }
+  }
+
+  &--ghost {
+    background: transparent;
+    color: var(--color-text-2);
+    &:hover { background: var(--admin-surface); color: var(--color-text); }
+  }
+}
+
+// ── Placeholder card (stubs) ──────────────────────────────────────
+.placeholder {
+  border: 1.5px dashed var(--admin-border-strong);
+  border-radius: 16px;
+  background: #fff;
+  padding: var(--space-12) var(--space-8);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+
+  &__tag {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    color: var(--color-brand-dark);
+    background: var(--color-warning-bg);
+    padding: 4px 10px;
+    border-radius: 4px;
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    color: var(--color-text);
+  }
+
+  p {
+    font-size: 13.5px;
+    color: var(--color-text-2);
+    font-weight: 500;
+    max-width: 50ch;
+  }
+}

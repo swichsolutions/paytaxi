@@ -1,0 +1,6 @@
+// Root app component is now a bare router-outlet.
+// Layout styling lives in:
+//   - shared/layouts/driver-layout (driver app shell)
+//   - admin/layout (admin console shell)
+//   - styles.scss (global tokens, body background, typography)
+:host { display: contents; }

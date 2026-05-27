@@ -1,0 +1,302 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">Overview</h1>
+      <p class="page-head__sub">Real-time view of float, queue and driver activity.</p>
+    </div>
+    <div class="page-head__actions">
+      <button class="btn-admin btn-admin--secondary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+          <path d="M21 3v5h-5"/>
+        </svg>
+        <span>Refresh</span>
+      </button>
+      <a routerLink="/admin/cashouts" class="btn-admin btn-admin--brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        <span>New cashout</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- ── KPI tiles ───────────────────────────────────────────────── -->
+  <section class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi__top">
+        <span class="kpi__label">Cashouts today</span>
+        <span class="kpi__delta kpi__delta--up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 17L17 7M9 7h8v8"/>
+          </svg>
+          +{{ kpis().cashoutsToday.deltaPct }}%
+        </span>
+      </div>
+      <div class="kpi__value gel">{{ formatGel(kpis().cashoutsToday.value, 0) }}</div>
+      <div class="kpi__sub">
+        <span class="kpi__sub-num gel">{{ kpis().cashoutsToday.count }}</span>
+        <span>completed today</span>
+      </div>
+    </div>
+
+    <div class="kpi">
+      <div class="kpi__top">
+        <span class="kpi__label">Fees collected</span>
+        <span class="kpi__delta kpi__delta--up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M7 17L17 7M9 7h8v8"/>
+          </svg>
+          +{{ kpis().feesCollectedToday.deltaPct }}%
+        </span>
+      </div>
+      <div class="kpi__value gel">{{ formatGel(kpis().feesCollectedToday.value, 2) }}</div>
+      <div class="kpi__sub">
+        <span>1% per cashout</span>
+      </div>
+    </div>
+
+    <div class="kpi">
+      <div class="kpi__top">
+        <span class="kpi__label">Pending queue</span>
+        @if (kpis().pendingQueue.count > 0) {
+          <span class="kpi__delta kpi__delta--pulse">
+            <span class="kpi__delta-dot"></span>
+            LIVE
+          </span>
+        }
+      </div>
+      <div class="kpi__value">
+        <span class="gel">{{ kpis().pendingQueue.count }}</span>
+        <span class="kpi__value-unit">in flight</span>
+      </div>
+      <div class="kpi__sub">
+        <span class="gel">{{ formatGel(kpis().pendingQueue.value, 0) }}</span>
+        <span>total reserved</span>
+      </div>
+    </div>
+
+    <div class="kpi">
+      <div class="kpi__top">
+        <span class="kpi__label">Active drivers</span>
+        @if (kpis().failedToday.count > 0) {
+          <span class="kpi__delta kpi__delta--danger">
+            {{ kpis().failedToday.count }} failed
+          </span>
+        }
+      </div>
+      <div class="kpi__value">
+        <span class="gel">{{ kpis().activeDriversToday.count }}</span>
+        <span class="kpi__value-unit">of {{ kpis().activeDriversToday.total }}</span>
+      </div>
+      <div class="kpi__sub">
+        <span>online today</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Float monitor + Action items ─────────────────────────────── -->
+  <section class="row row--split">
+    <!-- Float monitor -->
+    <article class="float-card" [class.float-card--low]="floatStatus().lowFloat">
+      <div class="float-card__head">
+        <div class="float-card__head-left">
+          <span class="float-card__tag">
+            <span class="float-card__tag-dot"></span>
+            FLOAT MONITOR
+          </span>
+          <h2 class="float-card__title">
+            Park bank account · live balance
+          </h2>
+        </div>
+        <button class="btn-admin btn-admin--secondary">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          <span>Top up</span>
+        </button>
+      </div>
+
+      <div class="float-card__body">
+        <div class="float-card__amount-row">
+          <div class="float-card__amount-block">
+            <span class="float-card__amount gel">{{ formatGel(floatStatus().balance, 0) }}</span>
+            <span class="float-card__amount-label">Available now</span>
+          </div>
+          <div class="float-card__amount-block float-card__amount-block--alt">
+            <span class="float-card__amount-alt gel">{{ formatGel(floatStatus().target, 0) }}</span>
+            <span class="float-card__amount-label">Daily target</span>
+          </div>
+          <div class="float-card__amount-block float-card__amount-block--alt">
+            <span class="float-card__amount-alt gel">{{ formatGel(floatStatus().minimum, 0) }}</span>
+            <span class="float-card__amount-label">Minimum threshold</span>
+          </div>
+        </div>
+
+        <!-- Meter with threshold marker -->
+        <div class="float-meter">
+          <div class="float-meter__track">
+            <div class="float-meter__bar" [style.width.%]="floatStatus().usedPct"></div>
+            <div
+              class="float-meter__marker"
+              [style.left.%]="(floatStatus().minimum / floatStatus().target) * 100"
+              title="Minimum threshold"
+            ></div>
+          </div>
+          <div class="float-meter__labels">
+            <span>0%</span>
+            <span>{{ floatStatus().usedPct.toFixed(0) }}% of daily target</span>
+            <span>100%</span>
+          </div>
+        </div>
+
+        <!-- Hourly volume chart inside the card -->
+        <div class="float-card__chart">
+          <div class="float-card__chart-head">
+            <span class="float-card__chart-label">CASHOUT VOLUME · LAST 12 HOURS</span>
+            <span class="float-card__chart-total gel">{{ formatGel(todayTotal(), 0) }}</span>
+          </div>
+          <svg class="float-card__chart-svg" [attr.viewBox]="'0 0 ' + chartW + ' ' + chartH" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#FFB800" stop-opacity="0.95"/>
+                <stop offset="100%" stop-color="#FFB800" stop-opacity="0.35"/>
+              </linearGradient>
+            </defs>
+            @for (h of hourly(); track h.hour; let i = $index) {
+              <g>
+                <rect
+                  [attr.x]="barX(i)"
+                  [attr.y]="chartH - barH(h.value)"
+                  [attr.width]="barW()"
+                  [attr.height]="barH(h.value)"
+                  rx="2"
+                  fill="url(#barGrad)"
+                />
+                <text
+                  [attr.x]="barX(i) + barW() / 2"
+                  [attr.y]="chartH - 4"
+                  text-anchor="middle"
+                  class="float-card__chart-tick"
+                >{{ h.hour }}</text>
+              </g>
+            }
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <!-- Action items -->
+    <article class="action-card">
+      <div class="action-card__head">
+        <h3 class="action-card__title">Needs attention</h3>
+        <span class="action-card__count">{{ failed().length }}</span>
+      </div>
+
+      <div class="action-card__body">
+        @if (failed().length === 0) {
+          <div class="action-card__empty">
+            <div class="action-card__empty-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <p>No failed cashouts. Everything is moving.</p>
+          </div>
+        }
+        @for (c of failed(); track c.id) {
+          <div class="action-row">
+            <div class="action-row__pill">FAILED</div>
+            <div class="action-row__main">
+              <div class="action-row__top">
+                <span class="action-row__driver">{{ c.driverName }}</span>
+                <span class="action-row__amount gel">{{ formatGel(c.amount, 0) }}</span>
+              </div>
+              <span class="action-row__msg">{{ c.errorMessage }}</span>
+              <span class="action-row__meta">{{ formatRel(c.createdAt) }} · {{ c.bankType }} {{ c.maskedPan }}</span>
+            </div>
+            <button class="action-row__retry" (click)="retry(c.id)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+                <path d="M21 3v5h-5"/>
+              </svg>
+              <span>Retry</span>
+            </button>
+          </div>
+        }
+      </div>
+
+      <a routerLink="/admin/cashouts" class="action-card__foot">
+        <span>Open full queue</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </a>
+    </article>
+  </section>
+
+  <!-- ── Activity feed ────────────────────────────────────────────── -->
+  <section class="activity-card">
+    <header class="activity-card__head">
+      <div>
+        <h3 class="activity-card__title">Activity feed</h3>
+        <p class="activity-card__sub">Live stream of cashout, onboarding and float events.</p>
+      </div>
+      <a routerLink="/admin/cashouts" class="activity-card__link">View all</a>
+    </header>
+
+    <div class="activity-list">
+      @for (e of activity(); track e.id) {
+        <div class="activity-row" [attr.data-severity]="e.severity">
+          <div class="activity-row__rail">
+            <div class="activity-row__dot"></div>
+            <div class="activity-row__line"></div>
+          </div>
+          <div class="activity-row__icon">
+            @switch (e.type) {
+              @case ('cashout_submitted') {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 5v14M5 12l7-7 7 7"/>
+                </svg>
+              }
+              @case ('cashout_completed') {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+              }
+              @case ('cashout_failed') {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              }
+              @case ('driver_joined') {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="10" cy="8" r="4"/>
+                  <path d="M2 21c0-4 3-7 8-7"/>
+                  <path d="M18 13v8M14 17h8"/>
+                </svg>
+              }
+              @case ('float_topped_up') {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="6" width="18" height="13" rx="2"/>
+                  <path d="M3 10h18M7 15h4"/>
+                </svg>
+              }
+            }
+          </div>
+          <div class="activity-row__main">
+            <span class="activity-row__msg">{{ e.message }}</span>
+            @if (e.driverName) {
+              <span class="activity-row__driver">{{ e.driverName }}</span>
+            }
+          </div>
+          @if (e.amount !== undefined) {
+            <span class="activity-row__amount gel">{{ formatGel(e.amount, 0) }}</span>
+          }
+          <span class="activity-row__time">{{ formatRel(e.at) }}</span>
+        </div>
+      }
+    </div>
+  </section>
+</div>

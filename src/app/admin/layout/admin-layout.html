@@ -1,0 +1,7 @@
+<div class="admin-shell" [class.admin-shell--collapsed]="!sidebarOpen()">
+  <app-admin-sidebar class="admin-shell__sidebar" [collapsed]="!sidebarOpen()" />
+  <app-admin-topbar class="admin-shell__topbar" (toggle)="toggleSidebar()" />
+  <main class="admin-shell__content">
+    <router-outlet />
+  </main>
+</div>
