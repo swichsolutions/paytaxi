@@ -274,3 +274,21 @@
 
   &:hover { color: var(--color-brand-dark); }
 }
+
+.login-error {
+  margin-top: var(--space-3);
+  color: #C0392B;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.dev-otp-hint {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: rgba(255, 184, 0, 0.12);
+  color: var(--color-brand-dark, #B58400);
+  border-radius: 6px;
+  font-family: monospace;
+  letter-spacing: 0.2em;
+  text-align: center;
+}

@@ -41,9 +41,10 @@
           />
         </div>
 
-        <button class="btn btn--primary" (click)="sendCode()" [disabled]="!phoneValid()">
-          {{ t.sendCode }}
+        <button class="btn btn--primary" (click)="sendCode()" [disabled]="!phoneValid() || submitting()">
+          @if (submitting()) { Sending… } @else { {{ t.sendCode }} }
         </button>
+        @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
       </div>
     }
 
@@ -58,6 +59,9 @@
         <div class="step-text">
           <h2>{{ t.enterCode }}</h2>
           <p>{{ t.otpHint }} +995 {{ phone() }}</p>
+          @if (devCode()) {
+            <p class="dev-otp-hint">DEV CODE · {{ devCode() }}</p>
+          }
         </div>
 
         <div class="otp-row" (paste)="onDigitPaste($event)">
@@ -77,9 +81,10 @@
           }
         </div>
 
-        <button class="btn btn--primary" (click)="verify()" [disabled]="!otpValid()">
-          {{ t.verify }}
+        <button class="btn btn--primary" (click)="verify()" [disabled]="!otpValid() || submitting()">
+          @if (submitting()) { Verifying… } @else { {{ t.verify }} }
         </button>
+        @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
 
         <div class="resend-row">
           @if (resendSecs() > 0) {

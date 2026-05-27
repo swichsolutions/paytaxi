@@ -16,18 +16,15 @@
 - **Phase 3 — Cashout Saga (Option B).** `MockBankPayoutProvider` with 3% transient failures, 250ms latency, idempotency-key dedup. `CashoutOrchestrator` saga implements reserve → A.5 limit check (atomic SQL decrement) → bank payout → Yandex deduct → confirm, with compensation on bank failure and `ReviewRequired` on post-bank Yandex failure. Double-entry ledger written at every transition. New `POST /api/admin/parks/{parkId}/cashouts` endpoint. Admin manual-cashout modal rewritten to fetch real parks/drivers/cards from backend and POST through the saga. Verified end-to-end: Model A.5 path decrements `AuthorizationLimit` (125000 → 124900 after 100 GEL test), Model A path skips it, idempotency replay returns prior cashout, over-limit attempts fail without touching bank/Yandex. `YandexFleet:ReadOnlyMode=false` in dev only.
 - **Option C — Driver app cashout wired to backend.** New `DriverSessionService` auto-discovers an active driver-with-card on bootstrap (stand-in until real driver-auth in Phase 8). Driver dashboard hero shows real driver name + park + balance from backend. Driver 3-step cashout flow now POSTs through the same `/api/admin/parks/{parkId}/cashouts` saga endpoint. Verified end-to-end: a driver-side 20 GEL cashout hits the saga, writes ledger entries, populates bank+Yandex IDs.
 - **Driver history wired to backend.** `/history` now reads cashouts from `GET /api/admin/parks/{parkId}/cashouts` (filtered to the session driver). Rides are still mock — no rides endpoint exists yet. Closes the demo loop: cash out → land on history → see your new cashout listed with bank ref + status.
+- **Real driver auth (phone + OTP → JWT).** New `POST /api/driver/auth/{request-otp,verify-otp}` endpoints; OTP stored as SHA-256 with 5-min expiry and 5-attempt cap. JWT carries `sub=driverId`, `parkId`, `phoneHash`, `role=driver`. Frontend `AuthService` keeps the token in `localStorage`, an HTTP interceptor adds `Authorization: Bearer` to all backend calls, and an `authGuard` redirects unauthenticated users from `/dashboard|cashout|history|profile` to `/login`. `DriverSessionService` now boots from JWT claims when present; auto-discovery is the fallback for demo convenience only. Dev OTP returned in the request-otp response (and logged to backend) until SMS gateway is wired in Phase 8.
 
 ---
 
 ## Last thing we worked on
 
-Phase 3 + Option C both shipped and verified live. The cashout saga is reachable from both the admin manual-cashout modal AND the driver app's own cashout flow — same endpoint, same orchestrator, same ledger.
+Real driver auth shipped end-to-end. Logged in as a seeded Tbilisi #3 driver (phone `599123456` → dev OTP banner → JWT issued → session loaded). Cashout, history, profile all run under that JWT now; the HTTP interceptor attaches `Authorization: Bearer` to every backend call. Logout clears localStorage and the route guard bounces unauthenticated visits back to `/login`.
 
-Latest smoke-tests via browser:
-- Admin modal in Batumi #1 (Model A) → 20 GEL cashout → `Status=Completed`, bank transfer ID + Yandex transaction ID populated.
-- Driver app `/cashout` → 20 GEL cashout → same flow end-to-end.
-
-`DriverSessionService` auto-discovers a usable driver on bootstrap; will be replaced by real JWT-derived session in Phase 8.
+Admin side is still cookie-less (no auth gate on admin endpoints — Phase 8 follow-up). The driver app currently posts/reads through `/api/admin/...` so admin-side auth has to come before the driver app is locked down further.
 
 Current park lineup in DB:
 
@@ -43,8 +40,9 @@ Current park lineup in DB:
 
 Phase 3 + Option C complete. Natural next steps, in roughly increasing scope:
 
-- **Driver app needs its own endpoint with driver scoping.** The driver app currently posts/reads through `/api/admin/...`, which trusts the caller's `driverId`. Once auth lands, introduce `/api/driver/...` endpoints that derive driverId from the JWT.
-- **Real auth (Phase 8 sliver).** Issue JWTs for admin email/password and driver phone+OTP. Modal/driver both currently send no Authorization header.
+- **Driver-scoped endpoints.** Driver app still calls `/api/admin/...` which trusts the supplied `driverId`. Add `/api/driver/parks/me/...` (or similar) that derive driverId from the JWT `sub` claim and reject mismatches.
+- **Lock down admin endpoints.** Currently every `/api/admin/...` route is wide open. Introduce admin email/password auth and apply `[Authorize(Roles="admin")]`.
+- **Hide cashout endpoint from non-owners.** After admin auth lands, the saga endpoint should accept either a manager JWT (any park) or a driver JWT (only their own driverId).
 - **Background balance sync worker.** Phase 2 carry-over. `IHostedService` that iterates active parks and refreshes `YandexBalanceCache` rows.
 - **Phase 4 — real BOG/TBC adapters.** Blocked on sandbox credentials from the banks (typically 2–6 weeks).
 

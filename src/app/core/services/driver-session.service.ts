@@ -1,21 +1,24 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { AuthService } from './auth.service';
 
 /**
  * Holds the "currently logged-in driver" context for the driver app.
  *
- * Until real driver-auth (Phase 8) lands, this service auto-discovers a
- * usable driver on bootstrap — first active driver in the first park that
- * has at least one bank card. That's enough to drive the cashout flow
- * end-to-end against real backend data.
+ * Priority order on bootstrap:
+ *   1. If the AuthService has a valid session (JWT-derived driverId + parkId),
+ *      load THAT driver from the backend.
+ *   2. Otherwise fall back to auto-discovery (first active driver-with-card
+ *      in any park) — a dev-only convenience so the demo still runs if you
+ *      bypass login.
  *
- * When real auth arrives, this becomes a thin wrapper over the JWT payload
- * and the auto-discovery can be deleted.
+ * Once real auth is mandatory across all routes, the fallback can be deleted.
  */
 @Injectable({ providedIn: 'root' })
 export class DriverSessionService {
   private readonly http = inject(HttpClient);
+  private readonly auth = inject(AuthService);
   private readonly base = 'http://localhost:5196/api/admin';
 
   // Reactive session state
@@ -33,8 +36,49 @@ export class DriverSessionService {
   /** Lazy bootstrap — first caller triggers the discovery, the rest await it. */
   ensureLoaded(): Promise<void> {
     if (this.bootstrapping) return this.bootstrapping;
-    this.bootstrapping = this.discover();
+    this.bootstrapping = this.bootstrap();
     return this.bootstrapping;
+  }
+
+  /** Drop cached session and re-bootstrap from current auth state. Call after login/logout. */
+  reloadForCurrentSession(): Promise<void> {
+    this.driver.set(null);
+    this.parkId.set(null);
+    this.parkName.set(null);
+    this.cards.set([]);
+    this.bootstrapping = this.bootstrap();
+    return this.bootstrapping;
+  }
+
+  private async bootstrap(): Promise<void> {
+    const claims = this.auth.session();
+    if (claims) {
+      await this.loadAuthenticatedDriver(claims.parkId, claims.driverId);
+    } else {
+      await this.discover();
+    }
+  }
+
+  private async loadAuthenticatedDriver(parkId: string, driverId: string): Promise<void> {
+    try {
+      const parks = await firstValueFrom(this.http.get<ApiPark[]>(`${this.base}/parks`));
+      const park = parks.find(p => p.id === parkId);
+      this.parkName.set(park?.name ?? null);
+
+      const resp = await firstValueFrom(
+        this.http.get<DriversResponse>(`${this.base}/parks/${parkId}/drivers`));
+      const me = resp.drivers.find(d => d.id === driverId);
+      if (me) {
+        this.parkId.set(parkId);
+        this.applyDriver(me);
+      } else {
+        this.error.set('Authenticated driver no longer found on this park.');
+      }
+    } catch (err: any) {
+      this.error.set(`Could not load your session: ${err?.message ?? err}`);
+    } finally {
+      this.loading.set(false);
+    }
   }
 
   /** Re-fetch the current driver's balance and cards (after a cashout, for instance). */
@@ -46,16 +90,7 @@ export class DriverSessionService {
     const resp = await firstValueFrom(
       this.http.get<DriversResponse>(`${this.base}/parks/${parkId}/drivers`));
     const fresh = resp.drivers.find(d => d.id === driverId);
-    if (fresh) {
-      this.driver.set({
-        id: fresh.id,
-        name: fresh.name ?? '(unnamed)',
-        yandexProfileId: fresh.yandexProfileId,
-        carPlate: fresh.yandex?.carPlate ?? null,
-        balance: fresh.yandex?.balance ?? 0,
-      });
-      this.cards.set(fresh.cards);
-    }
+    if (fresh) this.applyDriver(fresh);
   }
 
   private async discover(): Promise<void> {
@@ -71,14 +106,7 @@ export class DriverSessionService {
         if (candidate) {
           this.parkId.set(park.id);
           this.parkName.set(park.name);
-          this.driver.set({
-            id: candidate.id,
-            name: candidate.name ?? '(unnamed)',
-            yandexProfileId: candidate.yandexProfileId,
-            carPlate: candidate.yandex?.carPlate ?? null,
-            balance: candidate.yandex?.balance ?? 0,
-          });
-          this.cards.set(candidate.cards);
+          this.applyDriver(candidate);
           return;
         }
       }
@@ -88,6 +116,17 @@ export class DriverSessionService {
     } finally {
       this.loading.set(false);
     }
+  }
+
+  private applyDriver(d: ApiDriver): void {
+    this.driver.set({
+      id: d.id,
+      name: d.name ?? '(unnamed)',
+      yandexProfileId: d.yandexProfileId,
+      carPlate: d.yandex?.carPlate ?? null,
+      balance: d.yandex?.balance ?? 0,
+    });
+    this.cards.set(d.cards);
   }
 }
 

@@ -107,6 +107,9 @@ else
 // ── Cashout saga ─────────────────────────────────────────────────
 builder.Services.AddScoped<ICashoutOrchestrator, CashoutOrchestrator>();
 
+// ── Auth ─────────────────────────────────────────────────────────
+builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
 // ── CORS for Angular dev server ──────────────────────────────────
 builder.Services.AddCors(opts =>
     opts.AddDefaultPolicy(p =>
