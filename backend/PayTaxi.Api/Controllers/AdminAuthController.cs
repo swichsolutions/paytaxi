@@ -10,8 +10,11 @@ namespace PayTaxi.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/admin/auth")]
+[Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth")]
 public class AdminAuthController : ControllerBase
 {
+    private const int MaxFailedAttempts = 5;
+    private const int LockoutMinutes = 15;
     private readonly AppDbContext _db;
     private readonly IJwtTokenService _jwt;
     private readonly ILogger<AdminAuthController> _log;
@@ -37,14 +40,39 @@ public class AdminAuthController : ControllerBase
             .Include(a => a.Park)
             .FirstOrDefaultAsync(a => a.Email.ToLower() == normalisedEmail && a.IsActive, ct);
 
+        // Lockout check — but only AFTER a user lookup so unknown emails get the same delay shape.
+        if (user is not null && user.LockedUntil is not null && user.LockedUntil > DateTime.UtcNow)
+        {
+            _log.LogWarning("Admin login blocked: {Email} locked until {Until:O}", normalisedEmail, user.LockedUntil);
+            return StatusCode(StatusCodes.Status423Locked, new
+            {
+                error = "account_locked",
+                lockedUntil = user.LockedUntil,
+            });
+        }
+
         // Generic error either way — no enumeration leak.
         if (user is null || !BCrypt.Net.BCrypt.Verify(body.Password, user.PasswordHash))
         {
+            if (user is not null)
+            {
+                user.FailedLoginAttempts++;
+                if (user.FailedLoginAttempts >= MaxFailedAttempts)
+                {
+                    user.LockedUntil = DateTime.UtcNow.AddMinutes(LockoutMinutes);
+                    user.FailedLoginAttempts = 0;
+                    _log.LogWarning("Admin {Email} locked for {Minutes} minutes after repeated failures",
+                        normalisedEmail, LockoutMinutes);
+                }
+                await _db.SaveChangesAsync(ct);
+            }
             _log.LogWarning("Admin login failed for {Email}", normalisedEmail);
             return Unauthorized(new { error = "invalid_credentials" });
         }
 
         user.LastLoginAt = DateTime.UtcNow;
+        user.FailedLoginAttempts = 0;
+        user.LockedUntil = null;
         await _db.SaveChangesAsync(ct);
 
         var token = _jwt.IssueAdminToken(user.Id, user.Email, user.Role, user.ParkId);

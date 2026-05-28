@@ -1,12 +1,30 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../services/admin-mock.service';
-import { QueueCashout } from '../../mock/admin-data';
+import { AdminApiService, ApiCashout } from '../../services/admin-api.service';
+import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { CashoutStatus } from '../../../core/mock/data';
 import { ManualCashoutComponent } from './manual-cashout/manual-cashout';
 
 type StatusTab = 'all' | CashoutStatus;
 type DateRange = 'today' | 'yesterday' | 'week' | 'all';
+
+interface DisplayCashout {
+  id: string;
+  driverId: string;
+  driverName: string;
+  amount: number;
+  fee: number;
+  net: number;
+  status: CashoutStatus;
+  bankTransferId: string | null;
+  yandexTransactionId: string | null;
+  errorMessage: string | null;
+  initiatedBy: 'driver' | 'manager';
+  bankType: string;
+  maskedPan: string;
+  createdAt: Date;
+}
 
 @Component({
   selector: 'app-admin-cashouts',
@@ -15,15 +33,43 @@ type DateRange = 'today' | 'yesterday' | 'week' | 'all';
   styleUrl: './cashouts.scss',
 })
 export class CashoutsComponent {
-  svc = inject(AdminMockService);
+  svc = inject(AdminMockService); // kept for formatGel/formatRel/initials utilities
+  private api = inject(AdminApiService);
+  private parkCtx = inject(AdminParkContextService);
 
   search    = signal('');
   status    = signal<StatusTab>('all');
-  range     = signal<DateRange>('today');
+  range     = signal<DateRange>('all'); // backend returns recent rows; let server decide
   expanded  = signal<string | null>(null);
   showManualModal = signal(false);
 
-  private readonly TODAY_REF = new Date('2026-05-26T18:00:00').getTime();
+  loading = signal(true);
+  loadError = signal<string | null>(null);
+  raw = signal<ApiCashout[]>([]);
+
+  private readonly TODAY_REF = Date.now();
+
+  constructor() {
+    // Lazy-init the park context, then re-fetch whenever the selected park changes.
+    this.parkCtx.ensureLoaded();
+    effect(() => {
+      const parkId = this.parkCtx.currentParkId();
+      if (parkId) this.fetchFor(parkId);
+    });
+  }
+
+  private async fetchFor(parkId: string) {
+    this.loading.set(true);
+    this.loadError.set(null);
+    try {
+      const resp = await this.api.listCashouts(parkId, 200);
+      this.raw.set(resp.cashouts);
+    } catch (err: any) {
+      this.loadError.set(`Could not load cashouts: ${err?.message ?? err}`);
+    } finally {
+      this.loading.set(false);
+    }
+  }
 
   private inRange(d: Date): boolean {
     const ms = this.TODAY_REF - d.getTime();
@@ -35,7 +81,31 @@ export class CashoutsComponent {
     }
   }
 
-  all = computed(() => this.svc.queue());
+  /** Map backend's PascalCase status to the lowercase CashoutStatus used by the UI. */
+  private mapStatus(s: string): CashoutStatus {
+    const lower = s.toLowerCase();
+    if (lower === 'completed') return 'completed';
+    if (lower === 'failed' || lower === 'reviewrequired') return 'failed';
+    if (lower === 'processing') return 'processing';
+    return 'pending';
+  }
+
+  all = computed<DisplayCashout[]>(() => this.raw().map(c => ({
+    id: c.id,
+    driverId: c.driverId,
+    driverName: c.driverName ?? '(unnamed)',
+    amount: c.amount,
+    fee: c.fee,
+    net: c.amount - c.fee,
+    status: this.mapStatus(c.status),
+    bankTransferId: c.bankTransferId,
+    yandexTransactionId: c.yandexTransactionId,
+    errorMessage: c.failureReason,
+    initiatedBy: 'manager', // backend doesn't track this yet — TODO when InitiatedBy is exposed
+    bankType: c.bankType,
+    maskedPan: c.maskedPan,
+    createdAt: new Date(c.createdAt),
+  })));
 
   filtered = computed(() => {
     const term = this.search().trim().toLowerCase();
@@ -45,8 +115,7 @@ export class CashoutsComponent {
     if (term) {
       list = list.filter(c =>
         c.driverName.toLowerCase().includes(term) ||
-        c.id.toLowerCase().includes(term) ||
-        c.maskedPan.toLowerCase().includes(term)
+        c.id.toLowerCase().includes(term)
       );
     }
     return list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -74,17 +143,18 @@ export class CashoutsComponent {
     this.expanded.update(v => v === id ? null : id);
   }
 
-  retry(id: string, e: Event) {
+  retry(_id: string, e: Event) {
     e.stopPropagation();
-    this.svc.retryCashout(id);
+    // Backend retry endpoint not yet built — placeholder.
+    alert('Retry endpoint not implemented yet.');
   }
 
-  openManual() {
-    this.showManualModal.set(true);
-  }
-
+  openManual()  { this.showManualModal.set(true); }
   closeManual() {
     this.showManualModal.set(false);
+    // Refresh the list so the new cashout appears.
+    const parkId = this.parkCtx.currentParkId();
+    if (parkId) this.fetchFor(parkId);
   }
 
   setStatus(s: StatusTab) { this.status.set(s); }

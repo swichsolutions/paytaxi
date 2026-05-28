@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PayTaxi.Core.Interfaces;
@@ -7,6 +8,7 @@ using PayTaxi.Infrastructure.Adapters.Yandex;
 using PayTaxi.Infrastructure.Data;
 using PayTaxi.Infrastructure.Services;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -107,8 +109,33 @@ else
 // ── Cashout saga ─────────────────────────────────────────────────
 builder.Services.AddScoped<ICashoutOrchestrator, CashoutOrchestrator>();
 
+// ── Balance sync worker ──────────────────────────────────────────
+builder.Services.Configure<BalanceSyncOptions>(
+    builder.Configuration.GetSection(BalanceSyncOptions.SectionName));
+builder.Services.AddHostedService<BalanceSyncWorker>();
+
 // ── Auth ─────────────────────────────────────────────────────────
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
+
+// ── Rate limiting ────────────────────────────────────────────────
+// "auth" policy guards login / OTP endpoints. Partitioned by source IP so
+// one client can't lock everyone out; the per-identifier lockout in
+// AdminAuthController complements this by punishing specific accounts.
+//   - 10 requests per minute per IP
+//   - queue depth 0 → excess gets 429 immediately
+builder.Services.AddRateLimiter(opts =>
+{
+    opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    opts.AddPolicy("auth", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
 
 // ── CORS for Angular dev server ──────────────────────────────────
 builder.Services.AddCors(opts =>
@@ -133,6 +160,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();

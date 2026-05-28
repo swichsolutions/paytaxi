@@ -21,5 +21,11 @@ public class AdminUser : BaseEntity
     public DateTime? LastLoginAt { get; set; }
     public bool IsActive { get; set; } = true;
 
+    /// <summary>Failed-login counter; reset on success, used to trigger lockout.</summary>
+    public int FailedLoginAttempts { get; set; }
+
+    /// <summary>When set in the future, login attempts are rejected until this passes.</summary>
+    public DateTime? LockedUntil { get; set; }
+
     public Park? Park { get; set; }
 }

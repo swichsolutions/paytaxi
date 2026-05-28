@@ -22,6 +22,7 @@ namespace PayTaxi.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/driver/auth")]
+[Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
     private const int CodeExpiryMinutes = 5;

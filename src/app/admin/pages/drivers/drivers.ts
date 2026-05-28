@@ -1,11 +1,27 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../services/admin-mock.service';
-import { AdminDriver, DriverStatus } from '../../mock/admin-data';
-import { QueueCashout } from '../../mock/admin-data';
+import { AdminApiService, ApiDriver, ApiCashout } from '../../services/admin-api.service';
+import { AdminParkContextService } from '../../services/admin-park-context.service';
 
-type StatusFilter = 'all' | DriverStatus;
+type StatusFilter = 'all' | 'active' | 'inactive' | 'suspended';
 type SortKey = 'name' | 'balance' | 'lastSeen' | 'cashedOut';
+
+/** Display shape adapted from ApiDriver to satisfy the existing template. */
+interface DisplayDriver {
+  id: string;
+  name: string;
+  phone: string;
+  yandexProfileId: string;
+  status: StatusFilter;
+  balance: number;
+  totalCashedOutMonth: number;
+  cashoutCountMonth: number;
+  lastSeenAt: Date;
+  joinedAt: Date;
+  parkId: string;
+  carPlate: string;
+}
 
 @Component({
   selector: 'app-admin-drivers',
@@ -14,7 +30,9 @@ type SortKey = 'name' | 'balance' | 'lastSeen' | 'cashedOut';
   styleUrl: './drivers.scss',
 })
 export class DriversComponent {
-  svc = inject(AdminMockService);
+  svc = inject(AdminMockService); // formatters only
+  private api = inject(AdminApiService);
+  private parkCtx = inject(AdminParkContextService);
 
   search       = signal('');
   status       = signal<StatusFilter>('all');
@@ -22,7 +40,59 @@ export class DriversComponent {
   sortDir      = signal<'asc' | 'desc'>('desc');
   selectedId   = signal<string | null>(null);
 
-  drivers = computed(() => this.svc.drivers());
+  loading = signal(true);
+  loadError = signal<string | null>(null);
+  raw = signal<ApiDriver[]>([]);
+  private driverCashouts = signal<ApiCashout[]>([]);
+
+  constructor() {
+    this.parkCtx.ensureLoaded();
+    effect(() => {
+      const parkId = this.parkCtx.currentParkId();
+      if (parkId) this.fetchFor(parkId);
+    });
+  }
+
+  private async fetchFor(parkId: string) {
+    this.loading.set(true);
+    this.loadError.set(null);
+    this.selectedId.set(null);
+    try {
+      const [driversResp, cashoutsResp] = await Promise.all([
+        this.api.listDrivers(parkId),
+        this.api.listCashouts(parkId, 200),
+      ]);
+      this.raw.set(driversResp.drivers);
+      this.driverCashouts.set(cashoutsResp.cashouts);
+    } catch (err: any) {
+      this.loadError.set(`Could not load drivers: ${err?.message ?? err}`);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  drivers = computed<DisplayDriver[]>(() => {
+    const cashouts = this.driverCashouts();
+    const monthAgo = Date.now() - 30 * 24 * 3600 * 1000;
+    return this.raw().map(d => {
+      const mine = cashouts.filter(c => c.driverId === d.id);
+      const recent = mine.filter(c => new Date(c.createdAt).getTime() >= monthAgo);
+      return {
+        id: d.id,
+        name: d.name ?? '(unnamed)',
+        phone: d.yandexProfileId ?? '—', // backend doesn't expose phone yet — TODO
+        yandexProfileId: d.yandexProfileId ?? '—',
+        status: (d.status?.toLowerCase() as StatusFilter) ?? 'active',
+        balance: d.yandex?.balance ?? 0,
+        totalCashedOutMonth: recent.reduce((s, c) => s + c.amount, 0),
+        cashoutCountMonth: recent.length,
+        lastSeenAt: mine[0] ? new Date(mine[0].createdAt) : new Date(0),
+        joinedAt: new Date(0),
+        parkId: this.parkCtx.currentParkId() ?? '',
+        carPlate: d.yandex?.carPlate ?? '—',
+      };
+    });
+  });
 
   filtered = computed(() => {
     const term = this.search().trim().toLowerCase();
@@ -59,18 +129,28 @@ export class DriversComponent {
     };
   });
 
-  selected = computed<AdminDriver | null>(() => {
+  selected = computed<DisplayDriver | null>(() => {
     const id = this.selectedId();
     return id ? this.drivers().find(d => d.id === id) ?? null : null;
   });
 
-  selectedCashouts = computed<QueueCashout[]>(() => {
+  selectedCashouts = computed(() => {
     const id = this.selectedId();
     if (!id) return [];
-    return this.svc.queue()
+    return this.driverCashouts()
       .filter(c => c.driverId === id)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, 6);
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 6)
+      .map(c => ({
+        id: c.id,
+        amount: c.amount,
+        fee: c.fee,
+        net: c.amount - c.fee,
+        status: c.status.toLowerCase(),
+        bankType: c.bankType,
+        maskedPan: c.maskedPan,
+        createdAt: new Date(c.createdAt),
+      }));
   });
 
   sumThisMonth = computed(() =>
@@ -86,17 +166,10 @@ export class DriversComponent {
     }
   }
 
-  setStatus(s: StatusFilter) {
-    this.status.set(s);
-  }
+  setStatus(s: StatusFilter) { this.status.set(s); }
 
-  open(id: string) {
-    this.selectedId.set(id);
-  }
-
-  closeDetail() {
-    this.selectedId.set(null);
-  }
+  open(id: string)   { this.selectedId.set(id); }
+  closeDetail()      { this.selectedId.set(null); }
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }
   formatRel(d: Date)          { return this.svc.formatRelTime(d); }

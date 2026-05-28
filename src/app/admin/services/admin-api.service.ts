@@ -30,6 +30,21 @@ export class AdminApiService {
     return firstValueFrom(this.http.get<ApiCashoutsResponse>(
       `${this.base}/parks/${parkId}/cashouts?take=${take}`));
   }
+
+  getKpis(parkId: string): Promise<ApiKpis> {
+    return firstValueFrom(this.http.get<ApiKpis>(`${this.base}/parks/${parkId}/kpis`));
+  }
+}
+
+export interface ApiKpis {
+  park: { id: string; name: string; operatingModel: string };
+  cashoutsToday: { count: number; value: number };
+  feesToday: { value: number };
+  pendingQueue: { count: number; value: number };
+  failedToday: { count: number };
+  activeDrivers: { count: number; total: number };
+  authorizationLimit: number | null;
+  asOf: string;
 }
 
 export interface ApiPark {
@@ -109,4 +124,6 @@ export interface ApiCashout {
   failureReason: string | null;
   createdAt: string;
   completedAt: string | null;
+  bankType: string;
+  maskedPan: string;
 }

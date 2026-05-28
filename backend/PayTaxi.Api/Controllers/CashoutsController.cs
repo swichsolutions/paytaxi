@@ -16,7 +16,7 @@ namespace PayTaxi.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "admin")]
 [Route("api/admin/parks/{parkId:guid}/cashouts")]
-public class CashoutsController : ControllerBase
+public class CashoutsController : AdminControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ICashoutOrchestrator _orchestrator;
@@ -36,6 +36,8 @@ public class CashoutsController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> List(Guid parkId, [FromQuery] int take = 50, CancellationToken ct = default)
     {
+        if (!CanAccessPark(parkId)) return Forbid();
+
         take = Math.Clamp(take, 1, 200);
         var rows = await _db.Cashouts
             .AsNoTracking()
@@ -55,6 +57,8 @@ public class CashoutsController : ControllerBase
                 failureReason = c.FailureReason,
                 createdAt = c.CreatedAt,
                 completedAt = c.CompletedAt,
+                bankType = c.BankCard.BankType,
+                maskedPan = c.BankCard.MaskedPan,
             })
             .ToListAsync(ct);
 
@@ -71,6 +75,7 @@ public class CashoutsController : ControllerBase
         [FromBody] CreateCashoutRequest body,
         CancellationToken ct)
     {
+        if (!CanAccessPark(parkId)) return Forbid();
         if (body is null) return BadRequest(new { error = "missing_body" });
         if (body.DriverId == Guid.Empty) return BadRequest(new { error = "driver_id_required" });
         if (body.CardId == Guid.Empty)   return BadRequest(new { error = "card_id_required" });

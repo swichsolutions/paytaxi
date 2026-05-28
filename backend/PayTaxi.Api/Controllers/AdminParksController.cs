@@ -17,7 +17,7 @@ namespace PayTaxi.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "admin")]
 [Route("api/admin/parks/{parkId:guid}")]
-public class AdminParksController : ControllerBase
+public class AdminParksController : AdminControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IYandexFleetClient _yandex;
@@ -37,8 +37,13 @@ public class AdminParksController : ControllerBase
     [HttpGet("/api/admin/parks")]
     public async Task<IActionResult> ListParks(CancellationToken ct)
     {
-        var parks = await _db.Parks
-            .AsNoTracking()
+        var query = _db.Parks.AsNoTracking().AsQueryable();
+
+        // Park-admins only see their own park; super-admins see all.
+        var scoped = ScopedParkId;
+        if (scoped is not null) query = query.Where(p => p.Id == scoped);
+
+        var parks = await query
             .OrderBy(p => p.Name)
             .Select(p => new
             {
@@ -65,6 +70,8 @@ public class AdminParksController : ControllerBase
     [HttpGet("drivers")]
     public async Task<IActionResult> ListDrivers(Guid parkId, CancellationToken ct)
     {
+        if (!CanAccessPark(parkId)) return Forbid();
+
         var park = await _db.Parks.AsNoTracking().FirstOrDefaultAsync(p => p.Id == parkId, ct);
         if (park is null) return NotFound(new { error = "park_not_found", parkId });
 
@@ -120,6 +127,8 @@ public class AdminParksController : ControllerBase
     [HttpGet("drivers/{driverId:guid}/balance")]
     public async Task<IActionResult> GetDriverBalance(Guid parkId, Guid driverId, CancellationToken ct)
     {
+        if (!CanAccessPark(parkId)) return Forbid();
+
         var driver = await _db.Drivers.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (driver is null) return NotFound(new { error = "driver_not_found" });
@@ -143,6 +152,8 @@ public class AdminParksController : ControllerBase
     public async Task<IActionResult> GetDriverTransactions(
         Guid parkId, Guid driverId, [FromQuery] int days = 14, CancellationToken ct = default)
     {
+        if (!CanAccessPark(parkId)) return Forbid();
+
         var driver = await _db.Drivers.AsNoTracking()
             .FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (driver is null) return NotFound(new { error = "driver_not_found" });
@@ -161,9 +172,72 @@ public class AdminParksController : ControllerBase
     /// rate limiter, retry policy and audit log) with parallel requests.
     /// Returns timing data so you can see the 0.5s spacing in action.
     /// </summary>
+    /// <summary>
+    /// Headline KPIs for the admin overview page. Single round-trip aggregation
+    /// over Cashouts + Drivers for the given park.
+    /// </summary>
+    [HttpGet("kpis")]
+    public async Task<IActionResult> Kpis(Guid parkId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var park = await _db.Parks.AsNoTracking().FirstOrDefaultAsync(p => p.Id == parkId, ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        var now = DateTime.UtcNow;
+        var dayStart = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc);
+
+        // All park cashouts grouped by date bucket in one query.
+        var todayCashouts = await _db.Cashouts
+            .AsNoTracking()
+            .Where(c => c.ParkId == parkId && c.CreatedAt >= dayStart)
+            .Select(c => new { c.Status, c.Amount, c.Fee })
+            .ToListAsync(ct);
+
+        var completedToday = todayCashouts.Where(c => c.Status == Core.Enums.CashoutStatus.Completed).ToList();
+        var pendingToday   = todayCashouts.Where(c =>
+            c.Status == Core.Enums.CashoutStatus.Queued ||
+            c.Status == Core.Enums.CashoutStatus.Processing).ToList();
+        var failedToday    = todayCashouts.Where(c =>
+            c.Status == Core.Enums.CashoutStatus.Failed ||
+            c.Status == Core.Enums.CashoutStatus.ReviewRequired).ToList();
+
+        var driverCounts = await _db.Drivers
+            .AsNoTracking()
+            .Where(d => d.ParkId == parkId)
+            .GroupBy(d => d.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync(ct);
+
+        var activeDrivers = driverCounts.FirstOrDefault(d => d.Status == Core.Enums.DriverStatus.Active)?.Count ?? 0;
+        var totalDrivers = driverCounts.Sum(d => d.Count);
+
+        return Ok(new
+        {
+            park = new { id = park.Id, name = park.Name, operatingModel = park.OperatingModel.ToString() },
+            cashoutsToday = new
+            {
+                count = completedToday.Count,
+                value = completedToday.Sum(c => c.Amount),
+            },
+            feesToday = new { value = completedToday.Sum(c => c.Fee) },
+            pendingQueue = new
+            {
+                count = pendingToday.Count,
+                value = pendingToday.Sum(c => c.Amount),
+            },
+            failedToday = new { count = failedToday.Count },
+            activeDrivers = new { count = activeDrivers, total = totalDrivers },
+            authorizationLimit = park.AuthorizationLimit, // null for Model A
+            asOf = now,
+        });
+    }
+
     [HttpGet("smoke-test")]
     public async Task<IActionResult> SmokeTest(Guid parkId, CancellationToken ct)
     {
+        if (!CanAccessPark(parkId)) return Forbid();
+
         var startedAt = DateTime.UtcNow;
         var sw = System.Diagnostics.Stopwatch.StartNew();
 

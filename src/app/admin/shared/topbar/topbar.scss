@@ -237,3 +237,216 @@
   .topbar__crumb--root { display: none; }
   .topbar__crumb-sep   { display: none; }
 }
+
+.topbar__center {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+.topbar__park-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px 6px 12px;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  background: #fafbfc;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color .15s;
+
+  &:hover { border-color: var(--color-brand, #FFB800); }
+}
+
+.topbar__park-picker-label {
+  color: #6b7280;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+}
+
+.topbar__park-picker-select {
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  outline: none;
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+}
+
+.topbar__park-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid var(--admin-border);
+  border-radius: 999px;
+  background: #fafbfc;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+// ── Account menu dropdown ─────────────────────────────────────────
+.topbar__user-wrap {
+  position: relative;
+}
+
+.topbar__user--open {
+  background: var(--admin-surface);
+  border-color: var(--admin-border);
+
+  .topbar__user-caret { transform: rotate(180deg); }
+}
+
+.topbar__user-caret {
+  transition: transform .15s ease;
+}
+
+.acct-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+}
+
+.acct-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: 14px;
+  box-shadow:
+    0 24px 48px -16px rgba(15, 27, 45, 0.18),
+    0 8px 16px -6px rgba(15, 27, 45, 0.08),
+    0 0 0 1px rgba(15, 27, 45, 0.02);
+  z-index: 50;
+  overflow: hidden;
+  animation: acct-in .14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes acct-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+// Dark navy header with amber accent — matches admin palette
+.acct-menu__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  background: var(--color-dark, #0F1B2D);
+  background-image:
+    var(--dark-texture, none),
+    linear-gradient(135deg, #1A2E47 0%, var(--color-dark, #0F1B2D) 100%);
+  color: #fff;
+}
+
+.acct-menu__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--color-brand, #FFB800);
+  color: var(--color-dark, #0F1B2D);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(255, 184, 0, 0.3);
+}
+
+.acct-menu__head-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.acct-menu__name {
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acct-menu__email {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.acct-menu__role-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--admin-border);
+}
+
+.acct-menu__role-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text-3, #9ca3af);
+  flex-shrink: 0;
+
+  &--super {
+    background: var(--color-brand, #FFB800);
+    box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.15);
+  }
+}
+
+.acct-menu__role-text {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-2, #4b5563);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.acct-menu__divider {
+  display: none; // header + role-row already create separation
+}
+
+.acct-menu__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-text, #1f2937);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+
+  svg { width: 17px; height: 17px; flex-shrink: 0; }
+
+  &:hover { background: var(--admin-surface, #f3f4f6); }
+
+  &--danger {
+    color: #b91c1c;
+    &:hover { background: #fef2f2; color: #991b1b; }
+  }
+}

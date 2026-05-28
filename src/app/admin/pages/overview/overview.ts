@@ -1,6 +1,18 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
+import { AdminApiService, ApiCashout, ApiKpis } from '../../services/admin-api.service';
+import { AdminParkContextService } from '../../services/admin-park-context.service';
+
+interface FailedRow {
+  id: string;
+  driverName: string;
+  amount: number;
+  errorMessage: string | null;
+  bankType: string;
+  maskedPan: string;
+  createdAt: Date;
+}
 
 @Component({
   selector: 'app-admin-overview',
@@ -9,16 +21,97 @@ import { AdminMockService } from '../../services/admin-mock.service';
   styleUrl: './overview.scss',
 })
 export class OverviewComponent {
-  svc = inject(AdminMockService);
+  svc = inject(AdminMockService); // hourly chart + activity feed still mock
+  private api = inject(AdminApiService);
+  private parkCtx = inject(AdminParkContextService);
 
-  kpis        = computed(() => this.svc.kpis());
-  floatStatus = computed(() => this.svc.floatStatus());
-  hourly      = computed(() => this.svc.hourlyVolume());
-  activity    = computed(() => this.svc.activity().slice(0, 8));
-  failed      = computed(() => this.svc.cashoutsByStatus('failed'));
-  pending     = computed(() => this.svc.cashoutsByStatus('pending'));
+  loading = signal(true);
+  loadError = signal<string | null>(null);
+  kpisRaw = signal<ApiKpis | null>(null);
+  private cashoutsRaw = signal<ApiCashout[]>([]);
 
-  // Bar chart geometry helpers
+  constructor() {
+    this.parkCtx.ensureLoaded();
+    effect(() => {
+      const parkId = this.parkCtx.currentParkId();
+      if (parkId) this.fetchFor(parkId);
+    });
+  }
+
+  private async fetchFor(parkId: string) {
+    this.loading.set(true);
+    this.loadError.set(null);
+    try {
+      const [kpis, cashouts] = await Promise.all([
+        this.api.getKpis(parkId),
+        this.api.listCashouts(parkId, 50),
+      ]);
+      this.kpisRaw.set(kpis);
+      this.cashoutsRaw.set(cashouts.cashouts);
+    } catch (err: any) {
+      this.loadError.set(`Could not load overview: ${err?.message ?? err}`);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  // Adapted to keep the existing template happy (it expects the mock-shape).
+  // deltaPct/hourly/activity stay 0 / mocked — visible follow-up.
+  kpis = computed(() => {
+    const k = this.kpisRaw();
+    return {
+      cashoutsToday:      { count: k?.cashoutsToday.count ?? 0, value: k?.cashoutsToday.value ?? 0, deltaPct: 0 },
+      feesCollectedToday: { value: k?.feesToday.value ?? 0,    deltaPct: 0 },
+      pendingQueue:       { count: k?.pendingQueue.count ?? 0,  value: k?.pendingQueue.value ?? 0 },
+      failedToday:        { count: k?.failedToday.count ?? 0 },
+      activeDriversToday: { count: k?.activeDrivers.count ?? 0, total: k?.activeDrivers.total ?? 0 },
+    };
+  });
+
+  // Float card now shows Model A.5's authorizationLimit (or hidden block for Model A).
+  // usedPct = how much of the limit has been spent today.
+  floatStatus = computed(() => {
+    const k = this.kpisRaw();
+    const limit = k?.authorizationLimit ?? null;
+    const spentToday = k?.cashoutsToday.value ?? 0;
+    return {
+      hasLimit: limit !== null,
+      balance:  limit ?? 0,                         // remaining authorization
+      target:   limit !== null ? limit + spentToday : 0, // starting authorization
+      minimum:  limit !== null ? (limit + spentToday) * 0.2 : 0,
+      usedPct:  limit !== null && (limit + spentToday) > 0
+        ? (spentToday / (limit + spentToday)) * 100
+        : 0,
+      lowFloat: limit !== null && limit < (k?.pendingQueue.value ?? 0) * 2,
+    };
+  });
+
+  operatingModel = computed(() => this.kpisRaw()?.park.operatingModel ?? '');
+
+  failed = computed<FailedRow[]>(() =>
+    this.cashoutsRaw()
+      .filter(c => c.status === 'Failed' || c.status === 'ReviewRequired')
+      .slice(0, 8)
+      .map(c => ({
+        id: c.id,
+        driverName: c.driverName ?? '(unnamed)',
+        amount: c.amount,
+        errorMessage: c.failureReason,
+        bankType: c.bankType,
+        maskedPan: c.maskedPan,
+        createdAt: new Date(c.createdAt),
+      }))
+  );
+
+  pending = computed(() =>
+    this.cashoutsRaw().filter(c => c.status === 'Queued' || c.status === 'Processing')
+  );
+
+  // Hourly chart + activity feed stay on mock for now (need new endpoints).
+  hourly   = computed(() => this.svc.hourlyVolume());
+  activity = computed(() => this.svc.activity().slice(0, 8));
+
+  // Bar chart geometry helpers (unchanged)
   readonly chartH = 80;
   readonly chartW = 280;
 
@@ -41,12 +134,10 @@ export class OverviewComponent {
     return Math.max(2, (value / this.maxHourly()) * this.chartH);
   }
 
-  todayTotal = computed(() =>
-    this.hourly().reduce((s, h) => s + h.value, 0)
-  );
+  todayTotal = computed(() => this.kpisRaw()?.cashoutsToday.value ?? 0);
 
-  retry(id: string) {
-    this.svc.retryCashout(id);
+  retry(_id: string) {
+    alert('Retry endpoint not implemented yet.');
   }
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }

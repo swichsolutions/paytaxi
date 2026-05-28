@@ -1,21 +1,43 @@
-import { Component, computed, inject, output } from '@angular/core';
+import { Component, OnInit, computed, inject, output, signal } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { FormsModule } from '@angular/forms';
 import { filter, map, startWith } from 'rxjs';
 import { AdminAuthService } from '../../services/admin-auth.service';
+import { AdminParkContextService } from '../../services/admin-park-context.service';
 
 @Component({
   selector: 'app-admin-topbar',
+  imports: [FormsModule],
   templateUrl: './topbar.html',
   styleUrl: './topbar.scss',
 })
-export class AdminTopbarComponent {
+export class AdminTopbarComponent implements OnInit {
   toggle = output<void>();
 
   private router = inject(Router);
   private auth = inject(AdminAuthService);
+  readonly parkCtx = inject(AdminParkContextService);
 
   readonly admin = computed(() => this.auth.admin());
+
+  menuOpen = signal(false);
+
+  ngOnInit() {
+    this.parkCtx.ensureLoaded();
+  }
+
+  onParkChange(parkId: string) {
+    this.parkCtx.setCurrentPark(parkId);
+  }
+
+  toggleMenu() {
+    this.menuOpen.update(v => !v);
+  }
+
+  closeMenu() {
+    this.menuOpen.set(false);
+  }
 
   readonly adminName = computed(() => this.admin()?.name ?? this.admin()?.email ?? 'Admin');
   readonly adminRole = computed(() => {
@@ -53,6 +75,7 @@ export class AdminTopbarComponent {
   }
 
   logout() {
+    this.menuOpen.set(false);
     this.auth.logout();
     this.router.navigate(['/admin/login']);
   }

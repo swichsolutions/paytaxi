@@ -16,17 +16,23 @@
     </div>
   </div>
 
-  <div class="topbar__search">
-    <svg class="topbar__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="7"/>
-      <line x1="20" y1="20" x2="16.5" y2="16.5"/>
-    </svg>
-    <input
-      type="text"
-      placeholder="Search drivers, cashouts, transaction id…"
-      class="topbar__search-input"
-    />
-    <kbd class="topbar__search-kbd">/</kbd>
+  <div class="topbar__center">
+    @if (parkCtx.canSwitchPark()) {
+      <label class="topbar__park-picker">
+        <span class="topbar__park-picker-label">Park</span>
+        <select
+          class="topbar__park-picker-select"
+          [ngModel]="parkCtx.currentParkId()"
+          (ngModelChange)="onParkChange($event)"
+        >
+          @for (p of parkCtx.parks(); track p.id) {
+            <option [value]="p.id">{{ p.name }}</option>
+          }
+        </select>
+      </label>
+    } @else if (parkCtx.currentPark(); as p) {
+      <span class="topbar__park-badge">{{ p.name }}</span>
+    }
   </div>
 
   <div class="topbar__right">
@@ -40,15 +46,55 @@
 
     <div class="topbar__divider"></div>
 
-    <button class="topbar__user" (click)="logout()" aria-label="Logout">
-      <div class="topbar__avatar">{{ adminInitials() }}</div>
-      <div class="topbar__user-meta">
-        <span class="topbar__user-name">{{ adminName() }}</span>
-        <span class="topbar__user-role">{{ adminRole() }}</span>
-      </div>
-      <svg class="topbar__user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="6 9 12 15 18 9"/>
-      </svg>
-    </button>
+    <div class="topbar__user-wrap">
+      <button
+        class="topbar__user"
+        [class.topbar__user--open]="menuOpen()"
+        (click)="toggleMenu()"
+        aria-label="Account menu"
+        [attr.aria-expanded]="menuOpen()"
+      >
+        <div class="topbar__avatar">{{ adminInitials() }}</div>
+        <div class="topbar__user-meta">
+          <span class="topbar__user-name">{{ adminName() }}</span>
+          <span class="topbar__user-role">{{ adminRole() }}</span>
+        </div>
+        <svg class="topbar__user-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      @if (menuOpen()) {
+        <div class="acct-backdrop" (click)="closeMenu()"></div>
+        <div class="acct-menu" role="menu">
+          <div class="acct-menu__header">
+            <div class="acct-menu__avatar">{{ adminInitials() }}</div>
+            <div class="acct-menu__head-text">
+              <div class="acct-menu__name">{{ adminName() }}</div>
+              @if (admin()?.email && adminName() !== admin()?.email) {
+                <div class="acct-menu__email">{{ admin()?.email }}</div>
+              }
+            </div>
+          </div>
+
+          <div class="acct-menu__role-row">
+            <span class="acct-menu__role-dot"
+                  [class.acct-menu__role-dot--super]="admin()?.role === 'super_admin'"></span>
+            <span class="acct-menu__role-text">{{ adminRole() }}</span>
+          </div>
+
+          <div class="acct-menu__divider"></div>
+
+          <button class="acct-menu__item acct-menu__item--danger" (click)="logout()" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span>Sign out</span>
+          </button>
+        </div>
+      }
+    </div>
   </div>
 </header>

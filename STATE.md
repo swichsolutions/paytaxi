@@ -19,14 +19,17 @@
 - **Real driver auth (phone + OTP → JWT).** New `POST /api/driver/auth/{request-otp,verify-otp}` endpoints; OTP stored as SHA-256 with 5-min expiry and 5-attempt cap. JWT carries `sub=driverId`, `parkId`, `phoneHash`, `role=driver`. Frontend `AuthService` keeps the token in `localStorage`, an HTTP interceptor adds `Authorization: Bearer` to all backend calls, and an `authGuard` redirects unauthenticated users from `/dashboard|cashout|history|profile` to `/login`. `DriverSessionService` now boots from JWT claims when present; auto-discovery is the fallback for demo convenience only. Dev OTP returned in the request-otp response (and logged to backend) until SMS gateway is wired in Phase 8.
 - **Real admin auth (email + password → JWT).** New `AdminUser` entity + `AddAdminUsers` migration. Seed creates one super-admin (`ops@swich.dev` / `swich2026!`) and one park-admin per park (`manager@{slug}.local` / `park{N}!`). `POST /api/admin/auth/login` returns a JWT with `role=admin`, `adminScope={super_admin|park_admin}`, `sub=adminUserId`, optional `parkId`. Frontend `AdminAuthService` keeps tokens in separate `localStorage` keys (so a tab can be logged in as driver and admin independently). HTTP interceptor became URL-aware — picks admin token for `/api/admin/*`, driver token for `/api/driver/*`. `adminAuthGuard` redirects unauthenticated visitors to `/admin/login`. Admin topbar shows the real admin name + role from the JWT; user-pill triggers logout.
 - **Driver-scoped endpoints + locked-down admin endpoints.** New `DriverController` at `/api/driver/{me,me/cashouts,cashouts}` derives `driverId` + `parkId` from the JWT — clients cannot tamper with URL/body to fetch another driver's data. Driver app migrated off `/api/admin/*` entirely. Admin controllers (`AdminParksController`, `CashoutsController`) now carry `[Authorize(Roles="admin")]`. Interceptor cross-fallback dropped — strict per-scope routing. Server-side verified: unauthenticated `/api/admin/*` returns 401; driver token on admin endpoint returns 403; unauthenticated `/api/driver/*` returns 401.
+- **Auth hardening.** Park-admin scope enforcement via `AdminControllerBase.CanAccessPark` — super-admins see all, park-admins only their own park; cross-park access returns 403. Login rate-limiting (10/min per IP, ASP.NET built-in middleware) on `/api/admin/auth/login`, `/api/driver/auth/{request-otp,verify-otp}`. AdminUser lockout after 5 failed attempts within 15 minutes (`FailedLoginAttempts`, `LockedUntil` columns + `AddAdminUserLockout` migration; returns HTTP 423 when locked).
+- **Background balance sync worker.** `BalanceSyncWorker : BackgroundService` runs every 60s in dev (300s default), iterates active parks, fetches Yandex driver profiles via the resilient client (rate-limit + retry + audit applied automatically), upserts `YandexBalanceCache` rows. Opens its own DI scope per tick so it never collides with request-scoped DbContexts. Configurable via `BalanceSync:{Enabled,IntervalSeconds,InitialDelaySeconds}`.
+- **Admin console wired to backend.** `AdminParkContextService` holds current parkId (park-admin forced to their own park, super-admin defaults to first and can switch via topbar dropdown). `/admin/cashouts` list, `/admin/drivers` list+drawer, and `/admin/overview` KPIs all read real backend data. `CashoutsController.List` extended to return bank type + masked PAN. New `GET /api/admin/parks/{id}/kpis` aggregates cashouts today/fees today/pending/failed/active drivers + authorizationLimit. Float card on overview now reflects Model A.5 authorization (with spent-today meter) or shows Model A placeholder. Admin topbar replaced "Nika Maisuradze" placeholder with real session name + role; user-pill now opens a polished dropdown with dark-navy header + amber avatar instead of logging out instantly.
 
 ---
 
 ## Last thing we worked on
 
-Driver-scoped endpoints + admin endpoint lockdown shipped. The driver app no longer touches `/api/admin/*` for anything. Admin endpoints reject non-admin tokens (verified live: 401 without token, 403 with driver token). Driver endpoints reject unauthenticated callers (401).
+Big consolidated slice: park-admin scope, login rate-limit/lockout, balance sync worker, full admin console wiring, KPI endpoint, polished topbar dropdown. Verified live across all three parks — Model A.5 admin overview shows real authorization remaining (124,885 GEL on Tbilisi #3 after this session's saga runs), Model A shows the bank-balance placeholder, the park switcher refreshes the page on change.
 
-The auth story is now end-to-end: both halves have real login, real JWTs, real backend enforcement.
+Admin console pages now all backend-backed except `/admin/onboarding` (still mock — needs a POST endpoint for driver create) and the activity feed + hourly chart on overview (need separate endpoints).
 
 Current park lineup in DB:
 
@@ -42,11 +45,12 @@ Current park lineup in DB:
 
 Phase 3 + Option C complete. Natural next steps, in roughly increasing scope:
 
-- **Park-admin scope enforcement.** Today a park-admin JWT can hit any park's endpoints (no per-park gate enforced). Apply a filter so park-admins only see their own `parkId`.
-- **Login hardening.** Rate-limit `/api/admin/auth/login` and `/api/driver/auth/{request-otp,verify-otp}` per IP and per identifier. Account lockout after N failed login attempts.
-- **Background balance sync worker.** Phase 2 carry-over. `IHostedService` that iterates active parks and refreshes `YandexBalanceCache` rows.
+- **Cashout retry endpoint.** Admin "Retry" button currently alerts a placeholder. Add `POST /api/admin/parks/{parkId}/cashouts/{id}/retry` that re-runs the saga (new idempotency key, only allowed when status=Failed).
+- **Activity feed + hourly chart endpoints.** Overview still uses mock for those two cards — they need real backend feeds.
+- **Wire `/admin/onboarding`.** Add `POST /api/admin/parks/{parkId}/drivers` (driver create with phone + Yandex profile id + name) and switch the stepper off mock.
 - **Real SMS sender.** `ISmsSender` interface + provider implementation; remove `devCode` from request-otp response.
 - **Phase 4 — real BOG/TBC adapters.** Blocked on sandbox credentials from the banks (typically 2–6 weeks).
+- **Remove `/smoke-test`** endpoint before prod.
 
 Other known small issues:
 - **Double-click protection at the operator level.** Modal UUID dedups same-instance retries, but a different modal open generates a new UUID — no guard against "you already cashed out to this driver 30 seconds ago".
