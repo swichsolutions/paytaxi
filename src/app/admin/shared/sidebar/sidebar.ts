@@ -26,7 +26,7 @@ export class AdminSidebarComponent {
 
   secondary: NavItem[] = [
     { path: '/admin/reconciliation', label: 'Reconciliation', icon: 'reconcile' },
-    { path: '/admin/reports',        label: 'Reports',        icon: 'reports',  tag: 'Soon' },
+    { path: '/admin/reports',        label: 'Reports',        icon: 'reports' },
     { path: '/admin/settings',       label: 'Settings',       icon: 'settings', tag: 'Soon' },
   ];
 }

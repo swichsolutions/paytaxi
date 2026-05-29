@@ -73,6 +73,10 @@ export const routes: Routes = [
         path: 'reconciliation',
         loadComponent: () => import('./admin/pages/reconciliation/reconciliation').then(m => m.ReconciliationComponent),
       },
+      {
+        path: 'reports',
+        loadComponent: () => import('./admin/pages/reports/reports').then(m => m.ReportsComponent),
+      },
     ],
   },
 

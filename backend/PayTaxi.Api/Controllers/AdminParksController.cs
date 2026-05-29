@@ -354,6 +354,123 @@ public class AdminParksController : AdminControllerBase
     }
 
     /// <summary>
+    /// Financial-report data for the park over an arbitrary window.
+    /// Returns headline tiles, day-by-day breakdown, and top drivers in one round trip
+    /// so the frontend renders the whole page from a single fetch.
+    /// </summary>
+    [HttpGet("reports")]
+    public async Task<IActionResult> Reports(
+        Guid parkId,
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] int topDrivers = 10,
+        CancellationToken ct = default)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var now = DateTime.UtcNow;
+        var windowTo   = (to   ?? now).ToUniversalTime();
+        var windowFrom = (from ?? now.AddDays(-7)).ToUniversalTime();
+        if (windowFrom >= windowTo)
+            return BadRequest(new { error = "invalid_window", message = "`from` must be earlier than `to`." });
+
+        topDrivers = Math.Clamp(topDrivers, 1, 50);
+
+        var cashouts = await _db.Cashouts
+            .AsNoTracking()
+            .Where(c => c.ParkId == parkId
+                     && c.CreatedAt >= windowFrom
+                     && c.CreatedAt <  windowTo)
+            .Select(c => new
+            {
+                c.Id,
+                c.DriverId,
+                DriverName = c.Driver.Name,
+                c.BankCard.BankType,
+                c.Amount,
+                c.Fee,
+                c.Status,
+                c.CreatedAt,
+                c.CompletedAt,
+            })
+            .ToListAsync(ct);
+
+        var completed = cashouts.Where(c => c.Status == Core.Enums.CashoutStatus.Completed).ToList();
+        var failed = cashouts.Where(c =>
+            c.Status == Core.Enums.CashoutStatus.Failed ||
+            c.Status == Core.Enums.CashoutStatus.ReviewRequired).ToList();
+
+        var summary = new
+        {
+            count = completed.Count,
+            value = completed.Sum(c => c.Amount),
+            fees  = completed.Sum(c => c.Fee),
+            net   = completed.Sum(c => c.Amount - c.Fee),
+            failedCount = failed.Count,
+            attempted   = cashouts.Count,
+            successRate = cashouts.Count == 0 ? 0m
+                : Math.Round((decimal)completed.Count / cashouts.Count * 100m, 1),
+            uniqueDrivers = completed.Select(c => c.DriverId).Distinct().Count(),
+        };
+
+        // Daily breakdown — one row per day in [from, to). Drives the table + chart.
+        var startDay = new DateTime(windowFrom.Year, windowFrom.Month, windowFrom.Day, 0, 0, 0, DateTimeKind.Utc);
+        var endDay   = new DateTime(windowTo.Year,   windowTo.Month,   windowTo.Day,   0, 0, 0, DateTimeKind.Utc);
+        // If windowTo carries time-of-day, include the partial day at the end.
+        if (windowTo > endDay) endDay = endDay.AddDays(1);
+
+        var daily = new List<DailyRow>();
+        for (var d = startDay; d < endDay; d = d.AddDays(1))
+        {
+            var next = d.AddDays(1);
+            var inDay = completed.Where(c => c.CreatedAt >= d && c.CreatedAt < next).ToList();
+            var failedInDay = failed.Where(c => c.CreatedAt >= d && c.CreatedAt < next).ToList();
+            daily.Add(new DailyRow(
+                Date: d,
+                CashoutsCount: inDay.Count,
+                Value: inDay.Sum(c => c.Amount),
+                Fees: inDay.Sum(c => c.Fee),
+                FailedCount: failedInDay.Count));
+        }
+
+        var topByDriver = completed
+            .GroupBy(c => new { c.DriverId, c.DriverName })
+            .Select(g => new
+            {
+                driverId = g.Key.DriverId,
+                driverName = g.Key.DriverName,
+                cashoutsCount = g.Count(),
+                totalValue = g.Sum(c => c.Amount),
+                totalFees  = g.Sum(c => c.Fee),
+            })
+            .OrderByDescending(r => r.totalValue)
+            .Take(topDrivers)
+            .ToList();
+
+        var byBank = completed
+            .GroupBy(c => c.BankType)
+            .Select(g => new
+            {
+                bankType = g.Key,
+                cashoutsCount = g.Count(),
+                value = g.Sum(c => c.Amount),
+            })
+            .OrderByDescending(g => g.value)
+            .ToList();
+
+        return Ok(new
+        {
+            parkId,
+            windowFrom,
+            windowTo,
+            summary,
+            daily,
+            topDrivers = topByDriver,
+            byBank,
+        });
+    }
+
+    /// <summary>
     /// Look up a Yandex driver profile when onboarding. Hits the resilient client
     /// (rate-limited + retried + audit-logged) for the park's profiles and filters
     /// by <paramref name="profileId"/>.
@@ -539,3 +656,10 @@ public record HourBucket(
     string Hour,
     decimal Value,
     int Count);
+
+public record DailyRow(
+    DateTime Date,
+    int CashoutsCount,
+    decimal Value,
+    decimal Fees,
+    int FailedCount);

@@ -84,6 +84,48 @@ export class AdminApiService {
       `${this.base}/parks/${parkId}/reconciliation/discrepancies/${id}/resolve`,
       { notes }));
   }
+
+  // ── Reports ───────────────────────────────────────────────────────
+  getReport(parkId: string, fromIso: string, toIso: string, topDrivers = 10): Promise<ApiReport> {
+    const q = new URLSearchParams({ from: fromIso, to: toIso, topDrivers: String(topDrivers) }).toString();
+    return firstValueFrom(this.http.get<ApiReport>(
+      `${this.base}/parks/${parkId}/reports?${q}`));
+  }
+}
+
+export interface ApiReport {
+  parkId: string;
+  windowFrom: string;
+  windowTo: string;
+  summary: {
+    count: number;
+    value: number;
+    fees: number;
+    net: number;
+    failedCount: number;
+    attempted: number;
+    successRate: number;
+    uniqueDrivers: number;
+  };
+  daily: Array<{
+    date: string;
+    cashoutsCount: number;
+    value: number;
+    fees: number;
+    failedCount: number;
+  }>;
+  topDrivers: Array<{
+    driverId: string;
+    driverName: string | null;
+    cashoutsCount: number;
+    totalValue: number;
+    totalFees: number;
+  }>;
+  byBank: Array<{
+    bankType: string;
+    cashoutsCount: number;
+    value: number;
+  }>;
 }
 
 export interface ApiRecRunsResponse {

@@ -1,0 +1,175 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">Reports</h1>
+      <p class="page-head__sub">
+        Cashouts, fees and driver activity for the selected window.
+      </p>
+    </div>
+    <div class="page-head__actions">
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+          <path d="M21 3v5h-5"/>
+        </svg>
+        <span>Refresh</span>
+      </button>
+      <button class="btn-admin btn-admin--brand" (click)="exportCsv()" [disabled]="!report()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        <span>Export CSV</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Range picker -->
+  <section class="rng">
+    <div class="rng__presets">
+      <button class="rng__btn" [class.rng__btn--active]="preset() === 'today'" (click)="setPreset('today')">Today</button>
+      <button class="rng__btn" [class.rng__btn--active]="preset() === 'week'"  (click)="setPreset('week')">Last 7 days</button>
+      <button class="rng__btn" [class.rng__btn--active]="preset() === 'month'" (click)="setPreset('month')">This month</button>
+      <button class="rng__btn" [class.rng__btn--active]="preset() === '30d'"   (click)="setPreset('30d')">Last 30 days</button>
+      <button class="rng__btn" [class.rng__btn--active]="preset() === 'custom'" (click)="setPreset('custom')">Custom</button>
+    </div>
+    @if (preset() === 'custom') {
+      <div class="rng__custom">
+        <label>
+          <span>From</span>
+          <input
+            type="date"
+            [value]="customFrom()"
+            (change)="customFrom.set($any($event.target).value); refresh()"
+          />
+        </label>
+        <label>
+          <span>To</span>
+          <input
+            type="date"
+            [value]="customTo()"
+            (change)="customTo.set($any($event.target).value); refresh()"
+          />
+        </label>
+      </div>
+    }
+    @if (report()) {
+      <span class="rng__range">{{ formatRange() }}</span>
+    }
+  </section>
+
+  @if (loadError()) {
+    <div class="rpt-error">{{ loadError() }}</div>
+  }
+
+  @if (report(); as r) {
+    <!-- KPI tiles -->
+    <section class="rpt-tiles">
+      <div class="rpt-tile">
+        <span class="rpt-tile__label">Cashouts</span>
+        <span class="rpt-tile__value">{{ r.summary.count }}</span>
+        <span class="rpt-tile__sub gel">{{ formatGel(r.summary.value, 0) }} total</span>
+      </div>
+      <div class="rpt-tile">
+        <span class="rpt-tile__label">Fees collected</span>
+        <span class="rpt-tile__value gel">{{ formatGel(r.summary.fees, 2) }}</span>
+        <span class="rpt-tile__sub">park revenue</span>
+      </div>
+      <div class="rpt-tile">
+        <span class="rpt-tile__label">Drivers served</span>
+        <span class="rpt-tile__value">{{ r.summary.uniqueDrivers }}</span>
+        <span class="rpt-tile__sub">unique in window</span>
+      </div>
+      <div class="rpt-tile" [class.rpt-tile--ok]="r.summary.successRate >= 95" [class.rpt-tile--warn]="r.summary.successRate < 95">
+        <span class="rpt-tile__label">Success rate</span>
+        <span class="rpt-tile__value">{{ r.summary.successRate }}%</span>
+        <span class="rpt-tile__sub">{{ r.summary.failedCount }} failed of {{ r.summary.attempted }}</span>
+      </div>
+    </section>
+
+    <!-- Daily breakdown -->
+    <section class="rpt-card">
+      <header class="rpt-card__head">
+        <h2>Daily breakdown</h2>
+        <span class="rpt-card__hint">{{ r.daily.length }} days</span>
+      </header>
+
+      <div class="rpt-daily-head">
+        <span>Day</span>
+        <span class="num">Cashouts</span>
+        <span class="num">Value</span>
+        <span class="num">Fees</span>
+        <span class="num">Failed</span>
+        <span class="rpt-daily-head__bar">Distribution</span>
+      </div>
+
+      @for (d of r.daily; track d.date) {
+        <div class="rpt-daily-row" [class.rpt-daily-row--empty]="d.cashoutsCount === 0">
+          <span class="rpt-daily-row__date">{{ formatDate(d.date) }}</span>
+          <span class="num">{{ d.cashoutsCount }}</span>
+          <span class="num gel">{{ formatGel(d.value, 0) }}</span>
+          <span class="num gel">{{ formatGel(d.fees, 2) }}</span>
+          <span class="num" [class.num--alert]="d.failedCount > 0">{{ d.failedCount }}</span>
+          <div class="rpt-daily-row__bar">
+            @if (d.value > 0) {
+              <div class="rpt-daily-row__fill" [style.width]="barWidth(d.value)"></div>
+            }
+          </div>
+        </div>
+      }
+    </section>
+
+    <div class="rpt-grid">
+      <!-- Top drivers -->
+      <section class="rpt-card">
+        <header class="rpt-card__head">
+          <h2>Top drivers by volume</h2>
+          <span class="rpt-card__hint">top {{ r.topDrivers.length }}</span>
+        </header>
+        <div class="rpt-driver-list">
+          @for (d of r.topDrivers; track d.driverId; let i = $index) {
+            <div class="rpt-driver-row">
+              <span class="rpt-driver-row__rank">{{ i + 1 }}</span>
+              <span class="rpt-driver-row__avatar">{{ initials(d.driverName) }}</span>
+              <div class="rpt-driver-row__main">
+                <span class="rpt-driver-row__name">{{ d.driverName ?? '(unnamed)' }}</span>
+                <span class="rpt-driver-row__meta">{{ d.cashoutsCount }} cashout(s) · fee {{ formatGel(d.totalFees, 2) }}</span>
+              </div>
+              <span class="rpt-driver-row__value gel">{{ formatGel(d.totalValue, 0) }}</span>
+            </div>
+          }
+          @if (r.topDrivers.length === 0) {
+            <div class="rpt-empty">No completed cashouts in this window.</div>
+          }
+        </div>
+      </section>
+
+      <!-- By bank -->
+      <section class="rpt-card">
+        <header class="rpt-card__head">
+          <h2>By bank</h2>
+        </header>
+        <div class="rpt-bank-list">
+          @for (b of r.byBank; track b.bankType) {
+            <div class="rpt-bank-row">
+              <div class="rpt-bank-row__chip" [attr.data-bank]="b.bankType">{{ b.bankType }}</div>
+              <div class="rpt-bank-row__main">
+                <span class="rpt-bank-row__count">{{ b.cashoutsCount }} cashouts</span>
+                <div class="rpt-bank-row__bar">
+                  @if (r.summary.value > 0) {
+                    <div class="rpt-bank-row__fill" [style.width.%]="(b.value / r.summary.value) * 100"></div>
+                  }
+                </div>
+              </div>
+              <span class="rpt-bank-row__value gel">{{ formatGel(b.value, 0) }}</span>
+            </div>
+          }
+          @if (r.byBank.length === 0) {
+            <div class="rpt-empty">No bank activity in this window.</div>
+          }
+        </div>
+      </section>
+    </div>
+  }
+</div>
