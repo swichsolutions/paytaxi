@@ -30,6 +30,7 @@ public static class SeedData
         if (await db.Parks.AnyAsync())
         {
             log.LogInformation("Database already seeded — skipping park seed");
+            await EnsurePhonesBackfilledAsync(db, log);
             await EnsureBankCardsSeededAsync(db, log);
             await EnsureAdminUsersSeededAsync(db, log);
             return;
@@ -47,6 +48,7 @@ public static class SeedData
                 bankProvider: "bog",
                 legalEntityName: "Tbilisi Taxi Service LLC",
                 taxId: "405123456",
+                phone: "+995 322 12 34 56",
                 iban: "GE29BG0000000123456789",
                 operatingModel: OperatingModel.ModelA5,
                 authorizationLimit: 125_000m,
@@ -68,6 +70,7 @@ public static class SeedData
                 bankProvider: "tbc",
                 legalEntityName: "Park-5 Operations Ltd.",
                 taxId: "404987654",
+                phone: "+995 322 55 88 99",
                 iban: "GE65TB0000000987654321",
                 operatingModel: OperatingModel.ModelA, // pure SaaS — uses own bank API
                 authorizationLimit: null,
@@ -89,6 +92,7 @@ public static class SeedData
                 bankProvider: "bog",
                 legalEntityName: "Batumi Taxi Co.",
                 taxId: "402555111",
+                phone: "+995 422 77 22 11",
                 iban: "GE12BG0000000555111222",
                 operatingModel: OperatingModel.ModelA5,
                 authorizationLimit: 45_000m, // smaller park, smaller authorization
@@ -166,6 +170,31 @@ public static class SeedData
     }
 
     /// <summary>
+    /// One-off back-fill for the Park.Phone column on an already-seeded DB.
+    /// Idempotent — only writes for parks that have no phone yet.
+    /// </summary>
+    private static async Task EnsurePhonesBackfilledAsync(AppDbContext db, ILogger log)
+    {
+        var phonesBySlug = new Dictionary<string, string>
+        {
+            ["tbilisi-auto-park-3"] = "+995 322 12 34 56",
+            ["tbilisi-auto-park-5"] = "+995 322 55 88 99",
+            ["batumi-auto-park-1"]  = "+995 422 77 22 11",
+        };
+
+        var parks = await db.Parks.Where(p => p.Phone == null).ToListAsync();
+        if (parks.Count == 0) return;
+
+        foreach (var p in parks)
+        {
+            if (phonesBySlug.TryGetValue(p.Slug, out var phone))
+                p.Phone = phone;
+        }
+        await db.SaveChangesAsync();
+        log.LogInformation("Back-filled phone numbers for {Count} parks", parks.Count);
+    }
+
+    /// <summary>
     /// Back-fills 2 mock bank cards per driver (BOG default + TBC) if none exist.
     /// Safe to re-run: only inserts when a driver has zero cards.
     /// Mock tokens are deterministic from driver Id so retries don't duplicate.
@@ -221,6 +250,7 @@ public static class SeedData
         string bankProvider,
         string legalEntityName,
         string taxId,
+        string phone,
         string iban,
         OperatingModel operatingModel,
         decimal? authorizationLimit,
@@ -232,6 +262,7 @@ public static class SeedData
             Slug = ToSlug(name),
             LegalEntityName = legalEntityName,
             TaxId = taxId,
+            Phone = phone,
             YandexParkId = yandexParkId,
             YandexClientIdEncrypted = "mock_client_id",
             YandexApiKeyEncrypted = "mock_api_key",
@@ -247,7 +278,7 @@ public static class SeedData
 #pragma warning restore CS0618
         };
 
-        foreach (var (yid, name_, phone) in drivers)
+        foreach (var (yid, name_, driverPhone) in drivers)
         {
             park.Drivers.Add(new Driver
             {
@@ -255,8 +286,8 @@ public static class SeedData
                 Park = park,
                 Name = name_,
                 YandexDriverProfileId = yid,
-                PhoneEncrypted = phone, // Plaintext until Phase 8 — value is mock-only
-                PhoneHash = HashPhone(phone),
+                PhoneEncrypted = driverPhone, // Plaintext until Phase 8 — value is mock-only
+                PhoneHash = HashPhone(driverPhone),
                 Status = DriverStatus.Active,
                 ConsentGiven = true,
                 ConsentTimestamp = DateTime.UtcNow.AddDays(-90),

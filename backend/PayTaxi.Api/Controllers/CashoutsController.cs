@@ -20,15 +20,18 @@ public class CashoutsController : AdminControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ICashoutOrchestrator _orchestrator;
+    private readonly IInvoiceGenerator _invoices;
     private readonly ILogger<CashoutsController> _log;
 
     public CashoutsController(
         AppDbContext db,
         ICashoutOrchestrator orchestrator,
+        IInvoiceGenerator invoices,
         ILogger<CashoutsController> log)
     {
         _db = db;
         _orchestrator = orchestrator;
+        _invoices = invoices;
         _log = log;
     }
 
@@ -105,6 +108,31 @@ public class CashoutsController : AdminControllerBase
         {
             _log.LogWarning(ex, "Cashout rejected for park={ParkId} driver={DriverId}", parkId, body.DriverId);
             return BadRequest(new { error = "cashout_rejected", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Stream the PDF invoice for a completed cashout. Returns 404 if the cashout
+    /// doesn't exist for this park, or 409 if it's not in Completed status.
+    /// </summary>
+    [HttpGet("{cashoutId:guid}/invoice.pdf")]
+    public async Task<IActionResult> Invoice(Guid parkId, Guid cashoutId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var exists = await _db.Cashouts.AsNoTracking()
+            .AnyAsync(c => c.Id == cashoutId && c.ParkId == parkId, ct);
+        if (!exists) return NotFound(new { error = "cashout_not_found" });
+
+        try
+        {
+            var pdf = await _invoices.RenderAsync(cashoutId, ct);
+            var filename = await _invoices.GetFileNameAsync(cashoutId, ct);
+            return File(pdf, "application/pdf", filename);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Conflict(new { error = "invoice_not_available", message = ex.Message });
         }
     }
 

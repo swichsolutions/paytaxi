@@ -91,6 +91,24 @@ export class AdminApiService {
       { notes }));
   }
 
+  /**
+   * Open the per-cashout invoice PDF in a new browser tab. The fetch goes
+   * through the auth interceptor (so the bearer header is attached); the
+   * resulting blob is opened via blob URL so the browser renders the PDF
+   * inline in its built-in viewer — same UX as a plain link, without
+   * giving up JWT auth.
+   */
+  async openInvoice(parkId: string, cashoutId: string): Promise<void> {
+    const blob = await firstValueFrom(this.http.get(
+      `${this.base}/parks/${parkId}/cashouts/${cashoutId}/invoice.pdf`,
+      { responseType: 'blob' }));
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    // Delay revoke so the new tab has time to fetch the blob content. 1 minute
+    // is plenty even on slow machines and well before the user closes the tab.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   // ── Reports ───────────────────────────────────────────────────────
   getReport(parkId: string, fromIso: string, toIso: string, topDrivers = 10): Promise<ApiReport> {
     const q = new URLSearchParams({ from: fromIso, to: toIso, topDrivers: String(topDrivers) }).toString();

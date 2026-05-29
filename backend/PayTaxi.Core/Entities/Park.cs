@@ -19,6 +19,9 @@ public class Park : BaseEntity
     /// <summary>Georgian tax-payer ID (9-digit), nullable until KYC complete.</summary>
     public string? TaxId { get; set; }
 
+    /// <summary>Park's contact phone — collected at onboarding, used on invoices.</summary>
+    public string? Phone { get; set; }
+
     // ── Operating model ───────────────────────────────────────────────
     /// <summary>How money moves for this park's cashouts. See <see cref="OperatingModel"/>.</summary>
     public OperatingModel OperatingModel { get; set; } = OperatingModel.ModelA5;

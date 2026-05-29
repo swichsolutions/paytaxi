@@ -145,6 +145,21 @@ export class CashoutsComponent {
 
   retrying = signal<string | null>(null);
   retryMessage = signal<string | null>(null);
+  openingInvoice = signal<string | null>(null);
+
+  async openInvoice(cashoutId: string, e: Event) {
+    e.stopPropagation();
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.openingInvoice()) return;
+    this.openingInvoice.set(cashoutId);
+    try {
+      await this.api.openInvoice(parkId, cashoutId);
+    } catch (err: any) {
+      this.retryMessage.set(`Could not open invoice: ${err?.message ?? err}`);
+    } finally {
+      this.openingInvoice.set(null);
+    }
+  }
 
   async retry(id: string, e: Event) {
     e.stopPropagation();

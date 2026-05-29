@@ -105,6 +105,7 @@ public class AppDbContext : DbContext
             e.Property(p => p.Slug).HasMaxLength(64).IsRequired();
             e.Property(p => p.LegalEntityName).HasMaxLength(200);
             e.Property(p => p.TaxId).HasMaxLength(32);
+            e.Property(p => p.Phone).HasMaxLength(30);
             e.Property(p => p.BankProvider).HasMaxLength(40).IsRequired();
             e.Property(p => p.BankAccountIban).HasMaxLength(34);
             e.Property(p => p.AuthorizationLimit).HasPrecision(18, 2);
@@ -155,7 +156,13 @@ public class AppDbContext : DbContext
             e.HasIndex(c => c.IdempotencyKey).IsUnique();
             e.HasIndex(c => new { c.DriverId, c.Status });
             e.HasIndex(c => new { c.ParkId, c.Status });
+            e.HasIndex(c => c.InvoiceNumber).IsUnique();
         });
+
+        // Postgres sequence — assigned by SaveChanges in the orchestrator
+        // (we don't make the column itself DB-generated so the migration
+        // stays simple and we keep the option to backfill).
+        modelBuilder.HasSequence<long>("InvoiceNumberSeq").StartsAt(1_000_000).IncrementsBy(1);
 
         modelBuilder.Entity<LedgerEntry>(e =>
         {

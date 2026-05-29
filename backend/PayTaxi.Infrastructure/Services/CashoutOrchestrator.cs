@@ -207,6 +207,7 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         cashout.YandexTransactionId = yandexResult.TransactionId;
         cashout.Status = CashoutStatus.Completed;
         cashout.CompletedAt = DateTime.UtcNow;
+        cashout.InvoiceNumber = await NextInvoiceNumberAsync(ct);
 
         _db.LedgerEntries.Add(new LedgerEntry
         {
@@ -301,6 +302,18 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             .ExecuteUpdateAsync(s => s.SetProperty(
                 p => p.AuthorizationLimit,
                 p => p.AuthorizationLimit!.Value + amount), ct);
+    }
+
+    /// <summary>Pulls the next value from the Postgres InvoiceNumberSeq sequence.</summary>
+    private async Task<long> NextInvoiceNumberAsync(CancellationToken ct)
+    {
+        var conn = _db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT nextval('\"InvoiceNumberSeq\"')";
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return Convert.ToInt64(result);
     }
 
     /// <summary>Fee model placeholder: max(2 GEL, 1% of amount). Replace once <see cref="Park"/> exposes fee config.</summary>

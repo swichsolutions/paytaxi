@@ -2,6 +2,7 @@ import { Component, computed, inject, OnInit, output, signal } from '@angular/co
 import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../../services/admin-mock.service';
 import { AdminApiService, ApiCard, ApiDriver, ApiPark, CashoutSagaResult } from '../../../services/admin-api.service';
+import { AdminParkContextService } from '../../../services/admin-park-context.service';
 
 interface SubmittedEvent {
   parkId: string;
@@ -20,6 +21,7 @@ interface SubmittedEvent {
 export class ManualCashoutComponent implements OnInit {
   svc = inject(AdminMockService);
   private api = inject(AdminApiService);
+  private parkCtx = inject(AdminParkContextService);
 
   close = output<void>();
   submitted = output<SubmittedEvent>();
@@ -48,7 +50,12 @@ export class ManualCashoutComponent implements OnInit {
       const parks = await this.api.listParks();
       this.parks.set(parks);
       if (parks.length > 0) {
-        await this.selectPark(parks[0].id);
+        // Default to the park the operator is currently viewing in the topbar
+        // — not just the first one alphabetically. Prevents the easy mistake of
+        // submitting a cashout to a different park than expected.
+        const currentParkId = this.parkCtx.currentParkId();
+        const defaultPark = parks.find(p => p.id === currentParkId) ?? parks[0];
+        await this.selectPark(defaultPark.id);
       } else {
         this.loadError.set('No parks configured on the backend.');
       }

@@ -16,6 +16,13 @@ public class Cashout : BaseEntity
     public string? FailureReason { get; set; }
     public DateTime? CompletedAt { get; set; }
 
+    /// <summary>
+    /// Sequential invoice number, assigned when the cashout becomes Completed.
+    /// Backed by a Postgres sequence so concurrent saga runs can't collide.
+    /// Null until then.
+    /// </summary>
+    public long? InvoiceNumber { get; set; }
+
     public Driver Driver { get; set; } = default!;
     public Park Park { get; set; } = default!;
     public BankCard BankCard { get; set; } = default!;

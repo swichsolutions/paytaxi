@@ -622,3 +622,10 @@
   color: var(--color-text, #1f2937);
   font-weight: 500;
 }
+
+.detail-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
