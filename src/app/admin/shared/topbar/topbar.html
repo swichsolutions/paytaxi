@@ -8,10 +8,6 @@
       </svg>
     </button>
     <div class="topbar__crumbs">
-      <span class="topbar__crumb topbar__crumb--root">Console</span>
-      <svg class="topbar__crumb-sep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="9 18 15 12 9 6"/>
-      </svg>
       <span class="topbar__crumb topbar__crumb--current">{{ pageTitle() }}</span>
     </div>
   </div>
@@ -19,7 +15,7 @@
   <div class="topbar__center">
     @if (parkCtx.canSwitchPark()) {
       <label class="topbar__park-picker">
-        <span class="topbar__park-picker-label">Park</span>
+        <span class="topbar__park-picker-label">{{ t.park }}</span>
         <select
           class="topbar__park-picker-select"
           [ngModel]="parkCtx.currentParkId()"
@@ -36,6 +32,19 @@
   </div>
 
   <div class="topbar__right">
+    <div class="topbar__lang" role="group" aria-label="Language">
+      <button
+        class="topbar__lang-btn"
+        [class.topbar__lang-btn--active]="i18n.lang() === 'en'"
+        (click)="i18n.setLang('en')"
+      >EN</button>
+      <button
+        class="topbar__lang-btn"
+        [class.topbar__lang-btn--active]="i18n.lang() === 'ka'"
+        (click)="i18n.setLang('ka')"
+      >ქარ</button>
+    </div>
+
     <button class="topbar__icon-btn" aria-label="Notifications">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -85,13 +94,21 @@
 
           <div class="acct-menu__divider"></div>
 
+          <button class="acct-menu__item" (click)="goSettings()" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>
+            </svg>
+            <span>{{ t.navSettings }}</span>
+          </button>
+
           <button class="acct-menu__item acct-menu__item--danger" (click)="logout()" role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
               <polyline points="16 17 21 12 16 7"/>
               <line x1="21" y1="12" x2="9" y2="12"/>
             </svg>
-            <span>Sign out</span>
+            <span>{{ t.signOut }}</span>
           </button>
         </div>
       }

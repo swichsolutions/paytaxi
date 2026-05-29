@@ -5,6 +5,7 @@ import {
   AdminApiService, ApiCashout, ApiKpis, ApiActivityEvent, ApiHourBucket,
 } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
+import { AdminI18nService } from '../../services/admin-i18n.service';
 
 interface FailedRow {
   id: string;
@@ -26,6 +27,9 @@ export class OverviewComponent {
   svc = inject(AdminMockService); // hourly chart + activity feed still mock
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   loading = signal(true);
   loadError = signal<string | null>(null);

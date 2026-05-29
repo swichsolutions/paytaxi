@@ -127,6 +127,7 @@ public class MockYandexFleetData
                     Name = d.Name,
                     CarPlate = d.Plate,
                     Balance = d.Balance,
+                    Phone = MockPhone(d.Id),
                 })
                 .ToList();
             ByPark[park.YandexParkId] = driverList;
@@ -177,12 +178,25 @@ public class MockYandexFleetData
         "Tbilisi Sea", "Avlabari", "Sololaki",
     };
 
+    /// <summary>
+    /// Deterministic mock GE mobile number derived from the driver-profile id, so
+    /// the same profile always reports the same phone. The real Yandex Fleet API
+    /// returns the driver's phone in the driver-profiles list; this stands in for it.
+    /// </summary>
+    private static string MockPhone(string driverProfileId)
+    {
+        var hash = Math.Abs(driverProfileId.GetHashCode());
+        var sevenDigits = (hash % 9_000_000 + 1_000_000).ToString(); // 7 digits, no leading zero
+        return "+99559" + sevenDigits;
+    }
+
     public class DriverState
     {
         public string DriverProfileId { get; set; } = default!;
         public string Name { get; set; } = default!;
         public string CarPlate { get; set; } = default!;
         public decimal Balance { get; set; }
+        public string? Phone { get; set; }
     }
 
     private record ParkSeed(string YandexParkId, params (string Id, string Name, string Plate, decimal Balance)[] Drivers);

@@ -1,0 +1,228 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">{{ t.navSettings }}</h1>
+      <p class="page-head__sub">{{ t.settingsSub }}</p>
+    </div>
+    <div class="page-head__actions">
+      <button class="btn-admin btn-admin--danger" (click)="logout()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        <span>{{ t.signOut }}</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Account ─────────────────────────────────────────────────── -->
+  <section class="set-card">
+    <header class="set-card__head">
+      <div class="set-avatar">{{ initials() }}</div>
+      <div class="set-card__head-text">
+        <h2 class="set-card__title">{{ admin()?.name || admin()?.email }}</h2>
+        <span class="set-card__sub">{{ roleLabel(admin()?.role) }}</span>
+      </div>
+    </header>
+
+    <div class="set-rows">
+      <div class="set-row">
+        <span class="set-row__label">{{ t.settingsName }}</span>
+        <span class="set-row__value">{{ admin()?.name || '—' }}</span>
+      </div>
+      <div class="set-row">
+        <span class="set-row__label">{{ t.email }}</span>
+        <span class="set-row__value">{{ admin()?.email || '—' }}</span>
+      </div>
+      <div class="set-row">
+        <span class="set-row__label">{{ t.role }}</span>
+        <span class="set-row__value">{{ roleLabel(admin()?.role) }}</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Taxi park ───────────────────────────────────────────────── -->
+  @if (park(); as p) {
+    <section class="set-card">
+      <header class="set-card__head set-card__head--plain">
+        <h2 class="set-card__title">{{ t.secPark }}</h2>
+        <div class="set-card__head-actions">
+          <span class="status-pill" [attr.data-status]="p.status.toLowerCase()">
+            <span class="status-pill__dot"></span>
+            {{ statusLabel(p.status) }}
+          </span>
+          @if (!editing()) {
+            <button class="set-edit-btn" (click)="startEdit()">{{ t.editParkDetails }}</button>
+          }
+        </div>
+      </header>
+
+      <!-- Read-only view -->
+      @if (!editing()) {
+        <div class="set-rows">
+          <div class="set-row">
+            <span class="set-row__label">{{ t.settingsParkName }}</span>
+            <span class="set-row__value">{{ p.name }}</span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.legalEntity }}</span>
+            <span class="set-row__value" [class.set-row__value--muted]="!p.legalEntityName">
+              {{ p.legalEntityName || t.notSet }}
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.identificationCode }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="!p.taxId">
+              {{ p.taxId || t.notSet }}
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.phone }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="!p.phone">
+              {{ p.phone || t.notSet }}
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.iban }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="!p.bankAccountIban">
+              {{ p.bankAccountIban || t.notSet }}
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.operatingModelLabel }}</span>
+            <span class="set-row__value">{{ modelLabel(p.operatingModel) }}</span>
+          </div>
+          @if (p.authorizationLimit !== null) {
+            <div class="set-row">
+              <span class="set-row__label">{{ t.authLimitLabel }}</span>
+              <span class="set-row__value gel">{{ formatGel(p.authorizationLimit, 0) }}</span>
+            </div>
+          }
+          <div class="set-row">
+            <span class="set-row__label">{{ t.bankProviderLabel }}</span>
+            <span class="set-row__value">{{ p.bankProvider }}</span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.yandexParkIdLabel }}</span>
+            <code class="set-row__code">{{ p.yandexParkId }}</code>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.clientId }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="!p.yandexClientId">
+              {{ p.yandexClientId || t.notSet }}
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.apiKey }}</span>
+            <span class="set-row__value" [class.set-row__value--muted]="!p.yandexApiKeySet">
+              {{ p.yandexApiKeySet ? t.apiKeyConfigured : t.notSet }}
+            </span>
+          </div>
+        </div>
+      }
+
+      <!-- Edit form -->
+      @if (editing()) {
+        <div class="set-edit">
+          <label class="set-field">
+            <span class="set-field__label">{{ t.legalEntity }}</span>
+            <input
+              type="text"
+              class="set-field__input"
+              [value]="form().legalEntityName"
+              (input)="setField('legalEntityName', $any($event.target).value)"
+              [placeholder]="t.legalEntityPlaceholder"
+            />
+          </label>
+          <label class="set-field">
+            <span class="set-field__label">{{ t.identificationCode }}</span>
+            <input
+              type="text"
+              inputmode="numeric"
+              class="set-field__input gel"
+              [value]="form().taxId"
+              (input)="setField('taxId', $any($event.target).value)"
+              [placeholder]="t.taxIdPlaceholder"
+            />
+          </label>
+          <label class="set-field">
+            <span class="set-field__label">{{ t.phone }}</span>
+            <input
+              type="tel"
+              class="set-field__input gel"
+              [value]="form().phone"
+              (input)="setField('phone', $any($event.target).value)"
+              [placeholder]="t.phonePlaceholder"
+            />
+          </label>
+          <label class="set-field">
+            <span class="set-field__label">{{ t.iban }}</span>
+            <input
+              type="text"
+              class="set-field__input gel"
+              [value]="form().bankAccountIban"
+              (input)="setField('bankAccountIban', $any($event.target).value)"
+              [placeholder]="t.ibanPlaceholder"
+            />
+          </label>
+
+          <div class="set-edit__divider">
+            <span>{{ t.secYandex }}</span>
+          </div>
+          <p class="set-edit__hint">{{ t.yandexFleetHint }}</p>
+
+          <label class="set-field">
+            <span class="set-field__label">{{ t.yandexParkIdLabel }}</span>
+            <input
+              type="text"
+              class="set-field__input gel"
+              [value]="form().yandexParkId"
+              (input)="setField('yandexParkId', $any($event.target).value)"
+              [placeholder]="t.yandexParkIdPlaceholder"
+            />
+          </label>
+          <label class="set-field">
+            <span class="set-field__label">{{ t.clientId }}</span>
+            <input
+              type="text"
+              class="set-field__input gel"
+              [value]="form().yandexClientId"
+              (input)="setField('yandexClientId', $any($event.target).value)"
+              [placeholder]="t.yandexClientIdPlaceholder"
+            />
+          </label>
+          <label class="set-field">
+            <span class="set-field__label">
+              {{ t.apiKey }}
+              <span class="set-field__note">· {{ p.yandexApiKeySet ? t.apiKeyConfigured : t.notSet }}</span>
+            </span>
+            <input
+              type="password"
+              autocomplete="off"
+              class="set-field__input gel"
+              [value]="form().yandexApiKey"
+              (input)="setField('yandexApiKey', $any($event.target).value)"
+              [placeholder]="t.apiKeyReplaceHint"
+            />
+          </label>
+
+          @if (editError()) {
+            <p class="set-edit__error">{{ editError() }}</p>
+          }
+
+          <div class="set-edit__actions">
+            <button class="btn-admin btn-admin--secondary" (click)="cancelEdit()" [disabled]="saving()">
+              {{ t.cancel }}
+            </button>
+            <button class="btn-admin btn-admin--brand" (click)="save()" [disabled]="saving()">
+              @if (saving()) { {{ t.saving }} } @else { {{ t.save }} }
+            </button>
+          </div>
+        </div>
+      }
+    </section>
+  }
+
+  <p class="set-note">{{ t.settingsContactNote }}</p>
+</div>

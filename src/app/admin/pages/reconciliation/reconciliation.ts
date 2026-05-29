@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { AdminApiService, ApiRecDiscrepancy, ApiRecRun } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminMockService } from '../../services/admin-mock.service';
+import { AdminI18nService } from '../../services/admin-i18n.service';
 
 interface DisplayRun extends ApiRecRun {
   windowFromDate: Date;
@@ -20,6 +21,9 @@ export class ReconciliationComponent {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   svc = inject(AdminMockService); // formatters
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   loading = signal(true);
   loadError = signal<string | null>(null);
@@ -108,13 +112,13 @@ export class ReconciliationComponent {
 
   kindLabel(kind: string): string {
     switch (kind) {
-      case 'missing_in_bank':       return 'Missing in bank';
-      case 'orphaned_bank_send':    return 'Orphaned bank send';
-      case 'missing_in_yandex':     return 'Missing in Yandex';
-      case 'orphaned_yandex_debit': return 'Orphaned Yandex debit';
-      case 'amount_mismatch_bank':  return 'Bank amount mismatch';
-      case 'amount_mismatch_yandex':return 'Yandex amount mismatch';
-      case 'stuck_pending':         return 'Stuck pending';
+      case 'missing_in_bank':       return this.t['kindMissingBank'];
+      case 'orphaned_bank_send':    return this.t['kindOrphanedBank'];
+      case 'missing_in_yandex':     return this.t['kindMissingYandex'];
+      case 'orphaned_yandex_debit': return this.t['kindOrphanedYandex'];
+      case 'amount_mismatch_bank':  return this.t['kindAmountMismatchBank'];
+      case 'amount_mismatch_yandex':return this.t['kindAmountMismatchYandex'];
+      case 'stuck_pending':         return this.t['kindStuckPending'];
       default:                       return kind;
     }
   }

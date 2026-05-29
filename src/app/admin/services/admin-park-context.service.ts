@@ -56,6 +56,22 @@ export class AdminParkContextService {
     }
   }
 
+  /** Re-fetch parks from the backend, preserving the current selection. Used after edits. */
+  async refresh(): Promise<void> {
+    const keep = this.currentParkId();
+    try {
+      const parks = await this.api.listParks();
+      this.parks.set(parks);
+      if (keep && parks.some(p => p.id === keep)) {
+        this.currentParkId.set(keep);
+      } else if (parks.length > 0) {
+        this.currentParkId.set(parks[0].id);
+      }
+    } catch (err: any) {
+      this.error.set(`Could not refresh parks: ${err?.message ?? err}`);
+    }
+  }
+
   private async loadParks(): Promise<void> {
     try {
       const parks = await this.api.listParks();

@@ -50,5 +50,7 @@ export class NotificationsComponent implements OnInit {
     }
   }
 
+  get t() { return this.svc.t; }
+
   formatRel(d: Date) { return this.svc.formatDateTime(d); }
 }

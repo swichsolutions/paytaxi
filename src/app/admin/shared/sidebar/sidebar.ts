@@ -1,11 +1,13 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
+import { AdminI18nService } from '../../services/admin-i18n.service';
+import { AdminAuthService } from '../../services/admin-auth.service';
 
 interface NavItem {
   path: string;
-  label: string;
+  key: string;
   icon: string;
-  tag?: string;
+  tag?: 'soon';
 }
 
 @Component({
@@ -17,16 +19,22 @@ interface NavItem {
 export class AdminSidebarComponent {
   collapsed = input<boolean>(false);
 
+  private i18n = inject(AdminI18nService);
+  private auth = inject(AdminAuthService);
+  get t() { return this.i18n.t; }
+
+  readonly isSuperAdmin = computed(() => this.auth.admin()?.role === 'super_admin');
+
   primary: NavItem[] = [
-    { path: '/admin/overview',   label: 'Overview',   icon: 'overview' },
-    { path: '/admin/cashouts',   label: 'Cashouts',   icon: 'cashout' },
-    { path: '/admin/drivers',    label: 'Drivers',    icon: 'drivers' },
-    { path: '/admin/onboarding', label: 'Onboarding', icon: 'plus' },
+    { path: '/admin/overview',   key: 'navOverview',   icon: 'overview' },
+    { path: '/admin/cashouts',   key: 'navCashouts',   icon: 'cashout' },
+    { path: '/admin/drivers',    key: 'navDrivers',    icon: 'drivers' },
+    { path: '/admin/onboarding', key: 'navOnboarding', icon: 'plus' },
   ];
 
   secondary: NavItem[] = [
-    { path: '/admin/reconciliation', label: 'Reconciliation', icon: 'reconcile' },
-    { path: '/admin/reports',        label: 'Reports',        icon: 'reports' },
-    { path: '/admin/settings',       label: 'Settings',       icon: 'settings', tag: 'Soon' },
+    { path: '/admin/reconciliation', key: 'navReconciliation', icon: 'reconcile' },
+    { path: '/admin/reports',        key: 'navReports',        icon: 'reports' },
+    { path: '/admin/settings',       key: 'navSettings',       icon: 'settings' },
   ];
 }

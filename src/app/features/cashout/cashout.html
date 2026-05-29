@@ -147,7 +147,7 @@
         }
 
         <button class="btn btn--primary" (click)="confirm()" [disabled]="submitting()">
-          @if (submitting()) { Submitting… } @else { {{ t.confirmCashout }} }
+          @if (submitting()) { {{ t.submitting }} } @else { {{ t.confirmCashout }} }
         </button>
         <button class="btn btn--ghost btn--sm" (click)="prevStep()" [disabled]="submitting()">
           {{ t.cancel }}

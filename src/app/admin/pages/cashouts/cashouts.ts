@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminApiService, ApiCashout } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
+import { AdminI18nService } from '../../services/admin-i18n.service';
 import { CashoutStatus } from '../../../core/mock/data';
 import { ManualCashoutComponent } from './manual-cashout/manual-cashout';
 
@@ -36,6 +37,9 @@ export class CashoutsComponent {
   svc = inject(AdminMockService); // kept for formatGel/formatRel/initials utilities
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   search    = signal('');
   status    = signal<StatusTab>('all');
@@ -180,8 +184,8 @@ export class CashoutsComponent {
         this.retryMessage.set(this.describeRetry(sagaResult));
         await this.fetchFor(parkId);
       } else {
-        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? 'Retry failed';
-        this.retryMessage.set(`Retry failed: ${msg}`);
+        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? this.t['retryFailed'];
+        this.retryMessage.set(`${this.t['retryFailed']} ${msg}`);
       }
     } finally {
       this.retrying.set(null);
@@ -190,10 +194,10 @@ export class CashoutsComponent {
 
   private describeRetry(r: { status: string; cashoutId: string; failureReason: string | null }): string {
     const short = r.cashoutId.slice(0, 8);
-    if (r.status === 'Completed')      return `Retry succeeded — new cashout ${short}…`;
-    if (r.status === 'ReviewRequired') return `Retry needs review — new cashout ${short}…`;
-    if (r.status === 'Failed')         return `Retry failed again: ${r.failureReason ?? 'no reason'}`;
-    return `Retry returned ${r.status}`;
+    if (r.status === 'Completed')      return `${this.t['retrySucceeded']} ${short}…`;
+    if (r.status === 'ReviewRequired') return `${this.t['retryNeedsReview']} ${short}…`;
+    if (r.status === 'Failed')         return `${this.t['retryFailedAgain']} ${r.failureReason ?? this.t['noReason']}`;
+    return `${this.t['retryReturned']} ${r.status}`;
   }
 
   openManual()  { this.showManualModal.set(true); }

@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { AdminApiService, ApiReport } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminMockService } from '../../services/admin-mock.service';
+import { AdminI18nService } from '../../services/admin-i18n.service';
 
 type Preset = 'today' | 'week' | 'month' | '30d' | 'custom';
 
@@ -16,6 +17,9 @@ export class ReportsComponent {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   svc = inject(AdminMockService); // formatGel
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   preset = signal<Preset>('week');
   customFrom = signal<string>(this.daysAgoIso(7));

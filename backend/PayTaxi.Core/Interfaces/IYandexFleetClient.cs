@@ -41,7 +41,8 @@ public record YandexDriverProfile(
     string? Name,
     string? CarPlate,
     decimal Balance,
-    string Currency);
+    string Currency,
+    string? Phone = null);
 
 public record YandexTransaction(
     string TransactionId,

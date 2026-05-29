@@ -52,5 +52,11 @@
   "willArriveShortly": "will arrive shortly",
   "smsAlerts": "SMS Alerts",
   "smsAlertsDesc": "Cashout completions & failures",
-  "noCardsAdded": "No cards added"
+  "noCardsAdded": "No cards added",
+  "markAllRead": "Mark all read",
+  "unread": "Unread",
+  "allCaughtUp": "You're all caught up.",
+  "sending": "Sending…",
+  "verifying": "Verifying…",
+  "submitting": "Submitting…"
 }

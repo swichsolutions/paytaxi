@@ -6,19 +6,19 @@
     </div>
     <div class="sidebar__brand-text">
       <span class="sidebar__brand-name">PayTaxi</span>
-      <span class="sidebar__brand-tag">ADMIN CONSOLE</span>
+      <span class="sidebar__brand-tag">{{ t.adminConsole }}</span>
     </div>
   </div>
 
   <!-- Park indicator -->
   <div class="sidebar__park">
-    <span class="sidebar__park-label">Operating park</span>
+    <span class="sidebar__park-label">{{ t.operatingPark }}</span>
     <span class="sidebar__park-name">Tbilisi Auto Park #3</span>
   </div>
 
   <!-- Primary nav -->
   <nav class="sidebar__nav">
-    <span class="sidebar__nav-label">Operations</span>
+    <span class="sidebar__nav-label">{{ t.navOperations }}</span>
     @for (item of primary; track item.path) {
       <a
         class="sidebar__link"
@@ -58,14 +58,33 @@
             }
           }
         </span>
-        <span class="sidebar__link-label">{{ item.label }}</span>
+        <span class="sidebar__link-label">{{ t[item.key] }}</span>
       </a>
     }
   </nav>
 
   <!-- Secondary nav (placeholder phase 6/7) -->
   <nav class="sidebar__nav sidebar__nav--secondary">
-    <span class="sidebar__nav-label">Reports &amp; Setup</span>
+    <span class="sidebar__nav-label">{{ t.navReportsSetup }}</span>
+
+    @if (isSuperAdmin()) {
+      <a
+        class="sidebar__link"
+        routerLink="/admin/add-park"
+        routerLinkActive="sidebar__link--active"
+      >
+        <span class="sidebar__link-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 21h18"/>
+            <path d="M5 21V7l7-4 7 4v14"/>
+            <path d="M9 21v-6h6v6"/>
+            <line x1="12" y1="9" x2="12" y2="9.01"/>
+          </svg>
+        </span>
+        <span class="sidebar__link-label">{{ t.navAddPark }}</span>
+      </a>
+    }
+
     @for (item of secondary; track item.path) {
       <a
         class="sidebar__link"
@@ -97,9 +116,9 @@
             }
           }
         </span>
-        <span class="sidebar__link-label">{{ item.label }}</span>
+        <span class="sidebar__link-label">{{ t[item.key] }}</span>
         @if (item.tag) {
-          <span class="sidebar__link-tag">{{ item.tag }}</span>
+          <span class="sidebar__link-tag">{{ t.tagSoon }}</span>
         }
       </a>
     }
@@ -109,14 +128,14 @@
   <div class="sidebar__float">
     <div class="sidebar__float-head">
       <span class="sidebar__float-dot"></span>
-      <span class="sidebar__float-label">Float status</span>
+      <span class="sidebar__float-label">{{ t.floatStatus }}</span>
     </div>
     <div class="sidebar__float-amount gel">₾ 84,500</div>
     <div class="sidebar__float-meter">
       <div class="sidebar__float-bar" style="width: 68%"></div>
     </div>
     <div class="sidebar__float-meta">
-      <span>68% of daily target</span>
+      <span>{{ t.floatTargetNote }}</span>
     </div>
   </div>
 </aside>

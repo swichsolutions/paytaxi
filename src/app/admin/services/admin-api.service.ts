@@ -17,6 +17,23 @@ export class AdminApiService {
     return firstValueFrom(this.http.get<ApiPark[]>(`${this.base}/parks`));
   }
 
+  /** Create a new park + optional first manager login (super-admin only). */
+  createPark(body: CreateParkBody): Promise<CreateParkResult> {
+    return firstValueFrom(this.http.post<CreateParkResult>(`${this.base}/parks`, body));
+  }
+
+  /** The park's Yandex roster, flagged with who's already onboarded. */
+  getYandexRoster(parkId: string): Promise<YandexRosterResponse> {
+    return firstValueFrom(this.http.get<YandexRosterResponse>(
+      `${this.base}/parks/${parkId}/yandex-roster`));
+  }
+
+  /** Bulk-onboard selected drivers straight from the Yandex roster. */
+  bulkOnboard(parkId: string, yandexProfileIds: string[]): Promise<BulkOnboardResult> {
+    return firstValueFrom(this.http.post<BulkOnboardResult>(
+      `${this.base}/parks/${parkId}/drivers/bulk`, { yandexProfileIds }));
+  }
+
   listDrivers(parkId: string): Promise<ApiDriversResponse> {
     return firstValueFrom(this.http.get<ApiDriversResponse>(`${this.base}/parks/${parkId}/drivers`));
   }
@@ -60,6 +77,12 @@ export class AdminApiService {
   updateDriver(parkId: string, driverId: string, body: UpdateDriverBody): Promise<ApiNewDriver> {
     return firstValueFrom(this.http.patch<ApiNewDriver>(
       `${this.base}/parks/${parkId}/drivers/${driverId}`, body));
+  }
+
+  /** Update the park's account/billing details (Settings page). */
+  updatePark(parkId: string, body: UpdateParkBody): Promise<ApiPark> {
+    return firstValueFrom(this.http.patch<ApiPark>(
+      `${this.base}/parks/${parkId}`, body));
   }
 
   /** Recent activity for the overview feed. */
@@ -247,6 +270,65 @@ export interface UpdateDriverBody {
   status?: string; // "Active" | "Inactive" | "Suspended"
 }
 
+export interface UpdateParkBody {
+  legalEntityName?: string;
+  taxId?: string;
+  phone?: string;
+  bankAccountIban?: string;
+  yandexClientId?: string;
+  yandexApiKey?: string;
+  yandexParkId?: string;
+}
+
+export interface CreateParkBody {
+  name: string;
+  slug?: string;
+  operatingModel?: string;       // "ModelA5" | "ModelA" | "ModelB"
+  authorizationLimit?: number | null;
+  bankProvider?: string;
+  yandexClientId?: string;
+  yandexApiKey?: string;
+  yandexParkId: string;
+  legalEntityName?: string;
+  taxId?: string;
+  phone?: string;
+  bankAccountIban?: string;
+  managerEmail?: string;
+  managerName?: string;
+  managerPassword?: string;
+}
+
+export interface CreateParkResult {
+  id: string;
+  name: string;
+  slug: string;
+  operatingModel: string;
+  managerEmail: string | null;
+}
+
+export interface YandexRosterDriver {
+  yandexProfileId: string;
+  name: string | null;
+  carPlate: string | null;
+  phone: string | null;
+  balance: number;
+  currency: string;
+  alreadyOnboarded: boolean;
+}
+
+export interface YandexRosterResponse {
+  parkId: string;
+  count: number;
+  drivers: YandexRosterDriver[];
+}
+
+export interface BulkOnboardResult {
+  createdCount: number;
+  skippedCount: number;
+  created: { id: string; yandexProfileId: string; name: string; phone: string }[];
+  skipped: { yandexProfileId: string; reason: string }[];
+}
+
 export interface ApiNewDriver {
   id: string;
   name: string;
@@ -277,6 +359,12 @@ export interface ApiPark {
   authorizationLimit: number | null;
   status: string;
   driverCount: number;
+  legalEntityName: string | null;
+  taxId: string | null;
+  phone: string | null;
+  bankAccountIban: string | null;
+  yandexClientId: string | null;
+  yandexApiKeySet: boolean;
 }
 
 export interface ApiDriversResponse {

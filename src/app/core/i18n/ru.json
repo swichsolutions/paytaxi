@@ -52,5 +52,11 @@
   "willArriveShortly": "поступит в ближайшее время",
   "smsAlerts": "SMS уведомления",
   "smsAlertsDesc": "Завершение и ошибки выводов",
-  "noCardsAdded": "Карты не добавлены"
+  "noCardsAdded": "Карты не добавлены",
+  "markAllRead": "Отметить все",
+  "unread": "Непрочитанные",
+  "allCaughtUp": "Новых уведомлений нет.",
+  "sending": "Отправка…",
+  "verifying": "Проверка…",
+  "submitting": "Отправка…"
 }

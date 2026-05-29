@@ -56,10 +56,127 @@ public class AdminParksController : AdminControllerBase
                 authorizationLimit = p.AuthorizationLimit,
                 status = p.Status.ToString(),
                 driverCount = p.Drivers.Count(),
+                p.LegalEntityName,
+                p.TaxId,
+                p.Phone,
+                p.BankAccountIban,
+                yandexClientId = p.YandexClientIdEncrypted,
+                yandexApiKeySet = p.YandexApiKeyEncrypted != null && p.YandexApiKeyEncrypted != "",
             })
             .ToListAsync(ct);
 
         return Ok(parks);
+    }
+
+    /// <summary>
+    /// Create a new park (super-admin only) and, optionally, its first park-admin login.
+    /// This is the "register a taxi park" step — replaces editing the seed file.
+    /// Yandex credentials are stored on the park (plaintext placeholder until Phase 8 AES).
+    /// </summary>
+    [HttpPost("/api/admin/parks")]
+    public async Task<IActionResult> CreatePark([FromBody] CreateParkRequest body, CancellationToken ct)
+    {
+        if (!IsSuperAdmin) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var name = body.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(name)) return BadRequest(new { error = "name_required" });
+
+        var slug = SeedData.ToSlug(string.IsNullOrWhiteSpace(body.Slug) ? name : body.Slug!);
+        if (slug.Length == 0) return BadRequest(new { error = "invalid_slug" });
+        if (await _db.Parks.AsNoTracking().AnyAsync(p => p.Slug == slug, ct))
+            return Conflict(new { error = "slug_taken" });
+
+        if (string.IsNullOrWhiteSpace(body.YandexParkId))
+            return BadRequest(new { error = "yandex_park_id_required" });
+
+        if (!Enum.TryParse<Core.Enums.OperatingModel>(body.OperatingModel, ignoreCase: true, out var model))
+            model = Core.Enums.OperatingModel.ModelA5;
+
+        // Optional billing fields — validate the same way as the PATCH endpoint.
+        var taxId = Blank(body.TaxId ?? "");
+        if (taxId is not null)
+        {
+            var digits = new string(taxId.Where(char.IsDigit).ToArray());
+            if (digits.Length is < 9 or > 11) return BadRequest(new { error = "invalid_tax_id" });
+            taxId = digits;
+        }
+
+        string? phone = null;
+        if (Blank(body.Phone ?? "") is { } rawPhone)
+        {
+            phone = NormalizePhone(rawPhone);
+            if (phone is null) return BadRequest(new { error = "invalid_phone" });
+        }
+
+        var iban = Blank(body.BankAccountIban ?? "");
+        if (iban is not null)
+        {
+            iban = iban.Replace(" ", "").ToUpperInvariant();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(iban, "^[A-Z]{2}[0-9A-Z]{13,32}$"))
+                return BadRequest(new { error = "invalid_iban" });
+        }
+
+        // Manager login is optional but recommended.
+        string? managerEmail = Blank(body.ManagerEmail ?? "")?.ToLowerInvariant();
+        if (managerEmail is not null)
+        {
+            if (!managerEmail.Contains('@')) return BadRequest(new { error = "invalid_email" });
+            if (string.IsNullOrWhiteSpace(body.ManagerPassword) || body.ManagerPassword!.Length < 8)
+                return BadRequest(new { error = "weak_password" });
+            if (await _db.AdminUsers.AsNoTracking().AnyAsync(a => a.Email == managerEmail, ct))
+                return Conflict(new { error = "email_taken" });
+        }
+
+        var provider = Blank(body.BankProvider ?? "") ?? "mock";
+        var park = new Core.Entities.Park
+        {
+            Name = name,
+            Slug = slug,
+            LegalEntityName = Blank(body.LegalEntityName ?? ""),
+            TaxId = taxId,
+            Phone = phone,
+            YandexParkId = body.YandexParkId.Trim(),
+            YandexClientIdEncrypted = body.YandexClientId?.Trim() ?? "",
+            YandexApiKeyEncrypted = body.YandexApiKey?.Trim() ?? "",
+            OperatingModel = model,
+            AuthorizationLimit = model == Core.Enums.OperatingModel.ModelA5 ? body.AuthorizationLimit : null,
+            BankProvider = provider,
+            BankType = provider.ToUpperInvariant(),
+            BankCredentialsEncrypted = "{\"provider\":\"mock\"}",
+            BankAccountIban = iban,
+            Status = Core.Enums.ParkStatus.Active,
+        };
+#pragma warning disable CS0618 // legacy bool mirror
+        park.IsActive = true;
+#pragma warning restore CS0618
+        _db.Parks.Add(park);
+
+        if (managerEmail is not null)
+        {
+            _db.AdminUsers.Add(new Core.Entities.AdminUser
+            {
+                Email = managerEmail,
+                Name = Blank(body.ManagerName ?? "") ?? $"Manager · {name}",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(body.ManagerPassword!),
+                Role = "park_admin",
+                ParkId = park.Id,
+                IsActive = true,
+            });
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _log.LogInformation("Park {ParkId} ({Name}) created by super-admin; manager={Manager}",
+            park.Id, park.Name, managerEmail ?? "(none)");
+
+        return Created($"/api/admin/parks/{park.Id}", new
+        {
+            id = park.Id,
+            name = park.Name,
+            slug = park.Slug,
+            operatingModel = park.OperatingModel.ToString(),
+            managerEmail,
+        });
     }
 
     /// <summary>
@@ -589,6 +706,121 @@ public class AdminParksController : AdminControllerBase
     }
 
     /// <summary>
+    /// The park's full driver roster as Yandex Fleet sees it, flagged with whether
+    /// each profile is already onboarded to PayTaxi. Powers the "Sync from Yandex" UI.
+    /// </summary>
+    [HttpGet("yandex-roster")]
+    public async Task<IActionResult> YandexRoster(Guid parkId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
+
+        var onboarded = (await _db.Drivers.AsNoTracking()
+            .Where(d => d.ParkId == parkId)
+            .Select(d => d.YandexDriverProfileId)
+            .ToListAsync(ct)).ToHashSet();
+
+        var roster = profiles.Select(p => new
+        {
+            yandexProfileId = p.DriverProfileId,
+            name = p.Name,
+            carPlate = p.CarPlate,
+            phone = p.Phone,
+            balance = p.Balance,
+            currency = p.Currency,
+            alreadyOnboarded = onboarded.Contains(p.DriverProfileId),
+        }).ToList();
+
+        return Ok(new { parkId, count = roster.Count, drivers = roster });
+    }
+
+    /// <summary>
+    /// Bulk-onboard selected drivers straight from the Yandex roster — no CSV.
+    /// Pulls name + phone from Yandex, creates Driver rows + default cards, and
+    /// reports which profiles were created vs skipped (already onboarded, no phone, etc.).
+    /// </summary>
+    [HttpPost("drivers/bulk")]
+    public async Task<IActionResult> BulkOnboard(
+        Guid parkId, [FromBody] BulkOnboardRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body?.YandexProfileIds is null || body.YandexProfileIds.Length == 0)
+            return BadRequest(new { error = "no_profiles_selected" });
+
+        var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
+        var byId = profiles.ToDictionary(p => p.DriverProfileId);
+
+        var taken = (await _db.Drivers.AsNoTracking()
+            .Where(d => d.ParkId == parkId)
+            .Select(d => d.YandexDriverProfileId)
+            .ToListAsync(ct)).ToHashSet();
+
+        var created = new List<object>();
+        var skipped = new List<object>();
+
+        foreach (var pid in body.YandexProfileIds.Distinct())
+        {
+            if (!byId.TryGetValue(pid, out var profile))
+            { skipped.Add(new { yandexProfileId = pid, reason = "not_in_yandex" }); continue; }
+            if (taken.Contains(pid))
+            { skipped.Add(new { yandexProfileId = pid, reason = "already_onboarded" }); continue; }
+
+            var phone = NormalizePhone(profile.Phone);
+            if (phone is null)
+            { skipped.Add(new { yandexProfileId = pid, reason = "no_phone" }); continue; }
+
+            var phoneHash = HashPhone(phone);
+            if (await _db.Drivers.AsNoTracking().AnyAsync(d => d.PhoneHash == phoneHash, ct))
+            { skipped.Add(new { yandexProfileId = pid, reason = "phone_taken" }); continue; }
+
+            var driver = new Core.Entities.Driver
+            {
+                ParkId = parkId,
+                Name = profile.Name?.Trim() ?? "(unnamed)",
+                YandexDriverProfileId = pid,
+                PhoneEncrypted = phone, // plaintext until Phase 8
+                PhoneHash = phoneHash,
+                Status = Core.Enums.DriverStatus.Active,
+                ConsentGiven = true,
+                ConsentTimestamp = DateTime.UtcNow,
+            };
+            _db.Drivers.Add(driver);
+
+            var rng = new Random(driver.Id.GetHashCode());
+            _db.BankCards.Add(new Core.Entities.BankCard
+            {
+                DriverId = driver.Id,
+                MaskedPan = $"**** {rng.Next(1000, 10000)}",
+                TokenReferenceEncrypted = $"mock_tok_bog_{driver.Id:N}",
+                BankType = "BOG", IsDefault = true, IsActive = true,
+            });
+            _db.BankCards.Add(new Core.Entities.BankCard
+            {
+                DriverId = driver.Id,
+                MaskedPan = $"**** {rng.Next(1000, 10000)}",
+                TokenReferenceEncrypted = $"mock_tok_tbc_{driver.Id:N}",
+                BankType = "TBC", IsDefault = false, IsActive = true,
+            });
+
+            taken.Add(pid); // guard against duplicate ids within the same request
+            created.Add(new { id = driver.Id, yandexProfileId = pid, name = driver.Name, phone });
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _log.LogInformation("Bulk onboarded {Created} drivers in park {ParkId} ({Skipped} skipped)",
+            created.Count, parkId, skipped.Count);
+
+        return Ok(new
+        {
+            createdCount = created.Count,
+            skippedCount = skipped.Count,
+            created,
+            skipped,
+        });
+    }
+
+    /// <summary>
     /// Edit an existing driver. Any field omitted from the body is left untouched
     /// (partial update). Re-hashes phone on change and rejects duplicates.
     /// </summary>
@@ -662,6 +894,101 @@ public class AdminParksController : AdminControllerBase
         });
     }
 
+    /// <summary>
+    /// Update the park's account/billing details (legal entity, tax ID, phone, IBAN).
+    /// Surfaced on the admin Settings page. Each field is optional; sending an empty
+    /// string clears it, omitting it (null) leaves it unchanged.
+    /// </summary>
+    [HttpPatch("")]
+    public async Task<IActionResult> UpdatePark(
+        Guid parkId, [FromBody] UpdateParkRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var park = await _db.Parks.FirstOrDefaultAsync(p => p.Id == parkId, ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        if (body.LegalEntityName is not null)
+            park.LegalEntityName = Blank(body.LegalEntityName);
+
+        if (body.TaxId is not null)
+        {
+            var tax = Blank(body.TaxId);
+            if (tax is not null)
+            {
+                var digits = new string(tax.Where(char.IsDigit).ToArray());
+                // Georgian company IDs are 9 digits; sole-proprietor personal IDs are 11.
+                if (digits.Length is < 9 or > 11) return BadRequest(new { error = "invalid_tax_id" });
+                tax = digits;
+            }
+            park.TaxId = tax;
+        }
+
+        if (body.Phone is not null)
+        {
+            var raw = Blank(body.Phone);
+            if (raw is null) park.Phone = null;
+            else
+            {
+                var phone = NormalizePhone(raw);
+                if (phone is null) return BadRequest(new { error = "invalid_phone" });
+                park.Phone = phone;
+            }
+        }
+
+        if (body.BankAccountIban is not null)
+        {
+            var iban = Blank(body.BankAccountIban);
+            if (iban is not null)
+            {
+                iban = iban.Replace(" ", "").ToUpperInvariant();
+                if (!System.Text.RegularExpressions.Regex.IsMatch(iban, "^[A-Z]{2}[0-9A-Z]{13,32}$"))
+                    return BadRequest(new { error = "invalid_iban" });
+            }
+            park.BankAccountIban = iban;
+        }
+
+        // ── Yandex Fleet credentials ──────────────────────────────────
+        // Client ID and Park ID are shown in the UI and editable like normal fields.
+        // The API key is write-only: a blank value means "leave unchanged" (the UI
+        // never receives the stored key back), a non-blank value replaces it.
+        if (body.YandexClientId is not null)
+            park.YandexClientIdEncrypted = body.YandexClientId.Trim();
+
+        if (body.YandexParkId is not null)
+        {
+            var yp = body.YandexParkId.Trim();
+            if (yp.Length == 0) return BadRequest(new { error = "yandex_park_id_required" });
+            park.YandexParkId = yp;
+        }
+
+        if (!string.IsNullOrWhiteSpace(body.YandexApiKey))
+            park.YandexApiKeyEncrypted = body.YandexApiKey.Trim();
+
+        await _db.SaveChangesAsync(ct);
+        _log.LogInformation("Park {ParkId} account details updated by admin", park.Id);
+
+        return Ok(new
+        {
+            id = park.Id,
+            name = park.Name,
+            legalEntityName = park.LegalEntityName,
+            taxId = park.TaxId,
+            phone = park.Phone,
+            bankAccountIban = park.BankAccountIban,
+            yandexClientId = park.YandexClientIdEncrypted,
+            yandexParkId = park.YandexParkId,
+            yandexApiKeySet = !string.IsNullOrEmpty(park.YandexApiKeyEncrypted),
+        });
+    }
+
+    private static string? Blank(string s)
+    {
+        var trimmed = s.Trim();
+        return trimmed.Length == 0 ? null : trimmed;
+    }
+
     private static string? NormalizePhone(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -723,6 +1050,34 @@ public record UpdateDriverRequest(
     string? Phone,
     string? YandexProfileId,
     string? Status);
+
+public record UpdateParkRequest(
+    string? LegalEntityName,
+    string? TaxId,
+    string? Phone,
+    string? BankAccountIban,
+    string? YandexClientId = null,
+    string? YandexApiKey = null,
+    string? YandexParkId = null);
+
+public record CreateParkRequest(
+    string? Name,
+    string? Slug,
+    string? OperatingModel,
+    decimal? AuthorizationLimit,
+    string? BankProvider,
+    string? YandexClientId,
+    string? YandexApiKey,
+    string? YandexParkId,
+    string? LegalEntityName,
+    string? TaxId,
+    string? Phone,
+    string? BankAccountIban,
+    string? ManagerEmail,
+    string? ManagerName,
+    string? ManagerPassword);
+
+public record BulkOnboardRequest(string[] YandexProfileIds);
 
 public record ActivityEntry(
     string Id,

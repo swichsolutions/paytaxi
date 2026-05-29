@@ -1,10 +1,9 @@
 <div class="page">
   <header class="page-head">
     <div class="page-head__left">
-      <h1 class="page-head__title">Reconciliation</h1>
+      <h1 class="page-head__title">{{ t.navReconciliation }}</h1>
       <p class="page-head__sub">
-        Nightly cross-check between PayTaxi ledger, bank, and Yandex Fleet.
-        Drifts surface here for manual resolution.
+        {{ t.reconciliationSub }}
       </p>
     </div>
     <div class="page-head__actions">
@@ -13,7 +12,7 @@
           <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
           <path d="M21 3v5h-5"/>
         </svg>
-        <span>Refresh</span>
+        <span>{{ t.refresh }}</span>
       </button>
     </div>
   </header>
@@ -25,23 +24,23 @@
   <!-- Summary tiles -->
   <section class="rec-tiles">
     <div class="rec-tile" [class.rec-tile--alert]="openCount() > 0">
-      <span class="rec-tile__label">Open discrepancies</span>
+      <span class="rec-tile__label">{{ t.openDiscrepancies }}</span>
       <span class="rec-tile__value">{{ openCount() }}</span>
-      <span class="rec-tile__sub">unresolved</span>
+      <span class="rec-tile__sub">{{ t.unresolved }}</span>
     </div>
     <div class="rec-tile">
-      <span class="rec-tile__label">Recent runs</span>
+      <span class="rec-tile__label">{{ t.recentRuns }}</span>
       <span class="rec-tile__value">{{ runs().length }}</span>
-      <span class="rec-tile__sub">stored</span>
+      <span class="rec-tile__sub">{{ t.stored }}</span>
     </div>
     <div class="rec-tile">
-      <span class="rec-tile__label">Last run</span>
+      <span class="rec-tile__label">{{ t.lastRun }}</span>
       @if (runs().length > 0) {
         <span class="rec-tile__value">{{ formatRel(runs()[0].startedAtDate) }}</span>
         <span class="rec-tile__sub">{{ runs()[0].status }}</span>
       } @else {
         <span class="rec-tile__value">—</span>
-        <span class="rec-tile__sub">no runs yet</span>
+        <span class="rec-tile__sub">{{ t.noRunsYet }}</span>
       }
     </div>
   </section>
@@ -49,22 +48,22 @@
   <!-- Recent runs -->
   <section class="rec-card">
     <header class="rec-card__head">
-      <h2>Recent runs</h2>
+      <h2>{{ t.recentRuns }}</h2>
     </header>
     <div class="rec-runs">
       <div class="rec-runs__head">
-        <span>Window</span>
-        <span>Status</span>
-        <span>Cashouts</span>
-        <span>Bank</span>
-        <span>Yandex</span>
-        <span>Discrepancies</span>
+        <span>{{ t.colWindow }}</span>
+        <span>{{ t.colStatus }}</span>
+        <span>{{ t.cashoutsLabel }}</span>
+        <span>{{ t.colBank }}</span>
+        <span>{{ t.colYandex }}</span>
+        <span>{{ t.colDiscrepancies }}</span>
       </div>
       @for (r of runs(); track r.id) {
         <div class="rec-run-row">
           <div class="rec-run-row__window">
             <span class="rec-run-row__time">{{ formatTime(r.windowFromDate) }} → {{ formatTime(r.windowToDate) }}</span>
-            <span class="rec-run-row__started">started {{ formatRel(r.startedAtDate) }}</span>
+            <span class="rec-run-row__started">{{ t.started }} {{ formatRel(r.startedAtDate) }}</span>
           </div>
           <span class="rec-status-pill" [attr.data-status]="r.status">{{ r.status }}</span>
           <span class="rec-run-row__num">{{ r.cashoutsScanned }}</span>
@@ -76,7 +75,7 @@
         </div>
       }
       @if (runs().length === 0) {
-        <div class="rec-empty">No runs yet — waiting for the worker's first tick.</div>
+        <div class="rec-empty">{{ t.noRunsWaiting }}</div>
       }
     </div>
   </section>
@@ -84,14 +83,14 @@
   <!-- Discrepancies -->
   <section class="rec-card">
     <header class="rec-card__head">
-      <h2>Discrepancies</h2>
+      <h2>{{ t.discrepanciesTitle }}</h2>
       <label class="rec-toggle">
         <input
           type="checkbox"
           [checked]="showResolved()"
           (change)="showResolved.set($any($event.target).checked)"
         />
-        <span>Show resolved</span>
+        <span>{{ t.showResolved }}</span>
       </label>
     </header>
 
@@ -102,35 +101,35 @@
             <span class="rec-disc__kind" [attr.data-tone]="toneFor(d.kind)">{{ kindLabel(d.kind) }}</span>
             <span class="rec-disc__time">{{ formatRel(asDate(d.createdAt)) }}</span>
             @if (d.isResolved) {
-              <span class="rec-disc__resolved-tag">RESOLVED</span>
+              <span class="rec-disc__resolved-tag">{{ t.resolvedCaps }}</span>
             }
           </div>
           <div class="rec-disc__body">
             <p class="rec-disc__notes">{{ d.notes }}</p>
             <div class="rec-disc__grid">
               <div class="rec-disc__cell">
-                <span class="rec-disc__label">PayTaxi amount</span>
+                <span class="rec-disc__label">{{ t.paytaxiAmount }}</span>
                 <span class="rec-disc__value gel">{{ formatGel(d.paytaxiAmount) }}</span>
               </div>
               <div class="rec-disc__cell">
-                <span class="rec-disc__label">External amount</span>
+                <span class="rec-disc__label">{{ t.externalAmount }}</span>
                 <span class="rec-disc__value gel">{{ formatGel(d.externalAmount) }}</span>
               </div>
               @if (d.bankTransferId) {
                 <div class="rec-disc__cell">
-                  <span class="rec-disc__label">Bank ref</span>
+                  <span class="rec-disc__label">{{ t.bankRef }}</span>
                   <code class="rec-disc__code">{{ d.bankTransferId }}</code>
                 </div>
               }
               @if (d.yandexTransactionId) {
                 <div class="rec-disc__cell">
-                  <span class="rec-disc__label">Yandex ref</span>
+                  <span class="rec-disc__label">{{ t.yandexRef }}</span>
                   <code class="rec-disc__code">{{ d.yandexTransactionId }}</code>
                 </div>
               }
               @if (d.cashoutId) {
                 <div class="rec-disc__cell">
-                  <span class="rec-disc__label">Cashout id</span>
+                  <span class="rec-disc__label">{{ t.cashoutIdLower }}</span>
                   <code class="rec-disc__code">{{ d.cashoutId }}</code>
                 </div>
               }
@@ -138,7 +137,7 @@
 
             @if (d.isResolved) {
               <div class="rec-disc__resolved">
-                <span><b>Resolved by</b> {{ d.resolvedBy }} · {{ d.resolvedAt }}</span>
+                <span><b>{{ t.resolvedBy }}</b> {{ d.resolvedBy }} · {{ d.resolvedAt }}</span>
                 @if (d.resolutionNotes) {
                   <p>{{ d.resolutionNotes }}</p>
                 }
@@ -149,7 +148,7 @@
                   class="btn-admin btn-admin--secondary"
                   (click)="toggleResolveFor(d.id)"
                 >
-                  @if (openResolveFor() === d.id) { Cancel } @else { Mark resolved }
+                  @if (openResolveFor() === d.id) { {{ t.cancel }} } @else { {{ t.markResolved }} }
                 </button>
               </div>
 
@@ -157,7 +156,7 @@
                 <div class="rec-resolve">
                   <textarea
                     class="rec-resolve__notes"
-                    placeholder="What did you find? What action did you take?"
+                    [placeholder]="t.resolvePlaceholder"
                     [value]="resolveNotes()"
                     (input)="resolveNotes.set($any($event.target).value)"
                     rows="3"
@@ -167,7 +166,7 @@
                     [disabled]="resolving() === d.id"
                     (click)="submitResolve(d.id)"
                   >
-                    @if (resolving() === d.id) { Resolving… } @else { Confirm resolution }
+                    @if (resolving() === d.id) { {{ t.resolving }} } @else { {{ t.confirmResolution }} }
                   </button>
                 </div>
               }
@@ -182,8 +181,8 @@
             <polyline points="20 6 9 17 4 12"/>
           </svg>
           <span>
-            @if (showResolved()) { No discrepancies on record. }
-            @else { No open discrepancies. Ledger matches bank and Yandex. }
+            @if (showResolved()) { {{ t.noDiscrepanciesRecord }} }
+            @else { {{ t.noOpenDiscrepancies }} }
           </span>
         </div>
       }

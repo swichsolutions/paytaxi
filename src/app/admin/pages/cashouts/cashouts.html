@@ -1,8 +1,8 @@
 <div class="page">
   <header class="page-head">
     <div class="page-head__left">
-      <h1 class="page-head__title">Cashouts</h1>
-      <p class="page-head__sub">Live queue of pending, processing, completed and failed payouts.</p>
+      <h1 class="page-head__title">{{ t.navCashouts }}</h1>
+      <p class="page-head__sub">{{ t.cashoutsSub }}</p>
     </div>
     <div class="page-head__actions">
       <button class="btn-admin btn-admin--secondary">
@@ -11,13 +11,13 @@
           <polyline points="7 10 12 15 17 10"/>
           <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
-        <span>Export</span>
+        <span>{{ t.export }}</span>
       </button>
       <button class="btn-admin btn-admin--brand" (click)="openManual()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 5v14M5 12h14"/>
         </svg>
-        <span>New cashout</span>
+        <span>{{ t.newCashout }}</span>
       </button>
     </div>
   </header>
@@ -25,22 +25,22 @@
   <!-- ── Summary tiles ───────────────────────────────────────────── -->
   <section class="sum-row">
     <div class="sum">
-      <span class="sum__label">Showing</span>
+      <span class="sum__label">{{ t.showing }}</span>
       <span class="sum__value">{{ summary().count }}</span>
-      <span class="sum__sub">cashouts</span>
+      <span class="sum__sub">{{ t.cashoutsWord }}</span>
     </div>
     <div class="sum">
-      <span class="sum__label">Total amount</span>
+      <span class="sum__label">{{ t.totalAmount }}</span>
       <span class="sum__value gel">{{ formatGel(summary().value, 0) }}</span>
     </div>
     <div class="sum">
-      <span class="sum__label">Fees</span>
+      <span class="sum__label">{{ t.fees }}</span>
       <span class="sum__value gel">{{ formatGel(summary().fees, 2) }}</span>
     </div>
     <div class="sum sum--alert" [class.sum--ok]="counts().failed === 0">
-      <span class="sum__label">Failed</span>
+      <span class="sum__label">{{ t.failed }}</span>
       <span class="sum__value">{{ counts().failed }}</span>
-      <span class="sum__sub">need review</span>
+      <span class="sum__sub">{{ t.needReview }}</span>
     </div>
   </section>
 
@@ -48,36 +48,36 @@
   <div class="toolbar">
     <div class="status-tabs">
       <button class="status-tab" [class.status-tab--active]="status() === 'all'"        (click)="setStatus('all')">
-        All
+        {{ t.all }}
         <span class="status-tab__count">{{ counts().all }}</span>
       </button>
       <button class="status-tab" [class.status-tab--active]="status() === 'pending'"    (click)="setStatus('pending')">
         <span class="status-tab__dot" data-color="pending"></span>
-        Pending
+        {{ t.pending }}
         <span class="status-tab__count">{{ counts().pending }}</span>
       </button>
       <button class="status-tab" [class.status-tab--active]="status() === 'processing'" (click)="setStatus('processing')">
         <span class="status-tab__dot" data-color="processing"></span>
-        Processing
+        {{ t.processing }}
         <span class="status-tab__count">{{ counts().processing }}</span>
       </button>
       <button class="status-tab" [class.status-tab--active]="status() === 'completed'"  (click)="setStatus('completed')">
         <span class="status-tab__dot" data-color="completed"></span>
-        Completed
+        {{ t.completed }}
         <span class="status-tab__count">{{ counts().completed }}</span>
       </button>
       <button class="status-tab" [class.status-tab--active]="status() === 'failed'"     (click)="setStatus('failed')">
         <span class="status-tab__dot" data-color="failed"></span>
-        Failed
+        {{ t.failed }}
         <span class="status-tab__count">{{ counts().failed }}</span>
       </button>
     </div>
 
     <div class="range-pills">
-      <button class="range-pill" [class.range-pill--active]="range() === 'today'"     (click)="setRange('today')">Today</button>
-      <button class="range-pill" [class.range-pill--active]="range() === 'yesterday'" (click)="setRange('yesterday')">Yesterday</button>
-      <button class="range-pill" [class.range-pill--active]="range() === 'week'"      (click)="setRange('week')">7 days</button>
-      <button class="range-pill" [class.range-pill--active]="range() === 'all'"       (click)="setRange('all')">All time</button>
+      <button class="range-pill" [class.range-pill--active]="range() === 'today'"     (click)="setRange('today')">{{ t.today }}</button>
+      <button class="range-pill" [class.range-pill--active]="range() === 'yesterday'" (click)="setRange('yesterday')">{{ t.yesterday }}</button>
+      <button class="range-pill" [class.range-pill--active]="range() === 'week'"      (click)="setRange('week')">{{ t.sevenDays }}</button>
+      <button class="range-pill" [class.range-pill--active]="range() === 'all'"       (click)="setRange('all')">{{ t.allTime }}</button>
     </div>
 
     <div class="toolbar__search">
@@ -87,7 +87,7 @@
       </svg>
       <input
         type="text"
-        placeholder="Driver, cashout id or card…"
+        [placeholder]="t.searchCashoutsPlaceholder"
         [ngModel]="search()"
         (ngModelChange)="search.set($event)"
         class="toolbar__search-input"
@@ -102,12 +102,12 @@
   <!-- ── Queue list ──────────────────────────────────────────────── -->
   <div class="queue-card">
     <div class="queue__head">
-      <div class="queue__cell queue__cell--driver">Driver</div>
-      <div class="queue__cell queue__cell--amount">Amount</div>
-      <div class="queue__cell queue__cell--bank">Destination</div>
-      <div class="queue__cell queue__cell--init">Initiated</div>
-      <div class="queue__cell queue__cell--time">When</div>
-      <div class="queue__cell queue__cell--status">Status</div>
+      <div class="queue__cell queue__cell--driver">{{ t.colDriver }}</div>
+      <div class="queue__cell queue__cell--amount">{{ t.colAmount }}</div>
+      <div class="queue__cell queue__cell--bank">{{ t.colDestination }}</div>
+      <div class="queue__cell queue__cell--init">{{ t.colInitiated }}</div>
+      <div class="queue__cell queue__cell--time">{{ t.colWhen }}</div>
+      <div class="queue__cell queue__cell--status">{{ t.colStatus }}</div>
       <div class="queue__cell queue__cell--action"></div>
     </div>
 
@@ -119,8 +119,8 @@
             <line x1="3" y1="10" x2="21" y2="10"/>
           </svg>
         </div>
-        <h3>No cashouts match these filters</h3>
-        <p>Adjust the status, date range or search term to see results.</p>
+        <h3>{{ t.noCashoutsMatch }}</h3>
+        <p>{{ t.adjustFilters }}</p>
       </div>
     }
 
@@ -142,7 +142,7 @@
         </div>
         <div class="queue__cell queue__cell--amount">
           <span class="queue__amount gel">{{ formatGel(c.amount, 0) }}</span>
-          <span class="queue__fee">fee {{ formatGel(c.fee, 2) }}</span>
+          <span class="queue__fee">{{ t.feeLower }} {{ formatGel(c.fee, 2) }}</span>
         </div>
         <div class="queue__cell queue__cell--bank">
           <div class="bank-chip" [attr.data-bank]="c.bankType">{{ c.bankType }}</div>
@@ -150,7 +150,7 @@
         </div>
         <div class="queue__cell queue__cell--init">
           <span class="init-pill" [attr.data-init]="c.initiatedBy">
-            @if (c.initiatedBy === 'manager') { Manager } @else { Driver }
+            @if (c.initiatedBy === 'manager') { {{ t.manager }} } @else { {{ t.driver }} }
           </span>
         </div>
         <div class="queue__cell queue__cell--time">
@@ -160,7 +160,7 @@
         <div class="queue__cell queue__cell--status">
           <span class="status-pill" [attr.data-status]="c.status">
             <span class="status-pill__dot"></span>
-            {{ c.status }}
+            {{ t[c.status] }}
           </span>
         </div>
         <div class="queue__cell queue__cell--action">
@@ -170,7 +170,7 @@
                 <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
                 <path d="M21 3v5h-5"/>
               </svg>
-              <span>Retry</span>
+              <span>{{ t.retry }}</span>
             </button>
           } @else {
             <svg class="queue__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -183,19 +183,19 @@
           <div class="queue-row__detail">
             <div class="detail-grid">
               <div class="detail-cell">
-                <span class="detail-label">Cashout ID</span>
+                <span class="detail-label">{{ t.cashoutId }}</span>
                 <code class="detail-code">{{ c.id }}</code>
               </div>
               <div class="detail-cell">
-                <span class="detail-label">Net to driver</span>
+                <span class="detail-label">{{ t.netToDriver }}</span>
                 <span class="detail-value gel">{{ formatGel(c.net, 2) }}</span>
               </div>
               <div class="detail-cell">
-                <span class="detail-label">Bank transfer</span>
+                <span class="detail-label">{{ t.bankTransfer }}</span>
                 <code class="detail-code">{{ c.bankTransferId ?? '—' }}</code>
               </div>
               <div class="detail-cell">
-                <span class="detail-label">Yandex transaction</span>
+                <span class="detail-label">{{ t.yandexTransaction }}</span>
                 <code class="detail-code">{{ c.yandexTransactionId ?? '—' }}</code>
               </div>
             </div>
@@ -216,7 +216,7 @@
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                     <polyline points="14 2 14 8 20 8"/>
                   </svg>
-                  @if (openingInvoice() === c.id) { <span>Opening…</span> } @else { <span>View invoice</span> }
+                  @if (openingInvoice() === c.id) { <span>{{ t.opening }}</span> } @else { <span>{{ t.viewInvoice }}</span> }
                 </button>
               </div>
             }

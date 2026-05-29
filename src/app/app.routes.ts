@@ -77,6 +77,14 @@ export const routes: Routes = [
         path: 'reports',
         loadComponent: () => import('./admin/pages/reports/reports').then(m => m.ReportsComponent),
       },
+      {
+        path: 'settings',
+        loadComponent: () => import('./admin/pages/settings/settings').then(m => m.SettingsComponent),
+      },
+      {
+        path: 'add-park',
+        loadComponent: () => import('./admin/pages/add-park/add-park').then(m => m.AddParkComponent),
+      },
     ],
   },
 

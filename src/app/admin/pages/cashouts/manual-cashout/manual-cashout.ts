@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../../services/admin-mock.service';
 import { AdminApiService, ApiCard, ApiDriver, ApiPark, CashoutSagaResult } from '../../../services/admin-api.service';
 import { AdminParkContextService } from '../../../services/admin-park-context.service';
+import { AdminI18nService } from '../../../services/admin-i18n.service';
 
 interface SubmittedEvent {
   parkId: string;
@@ -22,6 +23,9 @@ export class ManualCashoutComponent implements OnInit {
   svc = inject(AdminMockService);
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   close = output<void>();
   submitted = output<SubmittedEvent>();

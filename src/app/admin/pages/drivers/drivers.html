@@ -1,8 +1,8 @@
 <div class="page">
   <header class="page-head">
     <div class="page-head__left">
-      <h1 class="page-head__title">Drivers</h1>
-      <p class="page-head__sub">All drivers linked to this park, with their Yandex balances and recent activity.</p>
+      <h1 class="page-head__title">{{ t.navDrivers }}</h1>
+      <p class="page-head__sub">{{ t.driversSub }}</p>
     </div>
     <div class="page-head__actions">
       <button class="btn-admin btn-admin--secondary">
@@ -11,7 +11,7 @@
           <polyline points="7 10 12 15 17 10"/>
           <line x1="12" y1="15" x2="12" y2="3"/>
         </svg>
-        <span>Export CSV</span>
+        <span>{{ t.exportCsv }}</span>
       </button>
       <button class="btn-admin btn-admin--brand">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -20,7 +20,7 @@
           <line x1="18" y1="13" x2="18" y2="21"/>
           <line x1="14" y1="17" x2="22" y2="17"/>
         </svg>
-        <span>Onboard driver</span>
+        <span>{{ t.onboardDriver }}</span>
       </button>
     </div>
   </header>
@@ -34,7 +34,7 @@
       </svg>
       <input
         type="text"
-        placeholder="Search by name, phone or plate…"
+        [placeholder]="t.searchDriversPlaceholder"
         [ngModel]="search()"
         (ngModelChange)="search.set($event)"
         class="toolbar__search-input"
@@ -47,7 +47,7 @@
         [class.chip--active]="status() === 'all'"
         (click)="setStatus('all')"
       >
-        All
+        {{ t.all }}
         <span class="chip__count">{{ counts().all }}</span>
       </button>
       <button
@@ -55,7 +55,7 @@
         [class.chip--active]="status() === 'active'"
         (click)="setStatus('active')"
       >
-        Active
+        {{ t.active }}
         <span class="chip__count">{{ counts().active }}</span>
       </button>
       <button
@@ -63,7 +63,7 @@
         [class.chip--active]="status() === 'inactive'"
         (click)="setStatus('inactive')"
       >
-        Inactive
+        {{ t.inactive }}
         <span class="chip__count">{{ counts().inactive }}</span>
       </button>
       <button
@@ -71,16 +71,16 @@
         [class.chip--active]="status() === 'suspended'"
         (click)="setStatus('suspended')"
       >
-        Suspended
+        {{ t.suspended }}
         <span class="chip__count">{{ counts().suspended }}</span>
       </button>
     </div>
 
     <div class="toolbar__meta">
-      <span class="toolbar__meta-label">Showing</span>
+      <span class="toolbar__meta-label">{{ t.showing }}</span>
       <span class="toolbar__meta-value">{{ filtered().length }}</span>
       <span class="toolbar__meta-label">·</span>
-      <span class="toolbar__meta-label">Cashed out this month</span>
+      <span class="toolbar__meta-label">{{ t.cashedOutThisMonth }}</span>
       <span class="toolbar__meta-value gel">{{ formatGel(sumThisMonth(), 0) }}</span>
     </div>
   </div>
@@ -91,26 +91,26 @@
       <div class="table__head">
         <div class="table__cell table__cell--driver">
           <button class="th" (click)="setSort('name')" [attr.data-active]="sortKey() === 'name' ? sortDir() : null">
-            Driver
+            {{ t.colDriver }}
             <span class="th__caret">@if (sortKey() === 'name') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
           </button>
         </div>
-        <div class="table__cell table__cell--status">Status</div>
+        <div class="table__cell table__cell--status">{{ t.colStatus }}</div>
         <div class="table__cell table__cell--num">
           <button class="th th--right" (click)="setSort('balance')" [attr.data-active]="sortKey() === 'balance' ? sortDir() : null">
-            Balance
+            {{ t.colBalance }}
             <span class="th__caret">@if (sortKey() === 'balance') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
           </button>
         </div>
         <div class="table__cell table__cell--num">
           <button class="th th--right" (click)="setSort('cashedOut')" [attr.data-active]="sortKey() === 'cashedOut' ? sortDir() : null">
-            This month
+            {{ t.thisMonth }}
             <span class="th__caret">@if (sortKey() === 'cashedOut') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
           </button>
         </div>
         <div class="table__cell table__cell--meta">
           <button class="th" (click)="setSort('lastSeen')" [attr.data-active]="sortKey() === 'lastSeen' ? sortDir() : null">
-            Last seen
+            {{ t.lastSeen }}
             <span class="th__caret">@if (sortKey() === 'lastSeen') { @if (sortDir() === 'asc') { ↑ } @else { ↓ } }</span>
           </button>
         </div>
@@ -119,7 +119,7 @@
 
       @if (filtered().length === 0) {
         <div class="table__empty">
-          <p>No drivers match these filters.</p>
+          <p>{{ t.noDriversMatch }}</p>
         </div>
       }
 
@@ -141,7 +141,7 @@
           <div class="table__cell table__cell--status">
             <span class="status-pill" [attr.data-status]="d.status">
               <span class="status-pill__dot"></span>
-              {{ d.status }}
+              {{ t[d.status] }}
             </span>
           </div>
           <div class="table__cell table__cell--num">
@@ -149,7 +149,7 @@
           </div>
           <div class="table__cell table__cell--num">
             <span class="num gel">{{ formatGel(d.totalCashedOutMonth, 0) }}</span>
-            <span class="num__sub">{{ d.cashoutCountMonth }} cashouts</span>
+            <span class="num__sub">{{ d.cashoutCountMonth }} {{ t.cashoutsWord }}</span>
           </div>
           <div class="table__cell table__cell--meta">
             <span class="meta">{{ formatRel(d.lastSeenAt) }}</span>
@@ -176,7 +176,7 @@
             <span class="drawer__id-sub">{{ d.phone }} · {{ d.carPlate }}</span>
             <span class="status-pill status-pill--inline" [attr.data-status]="d.status">
               <span class="status-pill__dot"></span>
-              {{ d.status }}
+              {{ t[d.status] }}
             </span>
           </div>
         </div>
@@ -190,74 +190,74 @@
 
       <section class="drawer__stats">
         <div class="drawer__stat">
-          <span class="drawer__stat-label">Available balance</span>
+          <span class="drawer__stat-label">{{ t.availableBalance }}</span>
           <span class="drawer__stat-value gel">{{ formatGel(d.balance, 2) }}</span>
         </div>
         <div class="drawer__stat">
-          <span class="drawer__stat-label">Cashed out · month</span>
+          <span class="drawer__stat-label">{{ t.cashedOutMonth }}</span>
           <span class="drawer__stat-value gel">{{ formatGel(d.totalCashedOutMonth, 0) }}</span>
         </div>
         <div class="drawer__stat">
-          <span class="drawer__stat-label">Cashout count</span>
+          <span class="drawer__stat-label">{{ t.cashoutCount }}</span>
           <span class="drawer__stat-value">{{ d.cashoutCountMonth }}</span>
         </div>
       </section>
 
       <section class="drawer__section">
         <header class="drawer__section-head">
-          <h3 class="drawer__section-title">Profile</h3>
+          <h3 class="drawer__section-title">{{ t.profile }}</h3>
           @if (!editing()) {
-            <button class="drawer__edit-btn" (click)="startEdit()">Edit</button>
+            <button class="drawer__edit-btn" (click)="startEdit()">{{ t.edit }}</button>
           }
         </header>
 
         @if (!editing()) {
           <div class="drawer__kv">
-            <span class="drawer__kv-label">Full name</span>
+            <span class="drawer__kv-label">{{ t.fullName }}</span>
             <span class="drawer__kv-value">{{ d.name }}</span>
           </div>
           <div class="drawer__kv">
-            <span class="drawer__kv-label">Phone</span>
+            <span class="drawer__kv-label">{{ t.phone }}</span>
             <span class="drawer__kv-value">{{ d.phone }}</span>
           </div>
           <div class="drawer__kv">
-            <span class="drawer__kv-label">Car plate</span>
+            <span class="drawer__kv-label">{{ t.carPlate }}</span>
             <span class="drawer__kv-value">{{ d.carPlate }}</span>
           </div>
           <div class="drawer__kv">
-            <span class="drawer__kv-label">Yandex profile ID</span>
+            <span class="drawer__kv-label">{{ t.yandexProfileId }}</span>
             <code class="drawer__kv-code">{{ d.yandexProfileId }}</code>
           </div>
           <div class="drawer__kv">
-            <span class="drawer__kv-label">Status</span>
-            <span class="drawer__kv-value">{{ d.status }}</span>
+            <span class="drawer__kv-label">{{ t.status }}</span>
+            <span class="drawer__kv-value">{{ t[d.status] }}</span>
           </div>
           <div class="drawer__kv">
-            <span class="drawer__kv-label">Last seen</span>
+            <span class="drawer__kv-label">{{ t.lastSeen }}</span>
             <span class="drawer__kv-value">{{ formatRel(d.lastSeenAt) }}</span>
           </div>
         } @else {
           <div class="edit-form">
             <label class="edit-field">
-              <span>Full name</span>
+              <span>{{ t.fullName }}</span>
               <input
                 type="text"
                 [value]="editForm().name"
                 (input)="setEditField('name', $any($event.target).value)"
-                placeholder="Driver's full name"
+                [placeholder]="t.driverFullNamePlaceholder"
               />
             </label>
             <label class="edit-field">
-              <span>Phone</span>
+              <span>{{ t.phone }}</span>
               <input
                 type="tel"
                 [value]="editForm().phone"
                 (input)="setEditField('phone', $any($event.target).value)"
-                placeholder="+995 5XX XXX XXX"
+                [placeholder]="t.phonePlaceholder"
               />
             </label>
             <label class="edit-field">
-              <span>Yandex profile ID</span>
+              <span>{{ t.yandexProfileId }}</span>
               <input
                 type="text"
                 [value]="editForm().yandexProfileId"
@@ -266,14 +266,14 @@
               />
             </label>
             <label class="edit-field">
-              <span>Status</span>
+              <span>{{ t.status }}</span>
               <select
                 [value]="editForm().status"
                 (change)="setEditField('status', $any($event.target).value)"
               >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="suspended">Suspended</option>
+                <option value="active">{{ t.active }}</option>
+                <option value="inactive">{{ t.inactive }}</option>
+                <option value="suspended">{{ t.suspended }}</option>
               </select>
             </label>
 
@@ -283,10 +283,10 @@
 
             <div class="edit-actions">
               <button class="btn-admin btn-admin--secondary" (click)="cancelEdit()" [disabled]="saving()">
-                Cancel
+                {{ t.cancel }}
               </button>
               <button class="btn-admin btn-admin--brand" (click)="saveEdit()" [disabled]="saving()">
-                @if (saving()) { Saving… } @else { Save changes }
+                @if (saving()) { {{ t.saving }} } @else { {{ t.save }} }
               </button>
             </div>
           </div>
@@ -295,7 +295,7 @@
 
       <section class="drawer__section">
         <header class="drawer__section-head">
-          <h3 class="drawer__section-title">Recent cashouts</h3>
+          <h3 class="drawer__section-title">{{ t.recentCashouts }}</h3>
           <span class="drawer__section-count">{{ selectedCashouts().length }}</span>
         </header>
         <div class="drawer__co-list">
@@ -305,12 +305,12 @@
                 <span class="drawer__co-amount gel">{{ formatGel(c.amount, 0) }}</span>
                 <span class="drawer__co-bank">{{ c.bankType }} {{ c.maskedPan }}</span>
               </div>
-              <span class="status-pill status-pill--sm" [attr.data-status]="c.status">{{ c.status }}</span>
+              <span class="status-pill status-pill--sm" [attr.data-status]="c.status">{{ t[c.status] }}</span>
               <span class="drawer__co-time">{{ formatRel(c.createdAt) }}</span>
             </div>
           }
           @if (selectedCashouts().length === 0) {
-            <p class="drawer__co-empty">No recent cashouts.</p>
+            <p class="drawer__co-empty">{{ t.noRecentCashouts }}</p>
           }
         </div>
       </section>
@@ -322,7 +322,7 @@
             (click)="setDriverStatus('active')"
             [disabled]="statusUpdating()"
           >
-            @if (statusUpdating()) { Updating… } @else { Reactivate }
+            @if (statusUpdating()) { {{ t.updating }} } @else { {{ t.reactivate }} }
           </button>
         } @else {
           <button
@@ -330,11 +330,11 @@
             (click)="setDriverStatus('suspended')"
             [disabled]="statusUpdating()"
           >
-            @if (statusUpdating()) { Updating… } @else { Suspend }
+            @if (statusUpdating()) { {{ t.updating }} } @else { {{ t.suspend }} }
           </button>
         }
         <button class="btn-admin btn-admin--brand">
-          New cashout for {{ d.name.split(' ')[0] }}
+          {{ t.newCashoutFor }} {{ d.name.split(' ')[0] }}
         </button>
       </footer>
     </aside>

@@ -2,8 +2,9 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
-import { AdminApiService, ApiYandexLookup } from '../../services/admin-api.service';
+import { AdminApiService, ApiYandexLookup, YandexRosterDriver } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
+import { AdminI18nService } from '../../services/admin-i18n.service';
 
 interface OnboardingLookup {
   found: boolean;
@@ -24,6 +25,9 @@ export class OnboardingComponent {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   router = inject(Router);
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   step = signal<1 | 2 | 3>(1);
   phone = signal('');
@@ -45,6 +49,67 @@ export class OnboardingComponent {
 
   // Computed park name for display
   readonly parkName = computed(() => this.parkCtx.currentPark()?.name ?? '');
+
+  // ── Bulk sync from Yandex ─────────────────────────────────────────
+  rosterLoading = signal(false);
+  rosterLoaded = signal(false);
+  rosterError = signal<string | null>(null);
+  roster = signal<YandexRosterDriver[]>([]);
+  selected = signal<Set<string>>(new Set());
+  bulkBusy = signal(false);
+  bulkResult = signal<{ created: number; skipped: number } | null>(null);
+
+  readonly newDrivers = computed(() => this.roster().filter(d => !d.alreadyOnboarded));
+  readonly selectedCount = computed(() => this.selected().size);
+
+  async loadRoster() {
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.rosterLoading()) return;
+    this.rosterLoading.set(true);
+    this.rosterError.set(null);
+    this.bulkResult.set(null);
+    try {
+      const resp = await this.api.getYandexRoster(parkId);
+      this.roster.set(resp.drivers);
+      this.selected.set(new Set());
+      this.rosterLoaded.set(true);
+    } catch (err: any) {
+      this.rosterError.set(err?.error?.message ?? err?.message ?? 'Could not load roster');
+    } finally {
+      this.rosterLoading.set(false);
+    }
+  }
+
+  toggleSelect(id: string) {
+    this.selected.update(s => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  selectAllNew() {
+    const newIds = this.newDrivers().filter(d => !!d.phone).map(d => d.yandexProfileId);
+    const all = this.selected().size === newIds.length && newIds.every(id => this.selected().has(id));
+    this.selected.set(all ? new Set() : new Set(newIds));
+  }
+
+  async onboardSelected() {
+    const parkId = this.parkCtx.currentParkId();
+    const ids = [...this.selected()];
+    if (!parkId || ids.length === 0 || this.bulkBusy()) return;
+    this.bulkBusy.set(true);
+    this.rosterError.set(null);
+    try {
+      const res = await this.api.bulkOnboard(parkId, ids);
+      this.bulkResult.set({ created: res.createdCount, skipped: res.skippedCount });
+      await this.loadRoster(); // refresh flags
+    } catch (err: any) {
+      this.rosterError.set(err?.error?.message ?? err?.message ?? 'Bulk onboard failed');
+    } finally {
+      this.bulkBusy.set(false);
+    }
+  }
 
   step1Valid = computed(() =>
     this.phone().replace(/\D/g, '').length >= 9 &&
@@ -116,9 +181,9 @@ export class OnboardingComponent {
     } catch (err: any) {
       const code = err?.error?.error;
       const msg =
-        code === 'phone_already_registered'      ? 'This phone is already linked to a driver.'
-      : code === 'yandex_profile_already_linked' ? 'This Yandex profile is already linked to a driver in this park.'
-      : err?.error?.message ?? err?.message ?? 'Could not create the driver.';
+        code === 'phone_already_registered'      ? this.t['obErrPhoneLinked']
+      : code === 'yandex_profile_already_linked' ? this.t['obErrYandexLinked']
+      : err?.error?.message ?? err?.message ?? this.t['obErrCreate'];
       this.createError.set(msg);
     } finally {
       this.creating.set(false);
@@ -143,4 +208,6 @@ export class OnboardingComponent {
   back() {
     if (this.step() === 2) this.step.set(1);
   }
+
+  formatGel(n: number) { return this.svc.formatGel(n, 2); }
 }

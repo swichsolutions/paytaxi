@@ -1,0 +1,157 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">{{ t.addParkTitle }}</h1>
+      <p class="page-head__sub">{{ t.addParkSub }}</p>
+    </div>
+  </header>
+
+  @if (!isSuperAdmin()) {
+    <section class="ap-card">
+      <p class="ap-blocked">{{ t.signOut }}</p>
+    </section>
+  } @else if (created(); as c) {
+    <!-- ── Success ─────────────────────────────────────────────── -->
+    <section class="ap-card ap-success">
+      <div class="ap-success__icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <h2>{{ t.parkCreatedTitle }}</h2>
+      <p><strong>{{ c.name }}</strong> {{ t.parkCreatedDesc }}</p>
+      @if (c.managerEmail) {
+        <p class="ap-success__cred">{{ t.managerEmailLabel }}: <code>{{ c.managerEmail }}</code></p>
+      }
+      <div class="ap-success__actions">
+        <button class="btn-admin btn-admin--secondary" (click)="addAnother()">{{ t.addAnotherPark }}</button>
+        <button class="btn-admin btn-admin--brand" (click)="goToConsole()">{{ t.navOverview }}</button>
+      </div>
+    </section>
+  } @else {
+    <!-- ── Form ────────────────────────────────────────────────── -->
+    <section class="ap-card">
+      <div class="ap-section">
+        <h2 class="ap-section__title">{{ t.secParkBasics }}</h2>
+        <div class="ap-grid">
+          <label class="ap-field ap-field--wide">
+            <span class="ap-field__label">{{ t.settingsParkName }}</span>
+            <input type="text" class="ap-input" [value]="form().name"
+              (input)="setField('name', $any($event.target).value)" [placeholder]="t.parkNamePlaceholder" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.slugLabel }} <span class="ap-opt">{{ t.optional }}</span></span>
+            <input type="text" class="ap-input gel" [value]="form().slug"
+              (input)="setField('slug', $any($event.target).value)" placeholder="tbilisi-auto-park-7" />
+            <span class="ap-hint">{{ t.slugHint }}</span>
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.operatingModelLabel }}</span>
+            <select class="ap-input" [value]="form().operatingModel"
+              (change)="setField('operatingModel', $any($event.target).value)">
+              <option value="ModelA5">{{ t.modelA5Opt }}</option>
+              <option value="ModelA">{{ t.modelAOpt }}</option>
+              <option value="ModelB">{{ t.modelBOpt }}</option>
+            </select>
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.bankProviderLabel }}</span>
+            <select class="ap-input" [value]="form().bankProvider"
+              (change)="setField('bankProvider', $any($event.target).value)">
+              <option value="bog">BOG</option>
+              <option value="tbc">TBC</option>
+              <option value="mock">mock</option>
+            </select>
+          </label>
+          @if (form().operatingModel === 'ModelA5') {
+            <label class="ap-field">
+              <span class="ap-field__label">{{ t.authLimitLabel }} <span class="ap-opt">{{ t.optional }}</span></span>
+              <input type="number" class="ap-input gel" [value]="form().authorizationLimit"
+                (input)="setField('authorizationLimit', $any($event.target).value)" placeholder="0" />
+            </label>
+          }
+        </div>
+      </div>
+
+      <div class="ap-section">
+        <h2 class="ap-section__title">{{ t.secYandex }}</h2>
+        <p class="ap-section__hint">{{ t.yandexFleetHint }}</p>
+        <div class="ap-grid">
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.yandexParkIdLabel }}</span>
+            <input type="text" class="ap-input gel" [value]="form().yandexParkId"
+              (input)="setField('yandexParkId', $any($event.target).value)" [placeholder]="t.yandexParkIdPlaceholder" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.clientId }}</span>
+            <input type="text" class="ap-input gel" [value]="form().yandexClientId"
+              (input)="setField('yandexClientId', $any($event.target).value)" [placeholder]="t.yandexClientIdPlaceholder" />
+          </label>
+          <label class="ap-field ap-field--wide">
+            <span class="ap-field__label">{{ t.apiKey }}</span>
+            <input type="password" autocomplete="off" class="ap-input gel" [value]="form().yandexApiKey"
+              (input)="setField('yandexApiKey', $any($event.target).value)" />
+          </label>
+        </div>
+      </div>
+
+      <div class="ap-section">
+        <h2 class="ap-section__title">{{ t.secPark }}</h2>
+        <div class="ap-grid">
+          <label class="ap-field ap-field--wide">
+            <span class="ap-field__label">{{ t.legalEntity }}</span>
+            <input type="text" class="ap-input" [value]="form().legalEntityName"
+              (input)="setField('legalEntityName', $any($event.target).value)" [placeholder]="t.legalEntityPlaceholder" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.identificationCode }}</span>
+            <input type="text" inputmode="numeric" class="ap-input gel" [value]="form().taxId"
+              (input)="setField('taxId', $any($event.target).value)" [placeholder]="t.taxIdPlaceholder" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.phone }}</span>
+            <input type="tel" class="ap-input gel" [value]="form().phone"
+              (input)="setField('phone', $any($event.target).value)" [placeholder]="t.phonePlaceholder" />
+          </label>
+          <label class="ap-field ap-field--wide">
+            <span class="ap-field__label">{{ t.iban }}</span>
+            <input type="text" class="ap-input gel" [value]="form().bankAccountIban"
+              (input)="setField('bankAccountIban', $any($event.target).value)" [placeholder]="t.ibanPlaceholder" />
+          </label>
+        </div>
+      </div>
+
+      <div class="ap-section">
+        <h2 class="ap-section__title">{{ t.secManagerLogin }}</h2>
+        <p class="ap-section__hint">{{ t.managerLoginHint }}</p>
+        <div class="ap-grid">
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.managerEmailLabel }}</span>
+            <input type="email" autocomplete="off" class="ap-input" [value]="form().managerEmail"
+              (input)="setField('managerEmail', $any($event.target).value)" placeholder="manager@taxipark.ge" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.managerNameLabel }}</span>
+            <input type="text" class="ap-input" [value]="form().managerName"
+              (input)="setField('managerName', $any($event.target).value)" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.managerPasswordLabel }}</span>
+            <input type="password" autocomplete="new-password" class="ap-input" [value]="form().managerPassword"
+              (input)="setField('managerPassword', $any($event.target).value)" />
+          </label>
+        </div>
+      </div>
+
+      @if (error()) {
+        <p class="ap-error">{{ error() }}</p>
+      }
+
+      <div class="ap-actions">
+        <button class="btn-admin btn-admin--brand" (click)="submit()" [disabled]="!canSubmit()">
+          @if (saving()) { {{ t.creatingPark }} } @else { {{ t.createParkBtn }} }
+        </button>
+      </div>
+    </section>
+  }
+</div>

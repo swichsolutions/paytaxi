@@ -2,6 +2,7 @@ import { Component, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AdminAuthService } from '../services/admin-auth.service';
+import { AdminI18nService } from '../services/admin-i18n.service';
 
 @Component({
   selector: 'app-admin-login',
@@ -12,6 +13,9 @@ import { AdminAuthService } from '../services/admin-auth.service';
 export class AdminLoginComponent {
   private router = inject(Router);
   private auth = inject(AdminAuthService);
+  readonly i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   email = signal('');
   password = signal('');
@@ -32,9 +36,9 @@ export class AdminLoginComponent {
     } catch (err: any) {
       const code = err?.error?.error;
       this.error.set(
-        code === 'invalid_credentials' ? 'Wrong email or password.'
-        : code === 'email_and_password_required' ? 'Both fields are required.'
-        : err?.error?.message ?? err?.message ?? 'Login failed.'
+        code === 'invalid_credentials' ? this.t['errWrongCredentials']
+        : code === 'email_and_password_required' ? this.t['errBothRequired']
+        : err?.error?.message ?? err?.message ?? this.t['errLoginFailed']
       );
     } finally {
       this.submitting.set(false);

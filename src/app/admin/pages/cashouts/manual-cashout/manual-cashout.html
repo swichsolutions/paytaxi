@@ -8,13 +8,13 @@
       </button>
     }
     <div class="modal__head-text">
-      <h2>Create manual cashout</h2>
+      <h2>{{ t.createManualCashout }}</h2>
       <div class="modal__steps">
-        <span class="mstep" [class.mstep--done]="step() > 1" [class.mstep--active]="step() === 1">Driver</span>
+        <span class="mstep" [class.mstep--done]="step() > 1" [class.mstep--active]="step() === 1">{{ t.stepDriver }}</span>
         <span class="mstep-sep"></span>
-        <span class="mstep" [class.mstep--done]="step() > 2" [class.mstep--active]="step() === 2">Amount</span>
+        <span class="mstep" [class.mstep--done]="step() > 2" [class.mstep--active]="step() === 2">{{ t.stepAmount }}</span>
         <span class="mstep-sep"></span>
-        <span class="mstep" [class.mstep--done]="step() > 3" [class.mstep--active]="step() === 3">Confirm</span>
+        <span class="mstep" [class.mstep--done]="step() > 3" [class.mstep--active]="step() === 3">{{ t.stepConfirm }}</span>
       </div>
     </div>
   </div>
@@ -31,12 +31,12 @@
   @if (step() === 1) {
     <div class="mc-step">
       @if (loading()) {
-        <p class="mc-hint">Loading parks and drivers…</p>
+        <p class="mc-hint">{{ t.loadingParksDrivers }}</p>
       } @else if (loadError()) {
         <p class="mc-error">{{ loadError() }}</p>
       } @else {
         @if (parks().length > 1) {
-          <label class="mc-hint" for="park-pick">Park</label>
+          <label class="mc-hint" for="park-pick">{{ t.park }}</label>
           <select
             id="park-pick"
             class="mc-search__input"
@@ -49,7 +49,7 @@
           </select>
         }
 
-        <p class="mc-hint">Search by driver name, car plate or Yandex profile ID. Only active drivers are shown.</p>
+        <p class="mc-hint">{{ t.mcSearchHint }}</p>
         <div class="mc-search">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="7"/>
@@ -58,7 +58,7 @@
           <input
             autofocus
             type="text"
-            placeholder="Start typing a name…"
+            [placeholder]="t.startTypingName"
             [ngModel]="driverSearch()"
             (ngModelChange)="driverSearch.set($event)"
             class="mc-search__input"
@@ -70,14 +70,14 @@
             <button class="mc-driver" (click)="pickDriver(d)" [disabled]="d.cards.length === 0">
               <div class="mc-driver__avatar">{{ initials(d.name) }}</div>
               <div class="mc-driver__main">
-                <span class="mc-driver__name">{{ d.name ?? '(unnamed)' }}</span>
+                <span class="mc-driver__name">{{ d.name ?? t.unnamed }}</span>
                 <span class="mc-driver__meta">
-                  {{ d.yandex?.carPlate ?? '—' }} · {{ d.yandexProfileId ?? 'no Yandex link' }}
-                  @if (d.cards.length === 0) { · <em>no card on file</em> }
+                  {{ d.yandex?.carPlate ?? '—' }} · {{ d.yandexProfileId ?? t.noYandexLink }}
+                  @if (d.cards.length === 0) { · <em>{{ t.noCardOnFile }}</em> }
                 </span>
               </div>
               <div class="mc-driver__balance">
-                <span class="mc-driver__balance-label">balance</span>
+                <span class="mc-driver__balance-label">{{ t.balanceLower }}</span>
                 <span class="mc-driver__balance-amount gel">{{ formatGel(d.yandex?.balance ?? 0, 2) }}</span>
               </div>
               <svg class="mc-driver__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -86,7 +86,7 @@
             </button>
           }
           @if (filteredDrivers().length === 0) {
-            <p class="mc-empty">No active drivers match.</p>
+            <p class="mc-empty">{{ t.noActiveDriversMatch }}</p>
           }
         </div>
       }
@@ -100,30 +100,30 @@
         <div class="mc-picked__avatar">{{ initials(d.name) }}</div>
         <div class="mc-picked__main">
           <span class="mc-picked__name">{{ d.name }}</span>
-          <span class="mc-picked__sub">Available · <b class="gel">{{ formatGel(driverBalance(), 2) }}</b></span>
+          <span class="mc-picked__sub">{{ t.available }} · <b class="gel">{{ formatGel(driverBalance(), 2) }}</b></span>
         </div>
-        <button class="mc-picked__change" (click)="back()">Change</button>
+        <button class="mc-picked__change" (click)="back()">{{ t.change }}</button>
       </div>
 
       <div class="mc-amount">
         <div class="mc-amount__display">
           <span class="mc-amount__sym">₾</span>
           <span class="mc-amount__val gel">{{ amountStr() || '0' }}</span>
-          <button class="mc-amount__max" (click)="setMax()">MAX</button>
+          <button class="mc-amount__max" (click)="setMax()">{{ t.max }}</button>
         </div>
 
         @if (amount() > 0 && canProceedStep2()) {
           <div class="mc-fee">
-            <span>Fee: <b class="gel">{{ formatGel(fee(), 2) }}</b></span>
+            <span>{{ t.feeWord }}: <b class="gel">{{ formatGel(fee(), 2) }}</b></span>
             <span class="mc-fee__sep">·</span>
-            <span>Net: <b class="gel mc-fee__net">{{ formatGel(net(), 2) }}</b></span>
+            <span>{{ t.netWord }}: <b class="gel mc-fee__net">{{ formatGel(net(), 2) }}</b></span>
           </div>
         }
         @if (amount() > driverBalance()) {
-          <p class="mc-error">Exceeds available balance</p>
+          <p class="mc-error">{{ t.exceedsBalance }}</p>
         }
         @if (amount() > 0 && amount() < 5) {
-          <p class="mc-error">Minimum cashout is ₾ 5.00</p>
+          <p class="mc-error">{{ t.minCashout }}</p>
         }
 
         <div class="mc-keypad">
@@ -148,7 +148,7 @@
       </div>
 
       <div class="mc-card-list">
-        <span class="mc-card-list__label">DESTINATION CARD</span>
+        <span class="mc-card-list__label">{{ t.destinationCard }}</span>
         @for (card of d.cards; track card.id) {
           <button
             class="mc-card"
@@ -157,7 +157,7 @@
           >
             <div class="bank-chip" [attr.data-bank]="card.bankType">{{ card.bankType }}</div>
             <span class="mc-card__pan gel">{{ card.maskedPan }}</span>
-            @if (card.isDefault) { <span class="mc-card__tag">DEFAULT</span> }
+            @if (card.isDefault) { <span class="mc-card__tag">{{ t.defaultCaps }}</span> }
             <div class="mc-card__check" [class.mc-card__check--on]="selectedCardId() === card.id">
               @if (selectedCardId() === card.id) {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -175,27 +175,27 @@
   @if (step() === 3 && selectedDriver(); as d) {
     <div class="mc-step">
       <div class="mc-confirm">
-        <span class="mc-confirm__label">YOU ARE ABOUT TO TRANSFER</span>
+        <span class="mc-confirm__label">{{ t.youAreAboutToTransfer }}</span>
         <div class="mc-confirm__amount gel">{{ formatGel(net(), 2) }}</div>
-        <span class="mc-confirm__to">to {{ d.name }} · {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}</span>
+        <span class="mc-confirm__to">{{ t.to }} {{ d.name }} · {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}</span>
       </div>
 
       <div class="mc-summary">
         <div class="mc-summary__row">
-          <span>Cashout amount</span>
+          <span>{{ t.cashoutAmount }}</span>
           <span class="gel">{{ formatGel(amount(), 2) }}</span>
         </div>
         <div class="mc-summary__row">
-          <span>Park fee</span>
+          <span>{{ t.parkFee }}</span>
           <span class="gel">{{ formatGel(fee(), 2) }}</span>
         </div>
         <div class="mc-summary__row mc-summary__row--accent">
-          <span>Driver receives</span>
+          <span>{{ t.driverReceives }}</span>
           <span class="gel">{{ formatGel(net(), 2) }}</span>
         </div>
         <div class="mc-summary__row">
-          <span>Initiated by</span>
-          <span class="mc-summary__pill">MANAGER · {{ svc.user().name }}</span>
+          <span>{{ t.initiatedBy }}</span>
+          <span class="mc-summary__pill">{{ t.managerCaps }} · {{ svc.user().name }}</span>
         </div>
       </div>
 
@@ -209,7 +209,7 @@
           <line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        <span>Manager-initiated cashouts are logged in the audit trail and posted to Yandex on the driver's behalf.</span>
+        <span>{{ t.mcWarn }}</span>
       </p>
     </div>
   }
@@ -232,15 +232,15 @@
       </div>
       <h3>
         @switch (r.status) {
-          @case ('Completed')      { Cashout completed }
-          @case ('ReviewRequired') { Needs manual review }
-          @case ('Failed')         { Cashout failed }
-          @default                  { Cashout {{ r.status }} }
+          @case ('Completed')      { {{ t.cashoutCompleted }} }
+          @case ('ReviewRequired') { {{ t.needsManualReview }} }
+          @case ('Failed')         { {{ t.cashoutFailed }} }
+          @default                  { {{ r.status }} }
         }
       </h3>
       <p>
         @if (r.status === 'Completed') {
-          {{ formatGel(r.net, 2) }} was transferred to {{ selectedDriver()?.name }}. Bank ref {{ r.bankTransferId }} · Yandex ref {{ r.yandexTransactionId }}.
+          {{ formatGel(r.net, 2) }} {{ t.wasTransferredTo }} {{ selectedDriver()?.name }}. {{ t.bankRef }} {{ r.bankTransferId }} · {{ t.yandexRef }} {{ r.yandexTransactionId }}.
         } @else {
           {{ r.failureReason }}
         }
@@ -251,29 +251,29 @@
 
 <footer class="modal__foot">
   @if (step() === 1) {
-    <button class="btn-admin btn-admin--secondary" (click)="closeModal()">Cancel</button>
+    <button class="btn-admin btn-admin--secondary" (click)="closeModal()">{{ t.cancel }}</button>
   }
   @if (step() === 2) {
-    <button class="btn-admin btn-admin--secondary" (click)="back()">Back</button>
+    <button class="btn-admin btn-admin--secondary" (click)="back()">{{ t.back }}</button>
     <button class="btn-admin btn-admin--primary" [disabled]="!canProceedStep2()" (click)="next()">
-      Review cashout
+      {{ t.reviewCashout }}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 12h14M12 5l7 7-7 7"/>
       </svg>
     </button>
   }
   @if (step() === 3) {
-    <button class="btn-admin btn-admin--secondary" (click)="back()">Back</button>
+    <button class="btn-admin btn-admin--secondary" (click)="back()">{{ t.back }}</button>
     <button class="btn-admin btn-admin--brand" [disabled]="submitting()" (click)="confirm()">
       @if (submitting()) {
         <span class="mc-spin"></span>
-        <span>Submitting…</span>
+        <span>{{ t.submitting }}</span>
       } @else {
-        <span>Confirm &amp; submit</span>
+        <span>{{ t.confirmSubmit }}</span>
       }
     </button>
   }
   @if (step() === 4) {
-    <button class="btn-admin btn-admin--brand" (click)="closeModal()">Done</button>
+    <button class="btn-admin btn-admin--brand" (click)="closeModal()">{{ t.done }}</button>
   }
 </footer>

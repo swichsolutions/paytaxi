@@ -1,9 +1,9 @@
 <div class="page">
   <header class="page-head">
     <div class="page-head__left">
-      <h1 class="page-head__title">Driver onboarding</h1>
+      <h1 class="page-head__title">{{ t.onboardingTitle }}</h1>
       <p class="page-head__sub">
-        Link a new phone number to a Yandex driver profile and issue PayTaxi access.
+        {{ t.onboardingSub }}
       </p>
     </div>
     <div class="page-head__actions">
@@ -13,10 +13,76 @@
           <line x1="12" y1="8" x2="12" y2="12"/>
           <line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        <span>Onboarding guide</span>
+        <span>{{ t.onboardingGuide }}</span>
       </a>
     </div>
   </header>
+
+  <!-- ── Bulk sync from Yandex ──────────────────────────────────── -->
+  <section class="ob-sync">
+    <div class="ob-sync__head">
+      <div class="ob-sync__head-text">
+        <h2 class="ob-sync__title">{{ t.syncFromYandex }}</h2>
+        <p class="ob-sync__sub">{{ t.syncSub }}</p>
+      </div>
+      <button class="btn-admin btn-admin--secondary" (click)="loadRoster()" [disabled]="rosterLoading()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+          <path d="M21 3v5h-5"/>
+        </svg>
+        @if (rosterLoading()) { <span>{{ t.loadingRoster }}</span> }
+        @else { <span>{{ rosterLoaded() ? t.reloadRoster : t.loadRoster }}</span> }
+      </button>
+    </div>
+
+    @if (rosterError()) {
+      <p class="ob-sync__error">{{ rosterError() }}</p>
+    }
+    @if (bulkResult(); as r) {
+      <p class="ob-sync__result">{{ r.created }} {{ t.onboardedWord }} · {{ r.skipped }} {{ t.skippedWord }}</p>
+    }
+
+    @if (rosterLoaded()) {
+      @if (roster().length === 0) {
+        <p class="ob-sync__empty">{{ t.rosterEmpty }}</p>
+      } @else {
+        <div class="ob-sync__toolbar">
+          <button class="ob-sync__selectall" (click)="selectAllNew()">{{ t.selectAllNew }}</button>
+          <button class="btn-admin btn-admin--brand" (click)="onboardSelected()"
+            [disabled]="selectedCount() === 0 || bulkBusy()">
+            @if (bulkBusy()) { <span>{{ t.onboardingDrivers }}</span> }
+            @else { <span>{{ t.onboardSelected }} ({{ selectedCount() }})</span> }
+          </button>
+        </div>
+
+        <div class="ob-roster">
+          @for (d of roster(); track d.yandexProfileId) {
+            <label class="ob-roster__row" [class.ob-roster__row--disabled]="d.alreadyOnboarded || !d.phone">
+              <input
+                type="checkbox"
+                class="ob-roster__check"
+                [checked]="selected().has(d.yandexProfileId)"
+                [disabled]="d.alreadyOnboarded || !d.phone"
+                (change)="toggleSelect(d.yandexProfileId)"
+              />
+              <div class="ob-roster__main">
+                <span class="ob-roster__name">{{ d.name || t.unnamed }}</span>
+                <span class="ob-roster__meta">{{ d.carPlate || '—' }} · {{ d.phone || t.noPhoneTag }} · <code>{{ d.yandexProfileId }}</code></span>
+              </div>
+              <span class="ob-roster__balance gel">{{ formatGel(d.balance) }}</span>
+              @if (d.alreadyOnboarded) {
+                <span class="ob-roster__tag ob-roster__tag--done">{{ t.onboardedTag }}</span>
+              } @else if (!d.phone) {
+                <span class="ob-roster__tag ob-roster__tag--warn">{{ t.noPhoneTag }}</span>
+              }
+            </label>
+          }
+        </div>
+      }
+    }
+  </section>
+
+  <h2 class="ob-or">{{ t.orManualOnboard }}</h2>
 
   <!-- Stepper -->
   <div class="ob-stepper">
@@ -29,8 +95,8 @@
         } @else { 1 }
       </div>
       <div class="ob-step__text">
-        <span class="ob-step__title">Yandex lookup</span>
-        <span class="ob-step__sub">Verify driver in Yandex Fleet</span>
+        <span class="ob-step__title">{{ t.obStep1 }}</span>
+        <span class="ob-step__sub">{{ t.obStep1Sub }}</span>
       </div>
     </div>
     <div class="ob-step__bar" [class.ob-step__bar--done]="step() > 1"></div>
@@ -43,16 +109,16 @@
         } @else { 2 }
       </div>
       <div class="ob-step__text">
-        <span class="ob-step__title">Confirm &amp; create</span>
-        <span class="ob-step__sub">Review and issue access</span>
+        <span class="ob-step__title">{{ t.obStep2 }}</span>
+        <span class="ob-step__sub">{{ t.obStep2Sub }}</span>
       </div>
     </div>
     <div class="ob-step__bar" [class.ob-step__bar--done]="step() > 2"></div>
     <div class="ob-step" [class.ob-step--active]="step() === 3">
       <div class="ob-step__num">3</div>
       <div class="ob-step__text">
-        <span class="ob-step__title">Done</span>
-        <span class="ob-step__sub">Driver receives SMS</span>
+        <span class="ob-step__title">{{ t.obStep3 }}</span>
+        <span class="ob-step__sub">{{ t.obStep3Sub }}</span>
       </div>
     </div>
   </div>
@@ -63,13 +129,13 @@
       <!-- Step 1: Yandex lookup -->
       @if (step() === 1) {
         <div class="ob-card__head">
-          <h2>Verify with Yandex Fleet</h2>
-          <p>Enter the driver's phone and Yandex profile ID. We'll pull their record before creating the PayTaxi account.</p>
+          <h2>{{ t.obVerifyTitle }}</h2>
+          <p>{{ t.obVerifyDesc }}</p>
         </div>
 
         <div class="ob-form">
           <label class="field">
-            <span class="field__label">Driver phone</span>
+            <span class="field__label">{{ t.driverPhone }}</span>
             <div class="field__phone">
               <span class="field__prefix">+995</span>
               <input
@@ -84,7 +150,7 @@
           </label>
 
           <label class="field">
-            <span class="field__label">Yandex driver_profile.id</span>
+            <span class="field__label">{{ t.obYandexIdLabel }}</span>
             <input
               type="text"
               class="field__input field__input--mono"
@@ -94,7 +160,7 @@
               autocomplete="off"
               spellcheck="false"
             />
-            <span class="field__help">Found in fleet.yandex.com → Drivers → Driver detail → API ID</span>
+            <span class="field__help">{{ t.obYandexIdHelp }}</span>
           </label>
 
           @if (lookupResult() && !lookupResult()!.found) {
@@ -105,8 +171,8 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Driver not found in {{ parkName() }}</strong>
-                <span>Verify the profile ID — it must match an active driver in this park's Yandex Fleet account.</span>
+                <strong>{{ t.obNotFoundTitle }} {{ parkName() }}</strong>
+                <span>{{ t.obNotFoundDesc }}</span>
               </div>
             </div>
           }
@@ -119,8 +185,8 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Already onboarded</strong>
-                <span>{{ lookupResult()?.name }} is already linked to a PayTaxi account in {{ parkName() }}.</span>
+                <strong>{{ t.obAlreadyTitle }}</strong>
+                <span>{{ lookupResult()?.name }} {{ t.obAlreadyDescA }} {{ parkName() }}.</span>
               </div>
             </div>
           }
@@ -133,7 +199,7 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Lookup failed</strong>
+                <strong>{{ t.lookupFailed }}</strong>
                 <span>{{ lookupError() }}</span>
               </div>
             </div>
@@ -146,13 +212,13 @@
           >
             @if (lookupRunning()) {
               <span class="ob-spin"></span>
-              <span>Looking up…</span>
+              <span>{{ t.lookingUp }}</span>
             } @else {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="7"/>
                 <line x1="20" y1="20" x2="16.5" y2="16.5"/>
               </svg>
-              <span>Look up in Yandex Fleet</span>
+              <span>{{ t.lookUpInYandex }}</span>
             }
           </button>
         </div>
@@ -162,18 +228,18 @@
       @if (step() === 2 && lookupResult()!.found) {
         <div class="ob-card__head">
           <div class="ob-card__head-row">
-            <h2>Confirm driver details</h2>
+            <h2>{{ t.obConfirmTitle }}</h2>
             <span class="ob-pill ob-pill--ok">
               <span class="ob-pill__dot"></span>
-              YANDEX VERIFIED
+              {{ t.yandexVerified }}
             </span>
           </div>
-          <p>We found the driver. Review the details below and create the PayTaxi account.</p>
+          <p>{{ t.obConfirmDesc }}</p>
         </div>
 
         <div class="ob-form">
           <label class="field">
-            <span class="field__label">Full name</span>
+            <span class="field__label">{{ t.fullName }}</span>
             <input
               type="text"
               class="field__input"
@@ -183,7 +249,7 @@
           </label>
 
           <label class="field">
-            <span class="field__label">Car plate</span>
+            <span class="field__label">{{ t.carPlate }}</span>
             <input
               type="text"
               class="field__input field__input--mono"
@@ -194,8 +260,8 @@
 
           <div class="ob-toggle">
             <label class="ob-toggle__label">
-              <span class="ob-toggle__title">Send welcome SMS</span>
-              <span class="ob-toggle__sub">Driver receives a link to download PayTaxi and finish setup.</span>
+              <span class="ob-toggle__title">{{ t.sendWelcomeSms }}</span>
+              <span class="ob-toggle__sub">{{ t.sendWelcomeSmsSub }}</span>
             </label>
             <button
               class="toggle"
@@ -216,7 +282,7 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Could not create driver</strong>
+                <strong>{{ t.couldNotCreateDriver }}</strong>
                 <span>{{ createError() }}</span>
               </div>
             </div>
@@ -224,7 +290,7 @@
 
           <div class="ob-actions">
             <button class="btn-admin btn-admin--secondary" (click)="back()">
-              Back
+              {{ t.back }}
             </button>
             <button
               class="btn-admin btn-admin--brand ob-submit"
@@ -233,9 +299,9 @@
             >
               @if (creating()) {
                 <span class="ob-spin ob-spin--dark"></span>
-                <span>Creating…</span>
+                <span>{{ t.creating }}</span>
               } @else {
-                <span>Create driver account</span>
+                <span>{{ t.createDriverAccount }}</span>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M5 12h14M12 5l7 7-7 7"/>
                 </svg>
@@ -253,19 +319,19 @@
               <polyline points="20 6 9 17 4 12"/>
             </svg>
           </div>
-          <h2>{{ driverName() }} added to the park</h2>
+          <h2>{{ driverName() }} {{ t.obAddedToPark }}</h2>
           <p>
-            We've linked Yandex profile <code>{{ yandexId() }}</code> to the PayTaxi account for
+            {{ t.obLinkedA }} <code>{{ yandexId() }}</code> {{ t.obLinkedB }}
             <strong>+995 {{ phone() }}</strong>.
             @if (notify()) {
-              A welcome SMS has been sent.
+              {{ t.welcomeSmsSent }}
             }
           </p>
 
           <div class="ob-success__actions">
-            <button class="btn-admin btn-admin--secondary" (click)="reset()">Onboard another</button>
+            <button class="btn-admin btn-admin--secondary" (click)="reset()">{{ t.onboardAnother }}</button>
             <button class="btn-admin btn-admin--brand" (click)="goToDrivers()">
-              View drivers
+              {{ t.viewDrivers }}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M5 12h14M12 5l7 7-7 7"/>
               </svg>
@@ -278,27 +344,27 @@
     <!-- ── Right column: context panel ────────────────────────────── -->
     <aside class="ob-side">
       @if (step() === 1) {
-        <h3 class="ob-side__title">Before you start</h3>
+        <h3 class="ob-side__title">{{ t.beforeYouStart }}</h3>
         <ol class="ob-checklist">
           <li>
             <span class="ob-checklist__num">1</span>
             <div>
-              <strong>Driver is registered with Yandex</strong>
-              <span>The taxi park must already have this driver under their Yandex Fleet account.</span>
+              <strong>{{ t.obCheck1Title }}</strong>
+              <span>{{ t.obCheck1Desc }}</span>
             </div>
           </li>
           <li>
             <span class="ob-checklist__num">2</span>
             <div>
-              <strong>You have the Yandex profile ID</strong>
-              <span>Find it in <code>fleet.yandex.com</code> under Drivers → API ID.</span>
+              <strong>{{ t.obCheck2Title }}</strong>
+              <span>{{ t.obCheck2DescA }} <code>fleet.yandex.com</code> {{ t.obCheck2DescB }}</span>
             </div>
           </li>
           <li>
             <span class="ob-checklist__num">3</span>
             <div>
-              <strong>Phone number is reachable</strong>
-              <span>The driver will receive an OTP code to verify their phone.</span>
+              <strong>{{ t.obCheck3Title }}</strong>
+              <span>{{ t.obCheck3Desc }}</span>
             </div>
           </li>
         </ol>
@@ -309,27 +375,27 @@
             <line x1="12" y1="8" x2="12" y2="12"/>
             <line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          <span>Onboarding into <strong>{{ parkName() || 'the selected park' }}</strong>. Seeded profile ids look like <code>yp_tb3_001</code>; valid new ones (mock) match the park's prefix (e.g. <code>yp_tb3_</code>) and won't be in the mock list — try one to see the not-found state.</span>
+          <span>{{ t.obNoteLead }} <strong>{{ parkName() || t.theSelectedPark }}</strong>{{ t.obNoteBody1 }} <code>yp_tb3_001</code>{{ t.obNoteBody2 }} <code>yp_tb3_</code>{{ t.obNoteBody3 }}</span>
         </div>
       }
 
       @if (step() === 2 && lookupResult()!.found) {
-        <h3 class="ob-side__title">From Yandex Fleet</h3>
+        <h3 class="ob-side__title">{{ t.fromYandexFleet }}</h3>
         <div class="ob-yandex">
           <div class="ob-yandex__row">
-            <span class="ob-yandex__label">Profile ID</span>
+            <span class="ob-yandex__label">{{ t.profileId }}</span>
             <code class="ob-yandex__code">{{ yandexId() }}</code>
           </div>
           <div class="ob-yandex__row">
-            <span class="ob-yandex__label">Yandex balance</span>
+            <span class="ob-yandex__label">{{ t.yandexBalance }}</span>
             <span class="ob-yandex__value gel">₾ {{ lookupResult()!.yandexBalance!.toFixed(2) }}</span>
           </div>
           <div class="ob-yandex__row">
-            <span class="ob-yandex__label">Car plate</span>
+            <span class="ob-yandex__label">{{ t.carPlate }}</span>
             <span class="ob-yandex__value">{{ lookupResult()!.carPlate || '—' }}</span>
           </div>
           <div class="ob-yandex__row">
-            <span class="ob-yandex__label">Park</span>
+            <span class="ob-yandex__label">{{ t.park }}</span>
             <span class="ob-yandex__value">{{ parkName() }}</span>
           </div>
         </div>
@@ -338,12 +404,12 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
-          <span>Driver is active in Yandex Fleet and eligible for instant cashout.</span>
+          <span>{{ t.obEligible }}</span>
         </div>
       }
 
       @if (step() === 3) {
-        <h3 class="ob-side__title">What happens next</h3>
+        <h3 class="ob-side__title">{{ t.whatHappensNext }}</h3>
         <ol class="ob-checklist">
           <li>
             <span class="ob-checklist__num ob-checklist__num--done">
@@ -352,22 +418,22 @@
               </svg>
             </span>
             <div>
-              <strong>Account created</strong>
-              <span>Driver record added to the park, linked to Yandex.</span>
+              <strong>{{ t.obNext1Title }}</strong>
+              <span>{{ t.obNext1Desc }}</span>
             </div>
           </li>
           <li>
             <span class="ob-checklist__num ob-checklist__num--pending"></span>
             <div>
-              <strong>Driver logs in</strong>
-              <span>They'll receive an SMS with the PayTaxi link and login OTP.</span>
+              <strong>{{ t.obNext2Title }}</strong>
+              <span>{{ t.obNext2Desc }}</span>
             </div>
           </li>
           <li>
             <span class="ob-checklist__num ob-checklist__num--pending"></span>
             <div>
-              <strong>First cashout</strong>
-              <span>Once they add a bank card, they can withdraw 24/7.</span>
+              <strong>{{ t.obNext3Title }}</strong>
+              <span>{{ t.obNext3Desc }}</span>
             </div>
           </li>
         </ol>

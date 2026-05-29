@@ -50,7 +50,8 @@ public class MockYandexFleetClient : IYandexFleetClient
             Name: d.Name,
             CarPlate: d.CarPlate,
             Balance: d.Balance,
-            Currency: "GEL")).ToList();
+            Currency: "GEL",
+            Phone: d.Phone)).ToList();
     }
 
     public async Task<decimal> GetDriverBalanceAsync(

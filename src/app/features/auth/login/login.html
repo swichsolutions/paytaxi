@@ -42,7 +42,7 @@
         </div>
 
         <button class="btn btn--primary" (click)="sendCode()" [disabled]="!phoneValid() || submitting()">
-          @if (submitting()) { Sending… } @else { {{ t.sendCode }} }
+          @if (submitting()) { {{ t.sending }} } @else { {{ t.sendCode }} }
         </button>
         @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
       </div>
@@ -82,7 +82,7 @@
         </div>
 
         <button class="btn btn--primary" (click)="verify()" [disabled]="!otpValid() || submitting()">
-          @if (submitting()) { Verifying… } @else { {{ t.verify }} }
+          @if (submitting()) { {{ t.verifying }} } @else { {{ t.verify }} }
         </button>
         @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
 

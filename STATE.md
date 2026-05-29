@@ -23,7 +23,7 @@ The remaining work is **almost entirely external-dependency-blocked** (real bank
 - **Phase 3 — Cashout saga.** `CashoutOrchestrator` runs reserve → A.5 limit decrement (atomic SQL) → bank payout → Yandex deduct → confirm, with compensation on bank fail and `ReviewRequired` on post-bank Yandex fail. Double-entry ledger entries at every transition. Reachable from both the admin manual-cashout modal and the driver app. Idempotency-keyed, retryable.
 - **Phase 4 — Bank integration (mock).** `MockBankPayoutProvider` with 3% transient failures, idempotency-key dedup, and a transfer log that the reconciliation worker queries. Real BOG/TBC adapters stubbed (`NotImplementedException`) — waiting on sandbox credentials.
 - **Phase 6 — Reporting & Reconciliation.** Financial reports page with daily breakdown, top drivers, by-bank split, CSV export. Reconciliation worker (`BackgroundService`, configurable interval — 5 min dev, daily prod) cross-checks Postgres ↔ mock bank ↔ mock Yandex over a sliding window, writes `ReconciliationRun` + `ReconciliationDiscrepancy` rows for any drift across 7 known kinds. Admin reconciliation page lists runs + open discrepancies with "Mark resolved" comment flow.
-- **Phase 7 (partial) — Notifications + i18n.** In-app driver notifications (Notification entity + INotificationService writes from saga's terminal branches, driver inbox page with unread badge polling every 25s). i18n keys + driver-app language toggle exist; English is filled, Georgian + Russian are stubbed. Per-cashout Georgian PDF invoice (QuestPDF, modelled exactly on the paypro reference — driver as issuer, park as recipient, PayTaxi as commercial intermediary; bilingual not yet).
+- **Phase 7 (partial) — Notifications + i18n.** In-app driver notifications (Notification entity + INotificationService writes from saga's terminal branches, driver inbox page with unread badge polling every 25s). i18n keys + driver-app language toggle exist; English, Georgian, and Russian are all fully filled across every driver page. The **admin console is now bilingual too** (English default + Georgian): separate `src/app/admin/i18n/{en,ka}.json` (317 keys each) behind `AdminI18nService` (persists to `paytaxi.admin.lang`), with an EN/ქარ toggle in the admin topbar and on the admin login page. No Russian for admin (per client — not needed). Per-cashout Georgian PDF invoice (QuestPDF, modelled exactly on the paypro reference — driver as issuer, park as recipient, PayTaxi as commercial intermediary; bilingual not yet).
 - **Auth & security hardening.** Real driver phone+OTP and admin email+password both issue JWTs. Driver-scoped `/api/driver/*` endpoints derive ids from claims (clients can't tamper). Admin endpoints `[Authorize(Roles="admin")]` with `CanAccessPark` scope check (super-admin sees all, park-admin only own). ASP.NET rate-limiting on the three auth endpoints (10/min/IP); AdminUser lockout after 5 failed attempts within 15 minutes (HTTP 423). HTTP interceptor URL-aware (admin token for `/api/admin/*`, driver token for `/api/driver/*`).
 - **Background workers.** `BalanceSyncWorker` refreshes `YandexBalanceCache` every 60s in dev (300s prod). `ReconciliationWorker` every 5 min in dev (24h prod). Both use isolated DI scope per tick, configurable, fail-soft on errors.
 - **Driver onboarding.** `GET /yandex-lookup` + `POST /drivers` endpoints. Operator enters phone + Yandex profile ID → lookup confirms it exists in the park's Yandex roster → driver row created + 2 mock cards seeded → driver can log in immediately. New driver also gets an entry in the admin overview's activity feed.
@@ -96,11 +96,20 @@ Database: Postgres 17 EDB-installed locally. DB `paytaxi_dev`, user `postgres` /
 
 ---
 
+## Park onboarding & self-registration (added 2026-05-29)
+
+The seed-only park-creation gap is closed. New admin capabilities:
+- **Super-admin "Add park" page** (`/admin/add-park`, sidebar link visible only to super-admins): `POST /api/admin/parks` creates a Park + optional first park-admin login (BCrypt). Validates slug uniqueness, tax ID (9–11 digits), phone, IBAN, manager email/password. Replaces editing `SeedData.cs`.
+- **Yandex credentials in the UI**: the 3 fields (Client ID, API Key, Park ID) are now enterable. Settings page (park-admin + super-admin) and the Add-park form both write them. **API key is write-only** — never returned by the API (`yandexApiKeySet` boolean only); blank on PATCH = keep existing. Stored plaintext in `*_Encrypted` columns until Phase 8 AES.
+- **Driver sync from Yandex (no CSV)**: `GET /api/admin/parks/{id}/yandex-roster` returns the full Yandex roster flagged `alreadyOnboarded`; `POST .../drivers/bulk` bulk-creates selected drivers (+ default mock cards). The onboarding page has a "Sync from Yandex Fleet" card on top (load roster → checkbox list → onboard selected); the manual one-at-a-time stepper remains below under "Or onboard one manually". `YandexDriverProfile` gained a `Phone` field; `MockYandexFleetData` generates a deterministic mock GE phone per profile so synced drivers get a usable phone+OTP login.
+- Parks list DTO now also returns `legalEntityName`, `taxId`, `phone`, `bankAccountIban`, `yandexClientId`, `yandexApiKeySet`. `AdminParkContextService.refresh()` re-pulls parks after edits/creation.
+- Decision log: park creation = super-admin only; Yandex creds editable by both super-admin (at creation) and park-admin (Settings); drivers come from Yandex API, CSV dropped.
+
 ## Known issues / loose ends
 
 - `/api/admin/parks/{id}/smoke-test` should be removed or feature-flagged before prod.
 - Driver IBAN is shown as masked PAN on the invoice — needs a real IBAN field collected at onboarding.
-- Russian + Georgian translation JSONs are stubbed (English only is fully populated).
+- Driver-app translation JSONs (`en/ka/ru.json`) are fully populated and all driver pages (incl. notifications) go through i18n. Admin console remains English-only (intentional for now).
 - `appsettings.Development.json` is `.gitignore`d (intentional — dev creds out of git). Anyone cloning fresh needs to recreate it with `YandexFleet:ReadOnlyMode=false` for the saga to work; the file contents have grown — full recreation list is at end of this document.
 - Cashouts created BEFORE the `AddInvoiceFields` migration have `InvoiceNumber=null` — the invoice endpoint returns 409 for them. Only new completed cashouts can produce invoices.
 - The mock bank's transfer log is in-memory; it resets on every backend restart, causing reconciliation to flag pre-restart cashouts as `missing_in_bank` (realistic but noisy).
@@ -134,7 +143,7 @@ Database: Postgres 17 EDB-installed locally. DB `paytaxi_dev`, user `postgres` /
 
 ### 4. Translation work
 
-- Fill `src/app/core/i18n/{ka.json, ru.json}` — currently stubbed. The English file (`en.json`) is the reference; same key set needs values in Georgian and Russian. Affects driver-app only (admin is English-only currently and that's probably OK).
+- ✅ Done for the driver app (`src/app/core/i18n/{en,ka,ru}.json`) AND the admin console (`src/app/admin/i18n/{en,ka}.json`, English default + Georgian toggle, no Russian). Every driver page and every admin page (login, sidebar, topbar, overview, cashouts, manual-cashout, drivers, onboarding, reconciliation, reports) renders through i18n, including status labels and flow error messages. A native Georgian speaker should still proofread the admin wording before launch — the `ka.json` strings are functional but unreviewed.
 
 ### 5. First customer agreement
 

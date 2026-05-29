@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminApiService, ApiDriver, ApiCashout, UpdateDriverBody } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
+import { AdminI18nService } from '../../services/admin-i18n.service';
 
 type StatusFilter = 'all' | 'active' | 'inactive' | 'suspended';
 type SortKey = 'name' | 'balance' | 'lastSeen' | 'cashedOut';
@@ -33,6 +34,9 @@ export class DriversComponent {
   svc = inject(AdminMockService); // formatters only
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
+  private i18n = inject(AdminI18nService);
+
+  get t() { return this.i18n.t; }
 
   search       = signal('');
   status       = signal<StatusFilter>('all');
@@ -227,10 +231,10 @@ export class DriversComponent {
     } catch (err: any) {
       const code = err?.error?.error;
       const msg =
-        code === 'phone_already_registered'      ? 'That phone is already linked to another driver.'
-      : code === 'yandex_profile_already_linked' ? 'That Yandex profile is already in use in this park.'
-      : code === 'invalid_phone'                  ? 'Phone format looks wrong.'
-      : err?.error?.message ?? err?.message ?? 'Could not save changes.';
+        code === 'phone_already_registered'      ? this.t['drvErrPhoneDup']
+      : code === 'yandex_profile_already_linked' ? this.t['drvErrYandexDup']
+      : code === 'invalid_phone'                  ? this.t['drvErrInvalidPhone']
+      : err?.error?.message ?? err?.message ?? this.t['drvErrSave'];
       this.editError.set(msg);
     } finally {
       this.saving.set(false);
@@ -246,7 +250,7 @@ export class DriversComponent {
       await this.api.updateDriver(parkId, d.id, { status: this.statusPascal(target) });
       await this.fetchFor(parkId);
     } catch (err: any) {
-      this.editError.set(err?.error?.message ?? err?.message ?? 'Could not update status.');
+      this.editError.set(err?.error?.message ?? err?.message ?? this.t['drvErrStatus']);
     } finally {
       this.statusUpdating.set(false);
     }

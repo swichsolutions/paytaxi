@@ -1,8 +1,8 @@
 <div class="page">
   <header class="page-head">
     <div class="page-head__left">
-      <h1 class="page-head__title">Overview</h1>
-      <p class="page-head__sub">Real-time view of float, queue and driver activity.</p>
+      <h1 class="page-head__title">{{ t.navOverview }}</h1>
+      <p class="page-head__sub">{{ t.overviewSub }}</p>
     </div>
     <div class="page-head__actions">
       <button class="btn-admin btn-admin--secondary">
@@ -10,13 +10,13 @@
           <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
           <path d="M21 3v5h-5"/>
         </svg>
-        <span>Refresh</span>
+        <span>{{ t.refresh }}</span>
       </button>
       <a routerLink="/admin/cashouts" class="btn-admin btn-admin--brand">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 5v14M5 12h14"/>
         </svg>
-        <span>New cashout</span>
+        <span>{{ t.newCashout }}</span>
       </a>
     </div>
   </header>
@@ -25,7 +25,7 @@
   <section class="kpi-grid">
     <div class="kpi">
       <div class="kpi__top">
-        <span class="kpi__label">Cashouts today</span>
+        <span class="kpi__label">{{ t.kpiCashoutsToday }}</span>
         @if (kpis().cashoutsToday.deltaPct !== 0) {
           <span class="kpi__delta kpi__delta--up">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -38,13 +38,13 @@
       <div class="kpi__value gel">{{ formatGel(kpis().cashoutsToday.value, 0) }}</div>
       <div class="kpi__sub">
         <span class="kpi__sub-num gel">{{ kpis().cashoutsToday.count }}</span>
-        <span>completed today</span>
+        <span>{{ t.completedToday }}</span>
       </div>
     </div>
 
     <div class="kpi">
       <div class="kpi__top">
-        <span class="kpi__label">Fees collected</span>
+        <span class="kpi__label">{{ t.kpiFeesCollected }}</span>
         @if (kpis().feesCollectedToday.deltaPct !== 0) {
           <span class="kpi__delta kpi__delta--up">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -56,45 +56,45 @@
       </div>
       <div class="kpi__value gel">{{ formatGel(kpis().feesCollectedToday.value, 2) }}</div>
       <div class="kpi__sub">
-        <span>1% per cashout</span>
+        <span>{{ t.onePerCashout }}</span>
       </div>
     </div>
 
     <div class="kpi">
       <div class="kpi__top">
-        <span class="kpi__label">Pending queue</span>
+        <span class="kpi__label">{{ t.kpiPendingQueue }}</span>
         @if (kpis().pendingQueue.count > 0) {
           <span class="kpi__delta kpi__delta--pulse">
             <span class="kpi__delta-dot"></span>
-            LIVE
+            {{ t.live }}
           </span>
         }
       </div>
       <div class="kpi__value">
         <span class="gel">{{ kpis().pendingQueue.count }}</span>
-        <span class="kpi__value-unit">in flight</span>
+        <span class="kpi__value-unit">{{ t.inFlight }}</span>
       </div>
       <div class="kpi__sub">
         <span class="gel">{{ formatGel(kpis().pendingQueue.value, 0) }}</span>
-        <span>total reserved</span>
+        <span>{{ t.totalReserved }}</span>
       </div>
     </div>
 
     <div class="kpi">
       <div class="kpi__top">
-        <span class="kpi__label">Active drivers</span>
+        <span class="kpi__label">{{ t.kpiActiveDrivers }}</span>
         @if (kpis().failedToday.count > 0) {
           <span class="kpi__delta kpi__delta--danger">
-            {{ kpis().failedToday.count }} failed
+            {{ kpis().failedToday.count }} {{ t.failedLower }}
           </span>
         }
       </div>
       <div class="kpi__value">
         <span class="gel">{{ kpis().activeDriversToday.count }}</span>
-        <span class="kpi__value-unit">of {{ kpis().activeDriversToday.total }}</span>
+        <span class="kpi__value-unit">{{ t.of }} {{ kpis().activeDriversToday.total }}</span>
       </div>
       <div class="kpi__sub">
-        <span>online today</span>
+        <span>{{ t.onlineToday }}</span>
       </div>
     </div>
   </section>
@@ -107,13 +107,13 @@
         <div class="float-card__head-left">
           <span class="float-card__tag">
             <span class="float-card__tag-dot"></span>
-            @if (operatingModel() === 'ModelA5') { PAYTAXI BALANCE } @else { FLOAT MONITOR }
+            @if (operatingModel() === 'ModelA5') { {{ t.paytaxiBalanceTag }} } @else { {{ t.floatMonitorTag }} }
           </span>
           <h2 class="float-card__title">
             @if (operatingModel() === 'ModelA5') {
-              Park balance on PayTaxi · available today
+              {{ t.parkBalanceTitle }}
             } @else {
-              Park bank account · live balance (Model A — bank API)
+              {{ t.parkBankTitle }}
             }
           </h2>
         </div>
@@ -121,7 +121,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
-          <span>Top up</span>
+          <span>{{ t.topUp }}</span>
         </button>
       </div>
 
@@ -130,24 +130,24 @@
           <div class="float-card__amount-row">
             <div class="float-card__amount-block">
               <span class="float-card__amount gel">{{ formatGel(floatStatus().balance, 0) }}</span>
-              <span class="float-card__amount-label">Available balance</span>
+              <span class="float-card__amount-label">{{ t.availableBalance }}</span>
             </div>
             <div class="float-card__amount-block float-card__amount-block--alt">
               <span class="float-card__amount-alt gel">{{ formatGel(floatStatus().target, 0) }}</span>
-              <span class="float-card__amount-label">Balance at start of day</span>
+              <span class="float-card__amount-label">{{ t.balanceStartDay }}</span>
             </div>
             <div class="float-card__amount-block float-card__amount-block--alt">
               <span class="float-card__amount-alt gel">{{ formatGel(kpis().cashoutsToday.value, 0) }}</span>
-              <span class="float-card__amount-label">Spent today</span>
+              <span class="float-card__amount-label">{{ t.spentToday }}</span>
             </div>
           </div>
         } @else {
           <div class="float-card__amount-row">
             <div class="float-card__amount-block">
               <span class="float-card__amount" style="font-size: 1rem; opacity: 0.7;">
-                Bank balance not exposed for Model A parks
+                {{ t.bankBalanceNotExposed }}
               </span>
-              <span class="float-card__amount-label">Park manages float in its own bank's portal</span>
+              <span class="float-card__amount-label">{{ t.parkManagesFloat }}</span>
             </div>
           </div>
         }
@@ -165,7 +165,7 @@
             </div>
             <div class="float-meter__labels">
               <span>0%</span>
-              <span>{{ floatStatus().usedPct.toFixed(0) }}% spent</span>
+              <span>{{ floatStatus().usedPct.toFixed(0) }}% {{ t.spentLower }}</span>
               <span>100%</span>
             </div>
           </div>
@@ -174,7 +174,7 @@
         <!-- Hourly volume chart inside the card -->
         <div class="float-card__chart">
           <div class="float-card__chart-head">
-            <span class="float-card__chart-label">CASHOUT VOLUME · LAST 12 HOURS</span>
+            <span class="float-card__chart-label">{{ t.cashoutVolume12h }}</span>
             <span class="float-card__chart-total gel">{{ formatGel(todayTotal(), 0) }}</span>
           </div>
           <svg class="float-card__chart-svg" [attr.viewBox]="'0 0 ' + chartW + ' ' + chartH" preserveAspectRatio="none">
@@ -210,7 +210,7 @@
     <!-- Action items -->
     <article class="action-card">
       <div class="action-card__head">
-        <h3 class="action-card__title">Needs attention</h3>
+        <h3 class="action-card__title">{{ t.needsAttention }}</h3>
         <span class="action-card__count">{{ failed().length }}</span>
       </div>
 
@@ -222,12 +222,12 @@
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
             </div>
-            <p>No failed cashouts. Everything is moving.</p>
+            <p>{{ t.noFailedCashouts }}</p>
           </div>
         }
         @for (c of failed(); track c.id) {
           <div class="action-row">
-            <div class="action-row__pill">FAILED</div>
+            <div class="action-row__pill">{{ t.failedCaps }}</div>
             <div class="action-row__main">
               <div class="action-row__top">
                 <span class="action-row__driver">{{ c.driverName }}</span>
@@ -241,14 +241,14 @@
                 <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
                 <path d="M21 3v5h-5"/>
               </svg>
-              <span>Retry</span>
+              <span>{{ t.retry }}</span>
             </button>
           </div>
         }
       </div>
 
       <a routerLink="/admin/cashouts" class="action-card__foot">
-        <span>Open full queue</span>
+        <span>{{ t.openFullQueue }}</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M5 12h14M12 5l7 7-7 7"/>
         </svg>
@@ -260,10 +260,10 @@
   <section class="activity-card">
     <header class="activity-card__head">
       <div>
-        <h3 class="activity-card__title">Activity feed</h3>
-        <p class="activity-card__sub">Live stream of cashout, onboarding and float events.</p>
+        <h3 class="activity-card__title">{{ t.activityFeed }}</h3>
+        <p class="activity-card__sub">{{ t.activityFeedSub }}</p>
       </div>
-      <a routerLink="/admin/cashouts" class="activity-card__link">View all</a>
+      <a routerLink="/admin/cashouts" class="activity-card__link">{{ t.viewAll }}</a>
     </header>
 
     <div class="activity-list">
