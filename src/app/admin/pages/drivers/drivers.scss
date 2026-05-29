@@ -576,6 +576,40 @@
   }
 }
 
+// ── Phone: drawer becomes full-screen modal ──────────────────────
+@media (max-width: 600px) {
+  .drawer {
+    width: 100vw;
+    max-width: 100vw;
+    animation: slideInBottom 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  @keyframes slideInBottom {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
+
+  // Chips: shrink each to fit all 4 on one line without scroll.
+  .toolbar__chips {
+    width: 100%;
+    gap: 4px;
+
+    .chip {
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 6px 4px;
+      font-size: 11px;
+      justify-content: center;
+      white-space: nowrap;
+    }
+
+    .chip__count {
+      font-size: 9.5px;
+      padding: 1px 4px;
+    }
+  }
+}
+
 // ── Edit form inside drawer ──────────────────────────────────────
 .drawer__section-head {
   display: flex;

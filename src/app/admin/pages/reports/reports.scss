@@ -354,3 +354,45 @@
   color: var(--color-text-2, #4b5563);
   font-size: 13px;
 }
+
+// ── Phone polish ──────────────────────────────────────────────────
+@media (max-width: 600px) {
+  .rpt-tiles { grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+
+  .rpt-tile {
+    padding: 12px 14px;
+
+    &__value { font-size: 1.35rem; }
+  }
+
+  // Range presets: shrink each so all 5 fit
+  .rng__presets {
+    width: 100%;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 3px;
+  }
+
+  .rng__btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .rng__range { display: none; }
+
+  // Daily breakdown table needs horizontal scroll
+  .rpt-daily-head,
+  .rpt-daily-row {
+    grid-template-columns: 110px 60px 80px 70px 50px 1fr;
+    font-size: 12px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  // The rpt-grid (top drivers + by bank) stacks via existing 900px media.
+  // Card heads on phone
+  .rpt-card__head { padding: 12px 14px; }
+}

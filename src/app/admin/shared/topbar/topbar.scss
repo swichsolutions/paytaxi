@@ -450,3 +450,54 @@
     &:hover { background: #fef2f2; color: #991b1b; }
   }
 }
+
+// ── Phone tweaks ──────────────────────────────────────────────────
+@media (max-width: 600px) {
+  .topbar {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .topbar__crumbs { display: none; }
+
+  .topbar__center {
+    flex: 1;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+
+  .topbar__park-picker,
+  .topbar__park-badge {
+    max-width: 100%;
+    font-size: 0.78rem;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .topbar__park-picker-label { display: none; }
+
+  .topbar__park-picker-select,
+  .topbar__park-badge {
+    max-width: 50vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  // Hide notification bell on phone (notifications are admin's anyway)
+  .topbar__icon-btn { display: none; }
+  .topbar__divider { display: none; }
+
+  // Collapse user pill to just the avatar
+  .topbar__user {
+    padding: 4px;
+  }
+  .topbar__user-meta,
+  .topbar__user-caret { display: none; }
+
+  // Dropdown menu — make it nearly full-width
+  .acct-menu {
+    width: calc(100vw - var(--space-3) * 2);
+    right: 0;
+  }
+}

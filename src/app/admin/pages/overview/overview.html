@@ -107,11 +107,11 @@
         <div class="float-card__head-left">
           <span class="float-card__tag">
             <span class="float-card__tag-dot"></span>
-            @if (operatingModel() === 'ModelA5') { AUTHORIZATION LIMIT } @else { FLOAT MONITOR }
+            @if (operatingModel() === 'ModelA5') { PAYTAXI BALANCE } @else { FLOAT MONITOR }
           </span>
           <h2 class="float-card__title">
             @if (operatingModel() === 'ModelA5') {
-              PayTaxi authorization · remaining today
+              Park balance on PayTaxi · available today
             } @else {
               Park bank account · live balance (Model A — bank API)
             }
@@ -130,11 +130,11 @@
           <div class="float-card__amount-row">
             <div class="float-card__amount-block">
               <span class="float-card__amount gel">{{ formatGel(floatStatus().balance, 0) }}</span>
-              <span class="float-card__amount-label">Authorization remaining</span>
+              <span class="float-card__amount-label">Available balance</span>
             </div>
             <div class="float-card__amount-block float-card__amount-block--alt">
               <span class="float-card__amount-alt gel">{{ formatGel(floatStatus().target, 0) }}</span>
-              <span class="float-card__amount-label">Starting authorization</span>
+              <span class="float-card__amount-label">Balance at start of day</span>
             </div>
             <div class="float-card__amount-block float-card__amount-block--alt">
               <span class="float-card__amount-alt gel">{{ formatGel(kpis().cashoutsToday.value, 0) }}</span>

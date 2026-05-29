@@ -4,4 +4,6 @@
   <main class="admin-shell__content">
     <router-outlet />
   </main>
+  <!-- Only visible at mobile breakpoint; click to dismiss the drawer -->
+  <div class="admin-shell__backdrop" (click)="closeSidebar()" aria-hidden="true"></div>
 </div>

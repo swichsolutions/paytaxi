@@ -39,9 +39,14 @@
     padding: var(--space-8) var(--space-8) var(--space-12);
     overflow-x: hidden;
   }
+
+  &__backdrop {
+    display: none;
+  }
 }
 
-@media (max-width: 900px) {
+// ── Tablet: sidebar in icon-only mode, content gets more room ────
+@media (max-width: 1100px) and (min-width: 769px) {
   .admin-shell {
     grid-template-columns: var(--admin-sidebar-w-collapsed) 1fr;
 
@@ -50,7 +55,61 @@
     }
 
     &__content {
-      padding: var(--space-5);
+      padding: var(--space-6);
+    }
+  }
+}
+
+// ── Phone: sidebar becomes an off-canvas drawer ───────────────────
+@media (max-width: 768px) {
+  .admin-shell {
+    // Single-column layout. The sidebar floats over the content instead
+    // of pushing it — same pattern as mobile Gmail / Slack.
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "topbar"
+      "content";
+
+    &__sidebar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 280px;
+      max-width: 85vw;
+      transform: translateX(0);
+      transition: transform 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 4px 0 24px rgba(0, 0, 0, 0.25);
+    }
+
+    &--collapsed &__sidebar {
+      transform: translateX(-100%);
+      box-shadow: none;
+    }
+
+    &__topbar {
+      // Topbar spans full width when sidebar is off-canvas
+      z-index: 11;
+    }
+
+    &__content {
+      padding: var(--space-4);
+    }
+
+    // Tap-anywhere-else-to-dismiss backdrop. Only present (and only
+    // covers content) when the drawer is open.
+    &__backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 27, 45, 0.45);
+      z-index: 15;
+      opacity: 1;
+      transition: opacity 0.24s ease;
+    }
+
+    &--collapsed &__backdrop {
+      opacity: 0;
+      pointer-events: none;
     }
   }
 }

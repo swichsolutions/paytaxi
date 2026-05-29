@@ -4,12 +4,14 @@
   min-height: 100dvh;
 }
 
-// ── Header (dark, ~45% height) ───────────────────────────────────
+// ── Header (dark) ────────────────────────────────────────────────
 .login__header {
   background-color: var(--color-dark);
   background-image: var(--dark-texture), linear-gradient(160deg, #1A2E47 0%, var(--color-dark) 60%);
-  min-height: 46dvh;
-  padding: var(--space-6) var(--space-6) var(--space-10);
+  // 32dvh keeps the header prominent but still leaves enough room for the
+  // OTP form below without forcing scroll on a typical laptop or phone.
+  min-height: 32dvh;
+  padding: var(--space-5) var(--space-6) var(--space-7);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -140,7 +142,8 @@
 
 .back-btn {
   position: absolute;
-  top: -4px;
+  // Sit above the heading rather than overlapping it.
+  top: calc(-1 * var(--space-7));
   left: -8px;
   width: 40px;
   height: 40px;
@@ -152,6 +155,12 @@
 
   svg { width: 20px; height: 20px; }
   &:hover { background: var(--color-surface); }
+}
+
+// When the form-step has a back button it needs extra top room so the
+// negative-positioned button doesn't bleed into the rounded body cap.
+.form-step:has(> .back-btn) {
+  padding-top: var(--space-6);
 }
 
 .step-text {
@@ -227,11 +236,14 @@
 
 .otp-digit {
   flex: 1;
-  height: 72px;
+  // Tightened from 72px so the full OTP form fits without scrolling on
+  // typical laptops and phones; still tap-friendly at 56px on touch.
+  height: 56px;
+  min-width: 0;
   border: 2px solid var(--color-border);
   border-radius: var(--radius-lg);
   text-align: center;
-  font-size: 2.2rem;
+  font-size: 1.7rem;
   font-weight: 800;
   color: var(--color-text);
   background: var(--color-surface);
@@ -291,4 +303,20 @@
   font-family: monospace;
   letter-spacing: 0.2em;
   text-align: center;
+}
+
+// ── Extra-short viewports (soft keyboard up on a small phone) ─────
+@media (max-height: 600px) {
+  .login__header {
+    min-height: 22dvh;
+    padding: var(--space-3) var(--space-5) var(--space-5);
+    gap: var(--space-2);
+
+    &::before, &::after { display: none; }
+  }
+
+  .logo__mark { width: 52px; height: 52px; border-radius: 14px; }
+  .logo__tagline { display: none; }
+
+  .otp-digit { height: 48px; font-size: 1.5rem; }
 }

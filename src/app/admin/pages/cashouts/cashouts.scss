@@ -4,10 +4,12 @@
 // ── Summary tiles row ─────────────────────────────────────────────
 .sum-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  // minmax(0, ..) lets columns shrink below their content's intrinsic width,
+  // so long numbers wrap instead of breaking the layout.
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
 
-  @media (max-width: 800px) { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 800px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .sum {
@@ -609,6 +611,76 @@
     .queue__cell--init   { grid-column: 1; }
     .queue__cell--time   { grid-column: 2; justify-self: end; }
     .queue__cell--action { grid-column: 1 / -1; justify-content: flex-end; }
+  }
+}
+
+// ── Phone polish ──────────────────────────────────────────────────
+@media (max-width: 600px) {
+  // Tabs and pills: shrink padding + dot, hide non-essential bits,
+  // so all 5 status tabs fit on one line without horizontal scroll.
+  .status-tabs,
+  .range-pills {
+    width: 100%;
+    flex-wrap: nowrap;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .status-tab,
+  .range-pill {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 4px;
+    font-size: 11px;
+    justify-content: center;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .status-tab {
+    gap: 4px;
+    .status-tab__dot { display: none; } // dot is decorative; label carries meaning
+  }
+
+  .status-tab__count {
+    font-size: 9.5px;
+    padding: 1px 4px;
+  }
+
+  .toolbar__search { max-width: none; }
+
+  .queue-row {
+    padding: var(--space-3);
+    gap: var(--space-2);
+    row-gap: 6px;
+  }
+
+  .queue__cell--init   { display: none; }
+  .queue__cell--bank   { font-size: 11.5px; }
+  .queue__cell--time   { font-size: 11px; }
+  .queue__cell--amount .queue__fee { display: none; }
+
+  .sum-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sum {
+    padding: var(--space-3);
+    min-width: 0;
+  }
+
+  .sum__value {
+    font-size: 1.1rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sum__label { font-size: 9.5px; }
+  .sum__sub   { font-size: 10.5px; }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
   }
 }
 
