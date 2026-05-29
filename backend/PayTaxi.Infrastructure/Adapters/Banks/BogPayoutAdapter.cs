@@ -12,4 +12,8 @@ public class BogPayoutAdapter : IBankPayoutAdapter
 
     public Task<BankTransferStatus> GetTransferStatusAsync(string transferId, CancellationToken ct = default)
         => throw new NotImplementedException("BOG payout adapter not yet implemented");
+
+    public Task<IReadOnlyList<BankTransferRecord>> ListTransfersAsync(
+        Guid parkId, DateTime from, DateTime to, CancellationToken ct = default)
+        => throw new NotImplementedException("BOG payout adapter not yet implemented");
 }

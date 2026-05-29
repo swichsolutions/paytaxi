@@ -5,6 +5,7 @@ interface NavItem {
   path: string;
   label: string;
   icon: string;
+  tag?: string;
 }
 
 @Component({
@@ -24,7 +25,8 @@ export class AdminSidebarComponent {
   ];
 
   secondary: NavItem[] = [
-    { path: '/admin/reports',  label: 'Reports',  icon: 'reports' },
-    { path: '/admin/settings', label: 'Settings', icon: 'settings' },
+    { path: '/admin/reconciliation', label: 'Reconciliation', icon: 'reconcile' },
+    { path: '/admin/reports',        label: 'Reports',        icon: 'reports',  tag: 'Soon' },
+    { path: '/admin/settings',       label: 'Settings',       icon: 'settings', tag: 'Soon' },
   ];
 }

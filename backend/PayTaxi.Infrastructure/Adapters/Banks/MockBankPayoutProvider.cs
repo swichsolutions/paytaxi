@@ -30,6 +30,11 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
     // transfer_id → status, so GetTransferStatusAsync can answer for past transfers.
     private readonly ConcurrentDictionary<string, BankTransferStatus> _statuses = new();
 
+    // Full transfer log so reconciliation can list by park + window.
+    // Order matters for the window query → use a list under a lock.
+    private readonly object _logLock = new();
+    private readonly List<BankTransferRecord> _transferLog = new();
+
     public string BankType => "MOCK";
 
     public MockBankPayoutProvider(
@@ -73,6 +78,16 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
         {
             var transferId = $"mock_tr_{Guid.NewGuid():N}".Substring(0, 20);
             _statuses[transferId] = BankTransferStatus.Completed;
+            lock (_logLock)
+            {
+                _transferLog.Add(new BankTransferRecord(
+                    TransferId: transferId,
+                    ParkId: request.ParkId,
+                    Amount: request.Amount,
+                    Currency: request.Currency,
+                    Status: BankTransferStatus.Completed,
+                    SentAt: DateTime.UtcNow));
+            }
             _log.LogInformation(
                 "Mock bank transfer OK: {Amount} {Currency} → card {CardToken} (transfer_id={TransferId})",
                 request.Amount, request.Currency, Mask(request.DestinationCardToken), transferId);
@@ -92,6 +107,19 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
     {
         var status = _statuses.TryGetValue(transferId, out var s) ? s : BankTransferStatus.Unknown;
         return Task.FromResult(status);
+    }
+
+    public Task<IReadOnlyList<BankTransferRecord>> ListTransfersAsync(
+        Guid parkId, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        IReadOnlyList<BankTransferRecord> snapshot;
+        lock (_logLock)
+        {
+            snapshot = _transferLog
+                .Where(r => r.ParkId == parkId && r.SentAt >= from && r.SentAt < to)
+                .ToList();
+        }
+        return Task.FromResult(snapshot);
     }
 
     private static string Mask(string token) =>

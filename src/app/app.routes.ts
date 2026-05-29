@@ -69,6 +69,10 @@ export const routes: Routes = [
         path: 'onboarding',
         loadComponent: () => import('./admin/pages/onboarding/onboarding').then(m => m.OnboardingComponent),
       },
+      {
+        path: 'reconciliation',
+        loadComponent: () => import('./admin/pages/reconciliation/reconciliation').then(m => m.ReconciliationComponent),
+      },
     ],
   },
 

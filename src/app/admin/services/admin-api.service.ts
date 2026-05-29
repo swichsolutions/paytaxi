@@ -67,6 +67,67 @@ export class AdminApiService {
     return firstValueFrom(this.http.get<ApiHourlyResponse>(
       `${this.base}/parks/${parkId}/hourly`));
   }
+
+  // ── Reconciliation ────────────────────────────────────────────────
+  listRecRuns(parkId: string, take = 20): Promise<ApiRecRunsResponse> {
+    return firstValueFrom(this.http.get<ApiRecRunsResponse>(
+      `${this.base}/parks/${parkId}/reconciliation/runs?take=${take}`));
+  }
+
+  listRecDiscrepancies(parkId: string, all = false): Promise<ApiRecDiscrepanciesResponse> {
+    return firstValueFrom(this.http.get<ApiRecDiscrepanciesResponse>(
+      `${this.base}/parks/${parkId}/reconciliation/discrepancies?all=${all}&take=100`));
+  }
+
+  resolveDiscrepancy(parkId: string, id: string, notes: string): Promise<void> {
+    return firstValueFrom(this.http.post<void>(
+      `${this.base}/parks/${parkId}/reconciliation/discrepancies/${id}/resolve`,
+      { notes }));
+  }
+}
+
+export interface ApiRecRunsResponse {
+  parkId: string;
+  count: number;
+  runs: ApiRecRun[];
+}
+
+export interface ApiRecRun {
+  id: string;
+  windowFrom: string;
+  windowTo: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: string;
+  cashoutsScanned: number;
+  bankTransfersScanned: number;
+  yandexTxScanned: number;
+  discrepanciesFound: number;
+  error: string | null;
+}
+
+export interface ApiRecDiscrepanciesResponse {
+  parkId: string;
+  openCount: number;
+  count: number;
+  discrepancies: ApiRecDiscrepancy[];
+}
+
+export interface ApiRecDiscrepancy {
+  id: string;
+  runId: string;
+  cashoutId: string | null;
+  kind: string;
+  paytaxiAmount: number | null;
+  externalAmount: number | null;
+  bankTransferId: string | null;
+  yandexTransactionId: string | null;
+  notes: string | null;
+  isResolved: boolean;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  resolutionNotes: string | null;
+  createdAt: string;
 }
 
 export interface ApiActivityResponse {

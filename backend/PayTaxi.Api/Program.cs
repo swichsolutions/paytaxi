@@ -115,6 +115,11 @@ builder.Services.Configure<BalanceSyncOptions>(
     builder.Configuration.GetSection(BalanceSyncOptions.SectionName));
 builder.Services.AddHostedService<BalanceSyncWorker>();
 
+// ── Reconciliation worker ────────────────────────────────────────
+builder.Services.Configure<ReconciliationOptions>(
+    builder.Configuration.GetSection(ReconciliationOptions.SectionName));
+builder.Services.AddHostedService<ReconciliationWorker>();
+
 // ── Auth ─────────────────────────────────────────────────────────
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 

@@ -19,6 +19,8 @@ public class AppDbContext : DbContext
     public DbSet<OtpCode> OtpCodes => Set<OtpCode>();
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<ReconciliationRun> ReconciliationRuns => Set<ReconciliationRun>();
+    public DbSet<ReconciliationDiscrepancy> ReconciliationDiscrepancies => Set<ReconciliationDiscrepancy>();
 
     // ── Enum ↔ snake_case text converters ────────────────────────────
     // Stored as text + Postgres check constraint (not native enum) so we can
@@ -33,6 +35,10 @@ public class AppDbContext : DbContext
     private static readonly ValueConverter<ParkStatus, string> ParkStatusConverter = new(
         v => Converters.ToText(v),
         v => Converters.ToParkStatus(v));
+
+    private static readonly ValueConverter<ReconciliationStatus, string> ReconciliationStatusConverter = new(
+        v => Converters.ToText(v),
+        v => Converters.ToReconciliationStatus(v));
 
     private static class Converters
     {
@@ -68,6 +74,22 @@ public class AppDbContext : DbContext
             "suspended"  => ParkStatus.Suspended,
             "terminated" => ParkStatus.Terminated,
             _ => throw new ArgumentOutOfRangeException(nameof(v), v, "Unknown park status value"),
+        };
+
+        public static string ToText(ReconciliationStatus v) => v switch
+        {
+            ReconciliationStatus.Running   => "running",
+            ReconciliationStatus.Completed => "completed",
+            ReconciliationStatus.Failed    => "failed",
+            _ => throw new ArgumentOutOfRangeException(nameof(v), v, "Unknown ReconciliationStatus"),
+        };
+
+        public static ReconciliationStatus ToReconciliationStatus(string v) => v switch
+        {
+            "running"   => ReconciliationStatus.Running,
+            "completed" => ReconciliationStatus.Completed,
+            "failed"    => ReconciliationStatus.Failed,
+            _ => throw new ArgumentOutOfRangeException(nameof(v), v, "Unknown reconciliation_status value"),
         };
     }
 
@@ -164,6 +186,43 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(o => o.PhoneHash);
             e.Property(o => o.PhoneHash).HasMaxLength(64).IsRequired();
+        });
+
+        modelBuilder.Entity<ReconciliationRun>(e =>
+        {
+            e.Property(r => r.Status)
+                .HasConversion(ReconciliationStatusConverter)
+                .HasMaxLength(20)
+                .IsRequired();
+            e.Property(r => r.Error).HasMaxLength(2000);
+            e.HasIndex(r => new { r.ParkId, r.StartedAt });
+            e.HasOne(r => r.Park).WithMany().HasForeignKey(r => r.ParkId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_ReconciliationRuns_Status",
+                "\"Status\" IN ('running', 'completed', 'failed')"));
+        });
+
+        modelBuilder.Entity<ReconciliationDiscrepancy>(e =>
+        {
+            e.Property(d => d.Kind).HasMaxLength(40).IsRequired();
+            e.Property(d => d.PaytaxiAmount).HasPrecision(18, 4);
+            e.Property(d => d.ExternalAmount).HasPrecision(18, 4);
+            e.Property(d => d.BankTransferId).HasMaxLength(100);
+            e.Property(d => d.YandexTransactionId).HasMaxLength(100);
+            e.Property(d => d.ResolvedBy).HasMaxLength(200);
+            e.Property(d => d.Notes).HasMaxLength(2000);
+            e.Property(d => d.ResolutionNotes).HasMaxLength(2000);
+            e.HasIndex(d => new { d.ParkId, d.IsResolved });
+            e.HasIndex(d => d.RunId);
+            e.HasOne(d => d.Run).WithMany(r => r.Discrepancies).HasForeignKey(d => d.RunId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(d => d.Cashout).WithMany().HasForeignKey(d => d.CashoutId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_ReconciliationDiscrepancies_Kind",
+                "\"Kind\" IN ('missing_in_bank', 'orphaned_bank_send', 'missing_in_yandex', " +
+                "'orphaned_yandex_debit', 'amount_mismatch_bank', 'amount_mismatch_yandex', 'stuck_pending')"));
         });
 
         modelBuilder.Entity<Notification>(e =>
