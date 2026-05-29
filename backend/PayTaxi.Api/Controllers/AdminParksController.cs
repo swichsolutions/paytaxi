@@ -90,6 +90,7 @@ public class AdminParksController : AdminControllerBase
         {
             id = d.Id,
             name = d.Name,
+            phone = d.PhoneEncrypted, // plaintext until Phase 8 — same column the JWT uses
             yandexProfileId = d.YandexDriverProfileId,
             status = d.Status.ToString(),
             yandex = d.YandexDriverProfileId is not null && balanceByProfile.TryGetValue(d.YandexDriverProfileId, out var yp)
@@ -587,6 +588,80 @@ public class AdminParksController : AdminControllerBase
         });
     }
 
+    /// <summary>
+    /// Edit an existing driver. Any field omitted from the body is left untouched
+    /// (partial update). Re-hashes phone on change and rejects duplicates.
+    /// </summary>
+    [HttpPatch("drivers/{driverId:guid}")]
+    public async Task<IActionResult> UpdateDriver(
+        Guid parkId, Guid driverId, [FromBody] UpdateDriverRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var driver = await _db.Drivers
+            .FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
+        if (driver is null) return NotFound(new { error = "driver_not_found" });
+
+        if (body.Name is not null)
+        {
+            var trimmed = body.Name.Trim();
+            if (trimmed.Length == 0) return BadRequest(new { error = "name_required" });
+            driver.Name = trimmed;
+        }
+
+        if (body.Phone is not null)
+        {
+            var phone = NormalizePhone(body.Phone);
+            if (phone is null) return BadRequest(new { error = "invalid_phone" });
+            var hash = HashPhone(phone);
+            if (hash != driver.PhoneHash)
+            {
+                var taken = await _db.Drivers.AsNoTracking()
+                    .AnyAsync(d => d.Id != driverId && d.PhoneHash == hash, ct);
+                if (taken) return Conflict(new { error = "phone_already_registered" });
+                driver.PhoneEncrypted = phone;
+                driver.PhoneHash = hash;
+            }
+        }
+
+        if (body.YandexProfileId is not null)
+        {
+            var trimmed = body.YandexProfileId.Trim();
+            if (trimmed.Length == 0) return BadRequest(new { error = "yandex_profile_id_required" });
+            if (trimmed != driver.YandexDriverProfileId)
+            {
+                var taken = await _db.Drivers.AsNoTracking()
+                    .AnyAsync(d => d.Id != driverId && d.ParkId == parkId && d.YandexDriverProfileId == trimmed, ct);
+                if (taken) return Conflict(new { error = "yandex_profile_already_linked" });
+                driver.YandexDriverProfileId = trimmed;
+            }
+        }
+
+        if (body.Status is not null)
+        {
+            if (!Enum.TryParse<Core.Enums.DriverStatus>(body.Status, ignoreCase: true, out var parsed))
+                return BadRequest(new { error = "invalid_status", allowed = new[] { "Active", "Inactive", "Suspended" } });
+            driver.Status = parsed;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        _log.LogInformation(
+            "Driver {DriverId} updated by admin ({Name} | status={Status})",
+            driver.Id, driver.Name, driver.Status);
+
+        return Ok(new
+        {
+            id = driver.Id,
+            name = driver.Name,
+            phone = driver.PhoneEncrypted,
+            yandexProfileId = driver.YandexDriverProfileId,
+            status = driver.Status.ToString(),
+            parkId = driver.ParkId,
+        });
+    }
+
     private static string? NormalizePhone(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
@@ -642,6 +717,12 @@ public record CreateDriverRequest(
     string YandexProfileId,
     string Name,
     bool ConsentGiven);
+
+public record UpdateDriverRequest(
+    string? Name,
+    string? Phone,
+    string? YandexProfileId,
+    string? Status);
 
 public record ActivityEntry(
     string Id,

@@ -575,3 +575,83 @@
     .table__cell--action { display: none; }
   }
 }
+
+// ── Edit form inside drawer ──────────────────────────────────────
+.drawer__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.drawer__edit-btn {
+  border: 1px solid var(--admin-border);
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-2, #4b5563);
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--admin-surface, #f3f4f6);
+    color: var(--color-text, #1f2937);
+  }
+}
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  > span {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-3, #9ca3af);
+  }
+
+  input,
+  select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--admin-border);
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--color-text, #1f2937);
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-brand, #FFB800);
+      box-shadow: 0 0 0 3px rgba(255, 184, 0, 0.15);
+    }
+  }
+}
+
+.edit-error {
+  margin: 0;
+  padding: 8px 10px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  color: #991b1b;
+  font-size: 12.5px;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}

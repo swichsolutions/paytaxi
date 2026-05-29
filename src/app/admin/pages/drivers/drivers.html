@@ -204,19 +204,93 @@
       </section>
 
       <section class="drawer__section">
-        <h3 class="drawer__section-title">Yandex link</h3>
-        <div class="drawer__kv">
-          <span class="drawer__kv-label">Profile ID</span>
-          <code class="drawer__kv-code">{{ d.yandexProfileId }}</code>
-        </div>
-        <div class="drawer__kv">
-          <span class="drawer__kv-label">Joined</span>
-          <span class="drawer__kv-value">{{ d.joinedAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }}</span>
-        </div>
-        <div class="drawer__kv">
-          <span class="drawer__kv-label">Last seen</span>
-          <span class="drawer__kv-value">{{ formatRel(d.lastSeenAt) }}</span>
-        </div>
+        <header class="drawer__section-head">
+          <h3 class="drawer__section-title">Profile</h3>
+          @if (!editing()) {
+            <button class="drawer__edit-btn" (click)="startEdit()">Edit</button>
+          }
+        </header>
+
+        @if (!editing()) {
+          <div class="drawer__kv">
+            <span class="drawer__kv-label">Full name</span>
+            <span class="drawer__kv-value">{{ d.name }}</span>
+          </div>
+          <div class="drawer__kv">
+            <span class="drawer__kv-label">Phone</span>
+            <span class="drawer__kv-value">{{ d.phone }}</span>
+          </div>
+          <div class="drawer__kv">
+            <span class="drawer__kv-label">Car plate</span>
+            <span class="drawer__kv-value">{{ d.carPlate }}</span>
+          </div>
+          <div class="drawer__kv">
+            <span class="drawer__kv-label">Yandex profile ID</span>
+            <code class="drawer__kv-code">{{ d.yandexProfileId }}</code>
+          </div>
+          <div class="drawer__kv">
+            <span class="drawer__kv-label">Status</span>
+            <span class="drawer__kv-value">{{ d.status }}</span>
+          </div>
+          <div class="drawer__kv">
+            <span class="drawer__kv-label">Last seen</span>
+            <span class="drawer__kv-value">{{ formatRel(d.lastSeenAt) }}</span>
+          </div>
+        } @else {
+          <div class="edit-form">
+            <label class="edit-field">
+              <span>Full name</span>
+              <input
+                type="text"
+                [value]="editForm().name"
+                (input)="setEditField('name', $any($event.target).value)"
+                placeholder="Driver's full name"
+              />
+            </label>
+            <label class="edit-field">
+              <span>Phone</span>
+              <input
+                type="tel"
+                [value]="editForm().phone"
+                (input)="setEditField('phone', $any($event.target).value)"
+                placeholder="+995 5XX XXX XXX"
+              />
+            </label>
+            <label class="edit-field">
+              <span>Yandex profile ID</span>
+              <input
+                type="text"
+                [value]="editForm().yandexProfileId"
+                (input)="setEditField('yandexProfileId', $any($event.target).value)"
+                placeholder="yp_xxxxxx"
+              />
+            </label>
+            <label class="edit-field">
+              <span>Status</span>
+              <select
+                [value]="editForm().status"
+                (change)="setEditField('status', $any($event.target).value)"
+              >
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
+              </select>
+            </label>
+
+            @if (editError()) {
+              <p class="edit-error">{{ editError() }}</p>
+            }
+
+            <div class="edit-actions">
+              <button class="btn-admin btn-admin--secondary" (click)="cancelEdit()" [disabled]="saving()">
+                Cancel
+              </button>
+              <button class="btn-admin btn-admin--brand" (click)="saveEdit()" [disabled]="saving()">
+                @if (saving()) { Saving… } @else { Save changes }
+              </button>
+            </div>
+          </div>
+        }
       </section>
 
       <section class="drawer__section">
@@ -242,9 +316,23 @@
       </section>
 
       <footer class="drawer__footer">
-        <button class="btn-admin btn-admin--secondary">
-          Suspend
-        </button>
+        @if (d.status === 'suspended') {
+          <button
+            class="btn-admin btn-admin--secondary"
+            (click)="setDriverStatus('active')"
+            [disabled]="statusUpdating()"
+          >
+            @if (statusUpdating()) { Updating… } @else { Reactivate }
+          </button>
+        } @else {
+          <button
+            class="btn-admin btn-admin--secondary"
+            (click)="setDriverStatus('suspended')"
+            [disabled]="statusUpdating()"
+          >
+            @if (statusUpdating()) { Updating… } @else { Suspend }
+          </button>
+        }
         <button class="btn-admin btn-admin--brand">
           New cashout for {{ d.name.split(' ')[0] }}
         </button>

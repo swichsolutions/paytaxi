@@ -1,7 +1,7 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../services/admin-mock.service';
-import { AdminApiService, ApiDriver, ApiCashout } from '../../services/admin-api.service';
+import { AdminApiService, ApiDriver, ApiCashout, UpdateDriverBody } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 
 type StatusFilter = 'all' | 'active' | 'inactive' | 'suspended';
@@ -80,7 +80,7 @@ export class DriversComponent {
       return {
         id: d.id,
         name: d.name ?? '(unnamed)',
-        phone: d.yandexProfileId ?? '—', // backend doesn't expose phone yet — TODO
+        phone: d.phone ?? '—',
         yandexProfileId: d.yandexProfileId ?? '—',
         status: (d.status?.toLowerCase() as StatusFilter) ?? 'active',
         balance: d.yandex?.balance ?? 0,
@@ -168,8 +168,94 @@ export class DriversComponent {
 
   setStatus(s: StatusFilter) { this.status.set(s); }
 
-  open(id: string)   { this.selectedId.set(id); }
-  closeDetail()      { this.selectedId.set(null); }
+  open(id: string)   {
+    this.selectedId.set(id);
+    this.editing.set(false);
+    this.editError.set(null);
+  }
+  closeDetail()      { this.selectedId.set(null); this.editing.set(false); }
+
+  // ── Edit + suspend/activate ──────────────────────────────────────
+  editing = signal(false);
+  saving = signal(false);
+  editError = signal<string | null>(null);
+  statusUpdating = signal(false);
+
+  editForm = signal({ name: '', phone: '', yandexProfileId: '', status: 'active' });
+
+  startEdit() {
+    const d = this.selected();
+    if (!d) return;
+    this.editForm.set({
+      name: d.name === '(unnamed)' ? '' : d.name,
+      phone: d.phone === '—' ? '' : d.phone,
+      yandexProfileId: d.yandexProfileId === '—' ? '' : d.yandexProfileId,
+      status: d.status,
+    });
+    this.editError.set(null);
+    this.editing.set(true);
+  }
+
+  cancelEdit() {
+    this.editing.set(false);
+    this.editError.set(null);
+  }
+
+  setEditField<K extends keyof ReturnType<typeof this.editForm>>(
+    key: K, value: ReturnType<typeof this.editForm>[K]
+  ) {
+    this.editForm.update(f => ({ ...f, [key]: value }));
+  }
+
+  async saveEdit() {
+    const parkId = this.parkCtx.currentParkId();
+    const d = this.selected();
+    if (!parkId || !d || this.saving()) return;
+    this.saving.set(true);
+    this.editError.set(null);
+    try {
+      const f = this.editForm();
+      const body: UpdateDriverBody = {
+        name: f.name.trim(),
+        phone: f.phone.trim(),
+        yandexProfileId: f.yandexProfileId.trim(),
+        status: this.statusPascal(f.status),
+      };
+      await this.api.updateDriver(parkId, d.id, body);
+      this.editing.set(false);
+      await this.fetchFor(parkId);
+    } catch (err: any) {
+      const code = err?.error?.error;
+      const msg =
+        code === 'phone_already_registered'      ? 'That phone is already linked to another driver.'
+      : code === 'yandex_profile_already_linked' ? 'That Yandex profile is already in use in this park.'
+      : code === 'invalid_phone'                  ? 'Phone format looks wrong.'
+      : err?.error?.message ?? err?.message ?? 'Could not save changes.';
+      this.editError.set(msg);
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  async setDriverStatus(target: 'active' | 'inactive' | 'suspended') {
+    const parkId = this.parkCtx.currentParkId();
+    const d = this.selected();
+    if (!parkId || !d || this.statusUpdating()) return;
+    this.statusUpdating.set(true);
+    try {
+      await this.api.updateDriver(parkId, d.id, { status: this.statusPascal(target) });
+      await this.fetchFor(parkId);
+    } catch (err: any) {
+      this.editError.set(err?.error?.message ?? err?.message ?? 'Could not update status.');
+    } finally {
+      this.statusUpdating.set(false);
+    }
+  }
+
+  /** Backend enum is PascalCase; UI uses lowercase. */
+  private statusPascal(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+  }
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }
   formatRel(d: Date)          { return this.svc.formatRelTime(d); }

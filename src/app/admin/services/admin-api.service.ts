@@ -56,6 +56,12 @@ export class AdminApiService {
       `${this.base}/parks/${parkId}/drivers`, body));
   }
 
+  /** Partial update — only the fields you pass are changed. */
+  updateDriver(parkId: string, driverId: string, body: UpdateDriverBody): Promise<ApiNewDriver> {
+    return firstValueFrom(this.http.patch<ApiNewDriver>(
+      `${this.base}/parks/${parkId}/drivers/${driverId}`, body));
+  }
+
   /** Recent activity for the overview feed. */
   getActivity(parkId: string, take = 12): Promise<ApiActivityResponse> {
     return firstValueFrom(this.http.get<ApiActivityResponse>(
@@ -216,6 +222,13 @@ export interface CreateDriverBody {
   consentGiven: boolean;
 }
 
+export interface UpdateDriverBody {
+  name?: string;
+  phone?: string;
+  yandexProfileId?: string;
+  status?: string; // "Active" | "Inactive" | "Suspended"
+}
+
 export interface ApiNewDriver {
   id: string;
   name: string;
@@ -257,6 +270,7 @@ export interface ApiDriversResponse {
 export interface ApiDriver {
   id: string;
   name: string | null;
+  phone: string;
   yandexProfileId: string | null;
   status: string;
   yandex: {

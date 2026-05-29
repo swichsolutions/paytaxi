@@ -196,7 +196,19 @@ export class CashoutsComponent {
   formatRel(d: Date)          { return this.svc.formatRelTime(d); }
   initials(n: string)         { return this.svc.initials(n); }
 
+  /**
+   * "27 May, 17:08" for older rows, or "Today · 17:08" / "Yesterday · 17:08"
+   * for recent ones. The relative "X ago" stays as the subline.
+   */
   formatTime(d: Date): string {
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const dayMs = 24 * 3600 * 1000;
+    const startOfThis = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const daysAgo = Math.round((startOfToday - startOfThis) / dayMs);
+    if (daysAgo === 0) return `Today · ${time}`;
+    if (daysAgo === 1) return `Yesterday · ${time}`;
+    return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}, ${time}`;
   }
 }
