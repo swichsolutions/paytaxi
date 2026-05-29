@@ -611,3 +611,14 @@
     .queue__cell--action { grid-column: 1 / -1; justify-content: flex-end; }
   }
 }
+
+.retry-banner {
+  margin: var(--space-4) 0;
+  padding: 10px 14px;
+  background: rgba(255, 184, 0, 0.10);
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--color-text, #1f2937);
+  font-weight: 500;
+}

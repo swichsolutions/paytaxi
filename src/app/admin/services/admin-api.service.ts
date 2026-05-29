@@ -34,6 +34,92 @@ export class AdminApiService {
   getKpis(parkId: string): Promise<ApiKpis> {
     return firstValueFrom(this.http.get<ApiKpis>(`${this.base}/parks/${parkId}/kpis`));
   }
+
+  /**
+   * Retry a failed cashout. Server creates a fresh cashout row (new
+   * idempotency key) and returns the saga result.
+   */
+  retryCashout(parkId: string, cashoutId: string): Promise<CashoutSagaResult> {
+    return firstValueFrom(this.http.post<CashoutSagaResult>(
+      `${this.base}/parks/${parkId}/cashouts/${cashoutId}/retry`, {}));
+  }
+
+  /** Look up a Yandex driver profile under a park (onboarding step 1). */
+  yandexLookup(parkId: string, profileId: string): Promise<ApiYandexLookup> {
+    return firstValueFrom(this.http.get<ApiYandexLookup>(
+      `${this.base}/parks/${parkId}/drivers/yandex-lookup?profileId=${encodeURIComponent(profileId)}`));
+  }
+
+  /** Create a driver under a park (onboarding step 2). */
+  createDriver(parkId: string, body: CreateDriverBody): Promise<ApiNewDriver> {
+    return firstValueFrom(this.http.post<ApiNewDriver>(
+      `${this.base}/parks/${parkId}/drivers`, body));
+  }
+
+  /** Recent activity for the overview feed. */
+  getActivity(parkId: string, take = 12): Promise<ApiActivityResponse> {
+    return firstValueFrom(this.http.get<ApiActivityResponse>(
+      `${this.base}/parks/${parkId}/activity?take=${take}`));
+  }
+
+  /** 12 buckets of cashout volume over the past 12 hours. */
+  getHourly(parkId: string): Promise<ApiHourlyResponse> {
+    return firstValueFrom(this.http.get<ApiHourlyResponse>(
+      `${this.base}/parks/${parkId}/hourly`));
+  }
+}
+
+export interface ApiActivityResponse {
+  parkId: string;
+  count: number;
+  events: ApiActivityEvent[];
+}
+
+export interface ApiActivityEvent {
+  id: string;
+  at: string;
+  type: string;       // cashout_completed | cashout_failed | cashout_review | cashout_submitted | driver_joined
+  severity: string;   // info | success | warning | error
+  message: string;
+  driverName: string | null;
+  amount: number | null;
+}
+
+export interface ApiHourlyResponse {
+  parkId: string;
+  asOf: string;
+  buckets: ApiHourBucket[];
+}
+
+export interface ApiHourBucket {
+  hour: string;
+  value: number;
+  count: number;
+}
+
+export interface ApiYandexLookup {
+  yandexProfileId: string;
+  name: string | null;
+  carPlate: string | null;
+  balance: number;
+  currency: string;
+  alreadyLinked: boolean;
+}
+
+export interface CreateDriverBody {
+  phone: string;
+  yandexProfileId: string;
+  name: string;
+  consentGiven: boolean;
+}
+
+export interface ApiNewDriver {
+  id: string;
+  name: string;
+  yandexProfileId: string;
+  status: string;
+  phone: string;
+  parkId: string;
 }
 
 export interface ApiKpis {

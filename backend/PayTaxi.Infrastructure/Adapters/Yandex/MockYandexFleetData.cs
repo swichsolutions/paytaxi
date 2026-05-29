@@ -85,7 +85,11 @@ public class MockYandexFleetData
                 ("yp_tb3_005", "დავით ჩხეიძე",            "TT-222-OK", 1980.00m),
                 ("yp_tb3_006", "Zura Mikeladze",          "BB-554-PP",  675.20m),
                 ("yp_tb3_007", "ვალერი თავაძე",           "AB-101-EF",   92.30m),
-                ("yp_tb3_008", "ალექსანდრე გვინიაშვილი",  "DD-301-GH",  330.00m)),
+                ("yp_tb3_008", "ალექსანდრე გვინიაშვილი",  "DD-301-GH",  330.00m),
+                // Unclaimed — exists in Yandex but not yet onboarded to PayTaxi.
+                // Use these to exercise the /admin/onboarding flow.
+                ("yp_tb3_new1", "Shota Akhalkatsi",       "WW-101-NEW", 0.00m),
+                ("yp_tb3_new2", "ირაკლი წერეთელი",        "WW-202-NEW", 0.00m)),
 
             new ParkSeed("yx_park_tb5",
                 ("yp_tb5_001", "Badri Macharashvili",     "FF-808-KL", 1460.75m),
@@ -95,7 +99,9 @@ public class MockYandexFleetData
                 ("yp_tb5_005", "ვახტანგი ჩხარტიშვილი",    "JJ-616-ST",  130.00m),
                 ("yp_tb5_006", "ზაზა ჯვარაძე",            "KK-303-UV",  980.00m),
                 ("yp_tb5_007", "Kakha Chubinidze",        "LL-919-WX",  435.30m),
-                ("yp_tb5_008", "მამუკა ხატიური",          "MM-525-YZ", 1120.00m)),
+                ("yp_tb5_008", "მამუკა ხატიური",          "MM-525-YZ", 1120.00m),
+                ("yp_tb5_new1", "Giga Tsintsadze",        "WW-303-NEW", 0.00m),
+                ("yp_tb5_new2", "ლაშა ერისთავი",          "WW-404-NEW", 0.00m)),
 
             new ParkSeed("yx_park_bt1",
                 ("yp_bt1_001", "ნუგზარ შავიშვილი",        "NN-737-AB",   62.00m),
@@ -105,7 +111,9 @@ public class MockYandexFleetData
                 ("yp_bt1_005", "Soso Kakhiani",           "RR-161-IJ",   25.00m),
                 ("yp_bt1_006", "ტარიელ ჯანდიერი",         "SS-272-KL",  415.00m),
                 ("yp_bt1_007", "იოსები ბერიძე",           "TT-383-MN",   88.50m),
-                ("yp_bt1_008", "გიორგი ხუციშვილი",        "UU-494-OP",  650.00m)),
+                ("yp_bt1_008", "გიორგი ხუციშვილი",        "UU-494-OP",  650.00m),
+                ("yp_bt1_new1", "Davit Lordkipanidze",    "WW-505-NEW", 0.00m),
+                ("yp_bt1_new2", "ნოდარ ჩხეიძე",            "WW-606-NEW", 0.00m)),
         };
 
         var rng = new Random(42); // deterministic

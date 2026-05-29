@@ -95,6 +95,10 @@
     </div>
   </div>
 
+  @if (retryMessage()) {
+    <div class="retry-banner">{{ retryMessage() }}</div>
+  }
+
   <!-- ── Queue list ──────────────────────────────────────────────── -->
   <div class="queue-card">
     <div class="queue__head">

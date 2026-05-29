@@ -233,6 +233,261 @@ public class AdminParksController : AdminControllerBase
         });
     }
 
+    /// <summary>
+    /// Recent activity for the park: cashout state changes + new-driver joins,
+    /// merged and newest-first. Backs the admin overview's activity feed.
+    /// </summary>
+    [HttpGet("activity")]
+    public async Task<IActionResult> Activity(
+        Guid parkId, [FromQuery] int take = 12, CancellationToken ct = default)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        take = Math.Clamp(take, 1, 50);
+
+        // Pull a slightly wider window from each source, merge, then trim — keeps
+        // the resulting feed coherent even when one source has dominated lately.
+        var window = take * 2;
+
+        var cashoutRows = await _db.Cashouts
+            .AsNoTracking()
+            .Where(c => c.ParkId == parkId)
+            .OrderByDescending(c => c.CompletedAt ?? c.CreatedAt)
+            .Take(window)
+            .Select(c => new
+            {
+                c.Id,
+                At = c.CompletedAt ?? c.CreatedAt,
+                c.Status,
+                DriverName = c.Driver.Name,
+                c.Amount,
+                c.FailureReason,
+            })
+            .ToListAsync(ct);
+
+        var driverRows = await _db.Drivers
+            .AsNoTracking()
+            .Where(d => d.ParkId == parkId)
+            .OrderByDescending(d => d.CreatedAt)
+            .Take(window)
+            .Select(d => new { d.Id, d.CreatedAt, d.Name })
+            .ToListAsync(ct);
+
+        var feed = cashoutRows.Select(c => new ActivityEntry(
+                Id: "co_" + c.Id.ToString("N"),
+                At: c.At,
+                Type: c.Status switch
+                {
+                    Core.Enums.CashoutStatus.Completed       => "cashout_completed",
+                    Core.Enums.CashoutStatus.Failed          => "cashout_failed",
+                    Core.Enums.CashoutStatus.ReviewRequired  => "cashout_review",
+                    _                                         => "cashout_submitted",
+                },
+                Severity: c.Status switch
+                {
+                    Core.Enums.CashoutStatus.Completed       => "success",
+                    Core.Enums.CashoutStatus.Failed          => "error",
+                    Core.Enums.CashoutStatus.ReviewRequired  => "warning",
+                    _                                         => "info",
+                },
+                Message: c.Status switch
+                {
+                    Core.Enums.CashoutStatus.Completed      => "Cashout completed",
+                    Core.Enums.CashoutStatus.Failed         => $"Cashout failed — {c.FailureReason ?? "see details"}",
+                    Core.Enums.CashoutStatus.ReviewRequired => "Cashout needs manual review",
+                    _                                        => "Cashout submitted",
+                },
+                DriverName: c.DriverName,
+                Amount: c.Amount))
+            .Concat(driverRows.Select(d => new ActivityEntry(
+                Id: "drv_" + d.Id.ToString("N"),
+                At: d.CreatedAt,
+                Type: "driver_joined",
+                Severity: "info",
+                Message: "Driver onboarded to the park",
+                DriverName: d.Name,
+                Amount: null)))
+            .OrderByDescending(e => e.At)
+            .Take(take)
+            .ToList();
+
+        return Ok(new { parkId, count = feed.Count, events = feed });
+    }
+
+    /// <summary>
+    /// Last 12 hours of completed-cashout volume bucketed by hour. Empty hours
+    /// return as zero so the chart bar set is always 12 elements wide.
+    /// </summary>
+    [HttpGet("hourly")]
+    public async Task<IActionResult> Hourly(Guid parkId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var now = DateTime.UtcNow;
+        var windowStart = now.AddHours(-12);
+
+        var rows = await _db.Cashouts
+            .AsNoTracking()
+            .Where(c => c.ParkId == parkId
+                     && c.Status == Core.Enums.CashoutStatus.Completed
+                     && (c.CompletedAt ?? c.CreatedAt) >= windowStart)
+            .Select(c => new
+            {
+                at = c.CompletedAt ?? c.CreatedAt,
+                amount = c.Amount,
+            })
+            .ToListAsync(ct);
+
+        // Bucket by hour-of-day. Each bucket spans [hour, hour+1).
+        var buckets = new List<HourBucket>(12);
+        for (var i = 11; i >= 0; i--)
+        {
+            var bucketStart = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc).AddHours(-i);
+            var bucketEnd = bucketStart.AddHours(1);
+            var inBucket = rows.Where(r => r.at >= bucketStart && r.at < bucketEnd).ToList();
+            buckets.Add(new HourBucket(
+                Hour: bucketStart.ToString("HH:00"),
+                Value: inBucket.Sum(r => r.amount),
+                Count: inBucket.Count));
+        }
+
+        return Ok(new { parkId, asOf = now, buckets });
+    }
+
+    /// <summary>
+    /// Look up a Yandex driver profile when onboarding. Hits the resilient client
+    /// (rate-limited + retried + audit-logged) for the park's profiles and filters
+    /// by <paramref name="profileId"/>.
+    /// </summary>
+    [HttpGet("drivers/yandex-lookup")]
+    public async Task<IActionResult> YandexLookup(
+        Guid parkId, [FromQuery] string profileId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (string.IsNullOrWhiteSpace(profileId))
+            return BadRequest(new { error = "profile_id_required" });
+
+        var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
+        var match = profiles.FirstOrDefault(p =>
+            string.Equals(p.DriverProfileId, profileId.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (match is null)
+            return NotFound(new { error = "yandex_profile_not_found", profileId });
+
+        // Flag if this profile is already linked to a PayTaxi driver in this park
+        // so the UI can short-circuit the create step.
+        var alreadyLinked = await _db.Drivers.AsNoTracking()
+            .AnyAsync(d => d.ParkId == parkId && d.YandexDriverProfileId == match.DriverProfileId, ct);
+
+        return Ok(new
+        {
+            yandexProfileId = match.DriverProfileId,
+            name = match.Name,
+            carPlate = match.CarPlate,
+            balance = match.Balance,
+            currency = match.Currency,
+            alreadyLinked,
+        });
+    }
+
+    /// <summary>
+    /// Onboard a new driver: create the Driver row plus default bank cards.
+    /// Phone is normalized to E.164 and hashed with SHA-256 for lookup.
+    /// Phase 8 will swap the plaintext <c>PhoneEncrypted</c> column for real AES.
+    /// </summary>
+    [HttpPost("drivers")]
+    public async Task<IActionResult> CreateDriver(
+        Guid parkId, [FromBody] CreateDriverRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var phone = NormalizePhone(body.Phone);
+        if (phone is null) return BadRequest(new { error = "invalid_phone" });
+        if (string.IsNullOrWhiteSpace(body.YandexProfileId))
+            return BadRequest(new { error = "yandex_profile_id_required" });
+        if (string.IsNullOrWhiteSpace(body.Name))
+            return BadRequest(new { error = "name_required" });
+
+        var phoneHash = HashPhone(phone);
+
+        if (await _db.Drivers.AsNoTracking().AnyAsync(d => d.PhoneHash == phoneHash, ct))
+            return Conflict(new { error = "phone_already_registered" });
+
+        if (await _db.Drivers.AsNoTracking().AnyAsync(d =>
+                d.ParkId == parkId && d.YandexDriverProfileId == body.YandexProfileId, ct))
+            return Conflict(new { error = "yandex_profile_already_linked" });
+
+        var driver = new Core.Entities.Driver
+        {
+            ParkId = parkId,
+            Name = body.Name.Trim(),
+            YandexDriverProfileId = body.YandexProfileId.Trim(),
+            PhoneEncrypted = phone, // plaintext until Phase 8
+            PhoneHash = phoneHash,
+            Status = Core.Enums.DriverStatus.Active,
+            ConsentGiven = body.ConsentGiven,
+            ConsentTimestamp = body.ConsentGiven ? DateTime.UtcNow : null,
+        };
+        _db.Drivers.Add(driver);
+
+        // Seed two default mock cards so the driver can cashout immediately.
+        // Real onboarding will collect card details via a separate "add card" flow;
+        // this is a dev-time shortcut while Phase 4 bank tokenisation isn't wired.
+        var rng = new Random(driver.Id.GetHashCode());
+        var bogLast4 = rng.Next(1000, 10000).ToString();
+        var tbcLast4 = rng.Next(1000, 10000).ToString();
+        _db.BankCards.Add(new Core.Entities.BankCard
+        {
+            DriverId = driver.Id,
+            MaskedPan = $"**** {bogLast4}",
+            TokenReferenceEncrypted = $"mock_tok_bog_{driver.Id:N}",
+            BankType = "BOG",
+            IsDefault = true,
+            IsActive = true,
+        });
+        _db.BankCards.Add(new Core.Entities.BankCard
+        {
+            DriverId = driver.Id,
+            MaskedPan = $"**** {tbcLast4}",
+            TokenReferenceEncrypted = $"mock_tok_tbc_{driver.Id:N}",
+            BankType = "TBC",
+            IsDefault = false,
+            IsActive = true,
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        _log.LogInformation("Onboarded driver {DriverId} ({Name}) in park {ParkId}",
+            driver.Id, driver.Name, parkId);
+
+        return Created($"/api/admin/parks/{parkId}/drivers", new
+        {
+            id = driver.Id,
+            name = driver.Name,
+            yandexProfileId = driver.YandexDriverProfileId,
+            status = driver.Status.ToString(),
+            phone, // normalised — useful to confirm what the SMS will go to
+            parkId,
+        });
+    }
+
+    private static string? NormalizePhone(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var trimmed = raw.Trim();
+        var hasPlus = trimmed.StartsWith('+');
+        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
+        if (digits.Length < 9) return null;
+        if (!hasPlus && !digits.StartsWith("995") && digits.Length <= 10)
+            digits = "995" + digits;
+        return "+" + digits;
+    }
+
+    private static string HashPhone(string phone)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(phone));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
     [HttpGet("smoke-test")]
     public async Task<IActionResult> SmokeTest(Guid parkId, CancellationToken ct)
     {
@@ -264,3 +519,23 @@ public class AdminParksController : AdminControllerBase
         });
     }
 }
+
+public record CreateDriverRequest(
+    string Phone,
+    string YandexProfileId,
+    string Name,
+    bool ConsentGiven);
+
+public record ActivityEntry(
+    string Id,
+    DateTime At,
+    string Type,
+    string Severity,
+    string Message,
+    string? DriverName,
+    decimal? Amount);
+
+public record HourBucket(
+    string Hour,
+    decimal Value,
+    int Count);

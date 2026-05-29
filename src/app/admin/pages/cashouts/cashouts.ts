@@ -143,10 +143,42 @@ export class CashoutsComponent {
     this.expanded.update(v => v === id ? null : id);
   }
 
-  retry(_id: string, e: Event) {
+  retrying = signal<string | null>(null);
+  retryMessage = signal<string | null>(null);
+
+  async retry(id: string, e: Event) {
     e.stopPropagation();
-    // Backend retry endpoint not yet built — placeholder.
-    alert('Retry endpoint not implemented yet.');
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.retrying()) return;
+    this.retrying.set(id);
+    this.retryMessage.set(null);
+    try {
+      const result = await this.api.retryCashout(parkId, id);
+      this.retryMessage.set(this.describeRetry(result));
+      await this.fetchFor(parkId);
+    } catch (err: any) {
+      // The saga returns the result body even on 422 (Failed) / 202 (ReviewRequired)
+      // — those are legitimate outcomes, not transport errors. Surface them
+      // the same way as success.
+      const sagaResult = err?.error;
+      if (sagaResult && typeof sagaResult.status === 'string' && sagaResult.cashoutId) {
+        this.retryMessage.set(this.describeRetry(sagaResult));
+        await this.fetchFor(parkId);
+      } else {
+        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? 'Retry failed';
+        this.retryMessage.set(`Retry failed: ${msg}`);
+      }
+    } finally {
+      this.retrying.set(null);
+    }
+  }
+
+  private describeRetry(r: { status: string; cashoutId: string; failureReason: string | null }): string {
+    const short = r.cashoutId.slice(0, 8);
+    if (r.status === 'Completed')      return `Retry succeeded — new cashout ${short}…`;
+    if (r.status === 'ReviewRequired') return `Retry needs review — new cashout ${short}…`;
+    if (r.status === 'Failed')         return `Retry failed again: ${r.failureReason ?? 'no reason'}`;
+    return `Retry returned ${r.status}`;
   }
 
   openManual()  { this.showManualModal.set(true); }

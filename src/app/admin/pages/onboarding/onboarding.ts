@@ -2,14 +2,15 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
+import { AdminApiService, ApiYandexLookup } from '../../services/admin-api.service';
+import { AdminParkContextService } from '../../services/admin-park-context.service';
 
-interface YandexLookupResult {
+interface OnboardingLookup {
   found: boolean;
+  alreadyLinked?: boolean;
   name?: string;
   carPlate?: string;
   yandexBalance?: number;
-  rating?: number;
-  ridesLast7Days?: number;
 }
 
 @Component({
@@ -20,23 +21,35 @@ interface YandexLookupResult {
 })
 export class OnboardingComponent {
   svc = inject(AdminMockService);
+  private api = inject(AdminApiService);
+  private parkCtx = inject(AdminParkContextService);
   router = inject(Router);
 
   step = signal<1 | 2 | 3>(1);
   phone = signal('');
   yandexId = signal('');
   lookupRunning = signal(false);
-  lookupResult = signal<YandexLookupResult | null>(null);
+  lookupError = signal<string | null>(null);
+  lookupResult = signal<OnboardingLookup | null>(null);
 
   // Editable fields populated from Yandex lookup
   driverName = signal('');
   carPlate   = signal('');
   notify     = signal(true);
   creating   = signal(false);
+  createError = signal<string | null>(null);
+
+  constructor() {
+    this.parkCtx.ensureLoaded();
+  }
+
+  // Computed park name for display
+  readonly parkName = computed(() => this.parkCtx.currentPark()?.name ?? '');
 
   step1Valid = computed(() =>
     this.phone().replace(/\D/g, '').length >= 9 &&
-    this.yandexId().trim().length >= 6
+    this.yandexId().trim().length >= 6 &&
+    !!this.parkCtx.currentParkId()
   );
 
   step2Valid = computed(() =>
@@ -53,42 +66,63 @@ export class OnboardingComponent {
     this.phone.set(this.formatPhone(v));
   }
 
-  // Mock Yandex Fleet lookup
-  lookup() {
+  async lookup() {
     if (!this.step1Valid()) return;
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId) return;
     this.lookupRunning.set(true);
     this.lookupResult.set(null);
+    this.lookupError.set(null);
 
-    setTimeout(() => {
-      this.lookupRunning.set(false);
-      // 90% of the time return a "found" result; 10% return not found for demo
-      const found = this.yandexId().toLowerCase() !== 'not_found';
-      if (found) {
-        const result: YandexLookupResult = {
-          found: true,
-          name: 'Vakhtang Bregadze',
-          carPlate: 'WW-' + Math.floor(100 + Math.random() * 900) + '-XY',
-          yandexBalance: 234.50,
-          rating: 4.86,
-          ridesLast7Days: 47,
-        };
-        this.lookupResult.set(result);
-        this.driverName.set(result.name!);
-        this.carPlate.set(result.carPlate!);
-        this.step.set(2);
-      } else {
+    try {
+      const r = await this.api.yandexLookup(parkId, this.yandexId().trim());
+      this.lookupResult.set({
+        found: true,
+        alreadyLinked: r.alreadyLinked,
+        name: r.name ?? '(no name in Yandex)',
+        carPlate: r.carPlate ?? '',
+        yandexBalance: r.balance,
+      });
+      this.driverName.set(r.name ?? '');
+      this.carPlate.set(r.carPlate ?? '');
+      // Skip step 2 if already linked — the operator just wanted to verify.
+      this.step.set(r.alreadyLinked ? 1 : 2);
+    } catch (err: any) {
+      if (err?.status === 404) {
         this.lookupResult.set({ found: false });
+      } else {
+        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? 'Lookup failed';
+        this.lookupError.set(msg);
       }
-    }, 900);
+    } finally {
+      this.lookupRunning.set(false);
+    }
   }
 
-  create() {
+  async create() {
     if (!this.step2Valid()) return;
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId) return;
     this.creating.set(true);
-    setTimeout(() => {
-      this.creating.set(false);
+    this.createError.set(null);
+    try {
+      await this.api.createDriver(parkId, {
+        phone: '+995' + this.phone().replace(/\D/g, ''),
+        yandexProfileId: this.yandexId().trim(),
+        name: this.driverName().trim(),
+        consentGiven: true, // operator confirms on driver's behalf at this step
+      });
       this.step.set(3);
-    }, 700);
+    } catch (err: any) {
+      const code = err?.error?.error;
+      const msg =
+        code === 'phone_already_registered'      ? 'This phone is already linked to a driver.'
+      : code === 'yandex_profile_already_linked' ? 'This Yandex profile is already linked to a driver in this park.'
+      : err?.error?.message ?? err?.message ?? 'Could not create the driver.';
+      this.createError.set(msg);
+    } finally {
+      this.creating.set(false);
+    }
   }
 
   reset() {
@@ -96,8 +130,10 @@ export class OnboardingComponent {
     this.phone.set('');
     this.yandexId.set('');
     this.lookupResult.set(null);
+    this.lookupError.set(null);
     this.driverName.set('');
     this.carPlate.set('');
+    this.createError.set(null);
   }
 
   goToDrivers() {

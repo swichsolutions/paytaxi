@@ -87,7 +87,8 @@ export class AdminMockService {
   }
 
   formatRelTime(d: Date): string {
-    const diffSec = Math.max(0, (TODAY_REF.getTime() - d.getTime()) / 1000);
+    // Use wall-clock now — TODAY_REF is a stale demo anchor that breaks on real data.
+    const diffSec = Math.max(0, (Date.now() - d.getTime()) / 1000);
     if (diffSec < 60)      return `${Math.round(diffSec)}s ago`;
     if (diffSec < 3600)    return `${Math.round(diffSec / 60)}m ago`;
     if (diffSec < 86_400)  return `${Math.round(diffSec / 3600)}h ago`;

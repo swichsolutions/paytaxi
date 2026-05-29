@@ -1,7 +1,9 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
-import { AdminApiService, ApiCashout, ApiKpis } from '../../services/admin-api.service';
+import {
+  AdminApiService, ApiCashout, ApiKpis, ApiActivityEvent, ApiHourBucket,
+} from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 
 interface FailedRow {
@@ -29,6 +31,8 @@ export class OverviewComponent {
   loadError = signal<string | null>(null);
   kpisRaw = signal<ApiKpis | null>(null);
   private cashoutsRaw = signal<ApiCashout[]>([]);
+  private activityRaw = signal<ApiActivityEvent[]>([]);
+  private hourlyRaw = signal<ApiHourBucket[]>([]);
 
   constructor() {
     this.parkCtx.ensureLoaded();
@@ -42,12 +46,16 @@ export class OverviewComponent {
     this.loading.set(true);
     this.loadError.set(null);
     try {
-      const [kpis, cashouts] = await Promise.all([
+      const [kpis, cashouts, activity, hourly] = await Promise.all([
         this.api.getKpis(parkId),
         this.api.listCashouts(parkId, 50),
+        this.api.getActivity(parkId, 12),
+        this.api.getHourly(parkId),
       ]);
       this.kpisRaw.set(kpis);
       this.cashoutsRaw.set(cashouts.cashouts);
+      this.activityRaw.set(activity.events);
+      this.hourlyRaw.set(hourly.buckets);
     } catch (err: any) {
       this.loadError.set(`Could not load overview: ${err?.message ?? err}`);
     } finally {
@@ -107,9 +115,22 @@ export class OverviewComponent {
     this.cashoutsRaw().filter(c => c.status === 'Queued' || c.status === 'Processing')
   );
 
-  // Hourly chart + activity feed stay on mock for now (need new endpoints).
-  hourly   = computed(() => this.svc.hourlyVolume());
-  activity = computed(() => this.svc.activity().slice(0, 8));
+  // Hourly chart + activity feed now backed by /api/admin/parks/{id}/{hourly,activity}.
+  hourly = computed(() => this.hourlyRaw().map(b => ({
+    hour: b.hour,
+    value: b.value,
+    count: b.count,
+  })));
+
+  activity = computed(() => this.activityRaw().map(e => ({
+    id: e.id,
+    at: new Date(e.at),
+    type: e.type,
+    severity: e.severity,
+    message: e.message,
+    driverName: e.driverName,
+    amount: e.amount ?? undefined,
+  })));
 
   // Bar chart geometry helpers (unchanged)
   readonly chartH = 80;
@@ -136,8 +157,26 @@ export class OverviewComponent {
 
   todayTotal = computed(() => this.kpisRaw()?.cashoutsToday.value ?? 0);
 
-  retry(_id: string) {
-    alert('Retry endpoint not implemented yet.');
+  retrying = signal<string | null>(null);
+
+  async retry(id: string) {
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.retrying()) return;
+    this.retrying.set(id);
+    try {
+      await this.api.retryCashout(parkId, id);
+      await this.fetchFor(parkId);
+    } catch (err: any) {
+      // 422/202 carry the saga result — those are real outcomes, refetch the list.
+      if (err?.error?.cashoutId) {
+        await this.fetchFor(parkId);
+      } else {
+        const msg = err?.error?.message ?? err?.message ?? 'Retry failed';
+        this.loadError.set(`Retry failed: ${msg}`);
+      }
+    } finally {
+      this.retrying.set(null);
+    }
   }
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }

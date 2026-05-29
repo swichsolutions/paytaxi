@@ -105,8 +105,36 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <div>
-                <strong>Driver not found</strong>
-                <span>Verify the profile ID — it must match an active driver in your Yandex park.</span>
+                <strong>Driver not found in {{ parkName() }}</strong>
+                <span>Verify the profile ID — it must match an active driver in this park's Yandex Fleet account.</span>
+              </div>
+            </div>
+          }
+
+          @if (lookupResult()?.alreadyLinked) {
+            <div class="ob-banner ob-banner--error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <div>
+                <strong>Already onboarded</strong>
+                <span>{{ lookupResult()?.name }} is already linked to a PayTaxi account in {{ parkName() }}.</span>
+              </div>
+            </div>
+          }
+
+          @if (lookupError()) {
+            <div class="ob-banner ob-banner--error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <div>
+                <strong>Lookup failed</strong>
+                <span>{{ lookupError() }}</span>
               </div>
             </div>
           }
@@ -179,6 +207,20 @@
               <span class="toggle__thumb"></span>
             </button>
           </div>
+
+          @if (createError()) {
+            <div class="ob-banner ob-banner--error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <div>
+                <strong>Could not create driver</strong>
+                <span>{{ createError() }}</span>
+              </div>
+            </div>
+          }
 
           <div class="ob-actions">
             <button class="btn-admin btn-admin--secondary" (click)="back()">
@@ -267,7 +309,7 @@
             <line x1="12" y1="8" x2="12" y2="12"/>
             <line x1="12" y1="16" x2="12.01" y2="16"/>
           </svg>
-          <span>This is a mock — any 6+ character profile ID returns a fake driver. Use <code>not_found</code> to test the not-found state.</span>
+          <span>Onboarding into <strong>{{ parkName() || 'the selected park' }}</strong>. Seeded profile ids look like <code>yp_tb3_001</code>; valid new ones (mock) match the park's prefix (e.g. <code>yp_tb3_</code>) and won't be in the mock list — try one to see the not-found state.</span>
         </div>
       }
 
@@ -283,14 +325,12 @@
             <span class="ob-yandex__value gel">₾ {{ lookupResult()!.yandexBalance!.toFixed(2) }}</span>
           </div>
           <div class="ob-yandex__row">
-            <span class="ob-yandex__label">Driver rating</span>
-            <span class="ob-yandex__value">
-              ★ {{ lookupResult()!.rating!.toFixed(2) }}
-            </span>
+            <span class="ob-yandex__label">Car plate</span>
+            <span class="ob-yandex__value">{{ lookupResult()!.carPlate || '—' }}</span>
           </div>
           <div class="ob-yandex__row">
-            <span class="ob-yandex__label">Rides · last 7 days</span>
-            <span class="ob-yandex__value">{{ lookupResult()!.ridesLast7Days }}</span>
+            <span class="ob-yandex__label">Park</span>
+            <span class="ob-yandex__value">{{ parkName() }}</span>
           </div>
         </div>
 

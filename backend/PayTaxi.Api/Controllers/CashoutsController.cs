@@ -107,6 +107,61 @@ public class CashoutsController : AdminControllerBase
             return BadRequest(new { error = "cashout_rejected", message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Retry a failed cashout. Creates a NEW cashout row (with a fresh
+    /// idempotency key) that re-runs the saga using the original
+    /// driverId/cardId/amount. The original Failed row is preserved as a
+    /// historical record. Only allowed when the source cashout's status
+    /// is Failed; for <c>ReviewRequired</c> a human must reconcile first.
+    /// </summary>
+    [HttpPost("{cashoutId:guid}/retry")]
+    public async Task<IActionResult> Retry(Guid parkId, Guid cashoutId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var source = await _db.Cashouts.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == cashoutId && c.ParkId == parkId, ct);
+        if (source is null) return NotFound(new { error = "cashout_not_found" });
+
+        if (source.Status != Core.Enums.CashoutStatus.Failed)
+        {
+            return BadRequest(new
+            {
+                error = "retry_not_allowed",
+                message = $"Cannot retry a cashout in status '{source.Status}'. Only Failed cashouts are retryable.",
+            });
+        }
+
+        var newKey = $"retry:{source.Id:N}:{Guid.NewGuid():N}";
+        try
+        {
+            var result = await _orchestrator.RunAsync(new CashoutSagaRequest(
+                ParkId: source.ParkId,
+                DriverId: source.DriverId,
+                BankCardId: source.BankCardId,
+                Amount: source.Amount,
+                IdempotencyKey: newKey,
+                InitiatedBy: $"admin-retry:{source.Id}"), ct);
+
+            _log.LogInformation(
+                "Retried cashout {SourceId} → new cashout {NewId} status={Status}",
+                source.Id, result.CashoutId, result.Status);
+
+            return result.Status switch
+            {
+                "Completed"      => Ok(result),
+                "ReviewRequired" => StatusCode(202, result),
+                "Failed"         => UnprocessableEntity(result),
+                _                => Ok(result),
+            };
+        }
+        catch (InvalidOperationException ex)
+        {
+            _log.LogWarning(ex, "Cashout retry rejected for source={CashoutId}", source.Id);
+            return BadRequest(new { error = "retry_rejected", message = ex.Message });
+        }
+    }
 }
 
 public record CreateCashoutRequest(
