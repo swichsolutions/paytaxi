@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { AuthService } from '../../core/services/auth.service';
+import { DriverNotificationService } from '../../core/services/notification.service';
 import { Lang } from '../../core/mock/data';
 
 @Component({
@@ -13,6 +14,7 @@ export class ProfileComponent {
   private router = inject(Router);
   readonly svc = inject(MockDataService);
   private auth = inject(AuthService);
+  private notifications = inject(DriverNotificationService);
   notificationsOn = signal(true);
 
   get t() { return this.svc.t; }
@@ -27,6 +29,7 @@ export class ProfileComponent {
 
   logout() {
     this.auth.logout();
+    this.notifications.clear();
     this.router.navigate(['/login']);
   }
 

@@ -172,6 +172,72 @@ public class DriverController : ControllerBase
         }
     }
 
+    /// <summary>Notifications inbox for the authenticated driver. Newest-first.</summary>
+    [HttpGet("me/notifications")]
+    public async Task<IActionResult> ListNotifications(
+        [FromQuery] int take = 30,
+        [FromQuery] bool unreadOnly = false,
+        CancellationToken ct = default)
+    {
+        if (!TryGetClaims(out var driverId, out _, out var error))
+            return Unauthorized(new { error });
+
+        take = Math.Clamp(take, 1, 100);
+        var query = _db.Notifications.AsNoTracking().Where(n => n.DriverId == driverId);
+        if (unreadOnly) query = query.Where(n => !n.IsRead);
+
+        var rows = await query
+            .OrderByDescending(n => n.CreatedAt)
+            .Take(take)
+            .Select(n => new
+            {
+                id = n.Id,
+                type = n.Type,
+                title = n.Title,
+                body = n.Body,
+                link = n.Link,
+                isRead = n.IsRead,
+                createdAt = n.CreatedAt,
+            })
+            .ToListAsync(ct);
+
+        var unreadCount = await _db.Notifications
+            .CountAsync(n => n.DriverId == driverId && !n.IsRead, ct);
+
+        return Ok(new { count = rows.Count, unreadCount, notifications = rows });
+    }
+
+    [HttpPost("me/notifications/{id:guid}/read")]
+    public async Task<IActionResult> MarkRead(Guid id, CancellationToken ct)
+    {
+        if (!TryGetClaims(out var driverId, out _, out var error))
+            return Unauthorized(new { error });
+
+        var rows = await _db.Notifications
+            .Where(n => n.Id == id && n.DriverId == driverId && !n.IsRead)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.IsRead, true)
+                .SetProperty(n => n.ReadAt, DateTime.UtcNow), ct);
+
+        if (rows == 0) return NotFound(new { error = "notification_not_found_or_already_read" });
+        return NoContent();
+    }
+
+    [HttpPost("me/notifications/read-all")]
+    public async Task<IActionResult> MarkAllRead(CancellationToken ct)
+    {
+        if (!TryGetClaims(out var driverId, out _, out var error))
+            return Unauthorized(new { error });
+
+        var rows = await _db.Notifications
+            .Where(n => n.DriverId == driverId && !n.IsRead)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(n => n.IsRead, true)
+                .SetProperty(n => n.ReadAt, DateTime.UtcNow), ct);
+
+        return Ok(new { markedRead = rows });
+    }
+
     // ── Claim extraction ─────────────────────────────────────────────
     private bool TryGetClaims(out Guid driverId, out Guid parkId, out string error)
     {

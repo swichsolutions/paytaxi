@@ -1,7 +1,8 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService } from '../../core/services/driver-session.service';
+import { DriverNotificationService } from '../../core/services/notification.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -12,6 +13,9 @@ import { DriverSessionService } from '../../core/services/driver-session.service
 export class DashboardComponent implements OnInit {
   readonly svc = inject(MockDataService); // i18n + recent rides/cashouts mock for now
   readonly session = inject(DriverSessionService);
+  private notifications = inject(DriverNotificationService);
+
+  readonly unreadCount = computed(() => this.notifications.unreadCount());
 
   async ngOnInit() {
     await this.session.ensureLoaded();

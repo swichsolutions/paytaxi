@@ -106,8 +106,9 @@ else
             log:     sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ResilientYandexFleetClient>>()));
 }
 
-// ── Cashout saga ─────────────────────────────────────────────────
+// ── Cashout saga + notifications ─────────────────────────────────
 builder.Services.AddScoped<ICashoutOrchestrator, CashoutOrchestrator>();
+builder.Services.AddSingleton<INotificationService, NotificationService>();
 
 // ── Balance sync worker ──────────────────────────────────────────
 builder.Services.Configure<BalanceSyncOptions>(

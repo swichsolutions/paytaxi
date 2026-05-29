@@ -34,17 +34,20 @@ public class CashoutOrchestrator : ICashoutOrchestrator
     private readonly AppDbContext _db;
     private readonly IServiceProvider _services;
     private readonly IYandexFleetClient _yandex;
+    private readonly INotificationService _notifier;
     private readonly ILogger<CashoutOrchestrator> _log;
 
     public CashoutOrchestrator(
         AppDbContext db,
         IServiceProvider services,
         IYandexFleetClient yandex,
+        INotificationService notifier,
         ILogger<CashoutOrchestrator> log)
     {
         _db = db;
         _services = services;
         _yandex = yandex;
+        _notifier = notifier;
         _log = log;
     }
 
@@ -234,6 +237,8 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             "Cashout {Id} completed: park={Park} driver={Driver} amount={Amount} fee={Fee} bank_tx={Bank} yandex_tx={Yandex}",
             cashout.Id, park.Name, driver.Name, req.Amount, fee, bankResult.TransferId, yandexResult.TransactionId);
 
+        await _notifier.NotifyCashoutCompletedAsync(driver.Id, req.Amount - fee, card.MaskedPan, ct);
+
         return ToResult(cashout);
     }
 
@@ -263,6 +268,8 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         await _db.SaveChangesAsync(ct);
 
         _log.LogWarning("Cashout {Id} FAILED — {Code}: {Message}", cashout.Id, code, message);
+
+        await _notifier.NotifyCashoutFailedAsync(cashout.DriverId, cashout.Amount, message, ct);
     }
 
     private async Task FlagForReviewAsync(Cashout cashout, string code, string message, CancellationToken ct)
@@ -283,6 +290,8 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         _log.LogError(
             "Cashout {Id} flagged ReviewRequired — bank transfer {Bank} succeeded but Yandex post failed: {Message}",
             cashout.Id, cashout.BankTransferId, message);
+
+        await _notifier.NotifyCashoutReviewRequiredAsync(cashout.DriverId, cashout.Amount, ct);
     }
 
     private async Task RestoreLimitAsync(Guid parkId, decimal amount, CancellationToken ct)

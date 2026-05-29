@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<YandexBalanceCache> YandexBalanceCaches => Set<YandexBalanceCache>();
     public DbSet<OtpCode> OtpCodes => Set<OtpCode>();
     public DbSet<AdminUser> AdminUsers => Set<AdminUser>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     // ── Enum ↔ snake_case text converters ────────────────────────────
     // Stored as text + Postgres check constraint (not native enum) so we can
@@ -163,6 +164,18 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(o => o.PhoneHash);
             e.Property(o => o.PhoneHash).HasMaxLength(64).IsRequired();
+        });
+
+        modelBuilder.Entity<Notification>(e =>
+        {
+            e.Property(n => n.Type).HasMaxLength(40).IsRequired();
+            e.Property(n => n.Title).HasMaxLength(200).IsRequired();
+            e.Property(n => n.Body).HasMaxLength(1000).IsRequired();
+            e.Property(n => n.Link).HasMaxLength(200);
+            e.HasIndex(n => new { n.DriverId, n.CreatedAt });
+            e.HasIndex(n => new { n.DriverId, n.IsRead });
+            e.HasOne(n => n.Driver).WithMany().HasForeignKey(n => n.DriverId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AdminUser>(e =>
