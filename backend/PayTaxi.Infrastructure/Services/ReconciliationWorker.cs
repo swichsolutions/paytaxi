@@ -22,8 +22,8 @@ namespace PayTaxi.Infrastructure.Services;
 ///      <see cref="ReconciliationOptions.AmountToleranceGel"/>.
 ///   2. Bank transfer in the window → must have a matching PayTaxi cashout
 ///      (otherwise our system sent money it doesn't track).
-///   3. Cashouts in <c>Processing</c> for longer than <see cref="StuckPendingHours"/>
-///      → stuck pending.
+///   3. Cashouts in <c>Processing</c> or <c>Queued</c> for longer than
+///      <see cref="StuckPendingHours"/> → stuck pending.
 ///
 /// Window: last <see cref="WindowHours"/>, ending at <c>now − GracePeriodMinutes</c>
 /// so in-flight cashouts aren't false-flagged.
@@ -94,13 +94,24 @@ public class ReconciliationWorker : BackgroundService
         var parks = await db.Parks
             .AsNoTracking()
             .Where(p => p.Status == ParkStatus.Active)
-            .Select(p => new { p.Id, p.Name, p.BankProvider })
+            .Select(p => new { p.Id, p.Name, p.LegalEntityName })
             .ToListAsync(ct);
 
         foreach (var park in parks)
         {
             ct.ThrowIfCancellationRequested();
-            await ReconcileParkAsync(db, yandex, bankResolver, park.Id, park.Name, park.BankProvider, windowFrom, windowTo, ct);
+            var accounts = await db.ParkBankAccounts.AsNoTracking()
+                .Where(a => a.ParkId == park.Id && a.IsActive)
+                .ToListAsync(ct);
+            var contexts = accounts.Select(a => new BankAccountContext(
+                ParkId: park.Id,
+                ParkBankAccountId: a.Id,
+                Provider: a.Provider,
+                BankCode: a.BankCode,
+                SourceIban: a.Iban,
+                SourceHolderName: a.HolderName ?? park.LegalEntityName ?? park.Name,
+                CredentialsJson: a.CredentialsEncrypted)).ToList();
+            await ReconcileParkAsync(db, yandex, bankResolver, park.Id, park.Name, contexts, windowFrom, windowTo, ct);
         }
     }
 
@@ -110,7 +121,7 @@ public class ReconciliationWorker : BackgroundService
         IServiceProvider sp,
         Guid parkId,
         string parkName,
-        string bankProvider,
+        IReadOnlyList<BankAccountContext> accounts,
         DateTime windowFrom,
         DateTime windowTo,
         CancellationToken ct)
@@ -135,32 +146,26 @@ public class ReconciliationWorker : BackgroundService
                          && c.CreatedAt < windowTo)
                 .Select(c => new CashoutSlim(
                     c.Id, c.Status, c.Amount, c.Fee, c.BankTransferId,
-                    c.YandexTransactionId, c.CreatedAt))
+                    c.YandexTransactionId, c.YandexReversalTransactionId, c.CreatedAt))
                 .ToListAsync(ct);
 
-            // ── Side B: bank ──────────────────────────────────────────
-            var bank = sp.GetKeyedService<IBankPayoutAdapter>(bankProvider)
-                ?? sp.GetKeyedService<IBankPayoutAdapter>("MOCK")
-                ?? throw new InvalidOperationException($"No bank adapter for provider '{bankProvider}'");
-            var bankTransfers = await bank.ListTransfersAsync(parkId, windowFrom, windowTo, ct);
-            var bankById = bankTransfers.ToDictionary(t => t.TransferId, t => t);
+            // ── Side B: bank — one listing per park account (TBC, BoG, …) ──
+            var bankTransfers = new List<BankTransferRecord>();
+            foreach (var account in accounts)
+            {
+                var bank = sp.GetKeyedService<IBankPayoutAdapter>(account.Provider)
+                    ?? sp.GetKeyedService<IBankPayoutAdapter>(account.Provider.ToUpperInvariant())
+                    ?? sp.GetKeyedService<IBankPayoutAdapter>("MOCK")
+                    ?? throw new InvalidOperationException($"No bank adapter for provider '{account.Provider}'");
+                bankTransfers.AddRange(await bank.ListTransfersAsync(account, windowFrom, windowTo, ct));
+            }
+            var bankById = bankTransfers
+                .GroupBy(t => t.TransferId)
+                .ToDictionary(g => g.Key, g => g.First());
 
             // ── Side C: Yandex ────────────────────────────────────────
-            // Yandex API requires a per-driver query — gather distinct profile ids
-            // from this window's cashouts and ask for each. Faster than scanning
-            // every driver in the park.
-            var driverProfileIds = await db.Drivers
-                .AsNoTracking()
-                .Where(d => d.ParkId == parkId
-                         && d.YandexDriverProfileId != null
-                         && cashouts.Select(c => c.Id).Contains(
-                             db.Cashouts.AsNoTracking()
-                                 .Where(co => co.DriverId == d.Id).Select(co => co.Id).FirstOrDefault()))
-                .Select(d => d.YandexDriverProfileId!)
-                .Distinct()
-                .ToListAsync(ct);
-
-            // Simpler fallback: ask for each driver that has cashouts in window.
+            // Yandex API requires a per-driver query — ask for each driver that has
+            // cashouts in the window. Faster than scanning every driver in the park.
             var driversInWindow = await db.Cashouts.AsNoTracking()
                 .Where(c => c.ParkId == parkId && c.CreatedAt >= windowFrom && c.CreatedAt < windowTo)
                 .Select(c => c.Driver.YandexDriverProfileId)
@@ -185,10 +190,15 @@ public class ReconciliationWorker : BackgroundService
 
             foreach (var c in cashouts)
             {
-                // Only Completed cashouts should have external counterparts.
+                // Only Completed cashouts should have a bank counterpart. In-flight rows
+                // (Processing / Queued) legitimately have a Yandex debit but no transfer yet;
+                // Failed rows had their debit reversed — the debit+credit pair cancels out.
                 if (c.Status != CashoutStatus.Completed)
                 {
-                    if (c.Status == CashoutStatus.Processing &&
+                    if (c.YandexTransactionId is not null) seenYandex.Add(c.YandexTransactionId);
+                    if (c.YandexReversalTransactionId is not null) seenYandex.Add(c.YandexReversalTransactionId);
+
+                    if ((c.Status == CashoutStatus.Processing || c.Status == CashoutStatus.Queued) &&
                         (DateTime.UtcNow - c.CreatedAt) > TimeSpan.FromHours(StuckPendingHours))
                     {
                         discrepancies.Add(new ReconciliationDiscrepancy
@@ -198,7 +208,7 @@ public class ReconciliationWorker : BackgroundService
                             CashoutId = c.Id,
                             Kind = "stuck_pending",
                             PaytaxiAmount = c.Amount,
-                            Notes = $"Still Processing after {StuckPendingHours}+ hours",
+                            Notes = $"Still {c.Status} after {StuckPendingHours}+ hours",
                         });
                     }
                     continue;
@@ -289,7 +299,7 @@ public class ReconciliationWorker : BackgroundService
                     Notes = $"Bank transfer ₾ {br.Amount:F2} has no matching PayTaxi cashout",
                 });
             }
-            foreach (var (txId, yt) in yandexTxByRef.Where(kv => !seenYandex.Contains(kv.Key)))
+            foreach (var (txId, yt) in yandexTxByRef.Where(kv => !seenYandex.Contains(kv.Key) && kv.Value.Amount < 0))
             {
                 discrepancies.Add(new ReconciliationDiscrepancy
                 {
@@ -329,7 +339,8 @@ public class ReconciliationWorker : BackgroundService
 
     private record CashoutSlim(
         Guid Id, CashoutStatus Status, decimal Amount, decimal Fee,
-        string? BankTransferId, string? YandexTransactionId, DateTime CreatedAt);
+        string? BankTransferId, string? YandexTransactionId, string? YandexReversalTransactionId,
+        DateTime CreatedAt);
 }
 
 public class ReconciliationOptions

@@ -95,8 +95,16 @@ export class ManualCashoutComponent implements OnInit {
     return list.slice(0, 8);
   });
 
+  selectedPark = computed<ApiPark | null>(() =>
+    this.parks().find(p => p.id === this.selectedParkId()) ?? null);
+
+  // Flat per-park fee (0.50 GEL at launch) and limits, mirrored from the backend config.
+  parkFee = computed(() => this.selectedPark()?.cashoutFee ?? 0.5);
+  parkMin = computed(() => this.selectedPark()?.minCashoutAmount ?? 5);
+  parkMax = computed(() => this.selectedPark()?.maxCashoutAmount ?? null);
+
   amount = computed(() => parseFloat(this.amountStr()) || 0);
-  fee    = computed(() => Math.max(2, parseFloat((this.amount() * 0.01).toFixed(2))));
+  fee    = computed(() => this.amount() > 0 ? this.parkFee() : 0);
   net    = computed(() => Math.max(0, this.amount() - this.fee()));
 
   driverBalance = computed(() => this.selectedDriver()?.yandex?.balance ?? 0);
@@ -104,7 +112,8 @@ export class ManualCashoutComponent implements OnInit {
   canProceedStep2 = computed(() => {
     const d = this.selectedDriver();
     const a = this.amount();
-    return d !== null && a >= 5 && a <= this.driverBalance();
+    const max = this.parkMax();
+    return d !== null && a >= this.parkMin() && (max === null || a <= max) && a <= this.driverBalance();
   });
 
   selectedCard = computed<ApiCard | null>(() => {

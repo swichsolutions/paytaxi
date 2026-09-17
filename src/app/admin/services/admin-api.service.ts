@@ -85,6 +85,39 @@ export class AdminApiService {
       `${this.base}/parks/${parkId}`, body));
   }
 
+  /** Nudge a Queued cashout so the payout worker retries it immediately. */
+  processCashoutNow(parkId: string, cashoutId: string): Promise<CashoutSagaResult> {
+    return firstValueFrom(this.http.post<CashoutSagaResult>(
+      `${this.base}/parks/${parkId}/cashouts/${cashoutId}/process-now`, {}));
+  }
+
+  // ── Park payout accounts ──────────────────────────────────────────
+  listBankAccounts(parkId: string): Promise<ApiBankAccountsResponse> {
+    return firstValueFrom(this.http.get<ApiBankAccountsResponse>(
+      `${this.base}/parks/${parkId}/bank-accounts`));
+  }
+
+  createBankAccount(parkId: string, body: UpsertBankAccountBody): Promise<ApiBankAccount> {
+    return firstValueFrom(this.http.post<ApiBankAccount>(
+      `${this.base}/parks/${parkId}/bank-accounts`, body));
+  }
+
+  updateBankAccount(parkId: string, accountId: string, body: UpsertBankAccountBody): Promise<ApiBankAccount> {
+    return firstValueFrom(this.http.patch<ApiBankAccount>(
+      `${this.base}/parks/${parkId}/bank-accounts/${accountId}`, body));
+  }
+
+  // ── Driver payout destinations (operator-side) ────────────────────
+  addDriverCard(parkId: string, driverId: string, body: { iban: string; holderName?: string; makeDefault?: boolean }): Promise<ApiCard> {
+    return firstValueFrom(this.http.post<ApiCard>(
+      `${this.base}/parks/${parkId}/drivers/${driverId}/cards`, body));
+  }
+
+  removeDriverCard(parkId: string, driverId: string, cardId: string): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(
+      `${this.base}/parks/${parkId}/drivers/${driverId}/cards/${cardId}`));
+  }
+
   /** Recent activity for the overview feed. */
   getActivity(parkId: string, take = 12): Promise<ApiActivityResponse> {
     return firstValueFrom(this.http.get<ApiActivityResponse>(
@@ -261,6 +294,42 @@ export interface CreateDriverBody {
   yandexProfileId: string;
   name: string;
   consentGiven: boolean;
+  iban?: string;
+  holderName?: string;
+}
+
+export interface ApiBankAccount {
+  id: string;
+  bankCode: string;      // "TB" | "BG" | …
+  bankLabel: string;     // "TBC" | "BOG" | …
+  provider: string;      // "tbc" | "bog" | "mock"
+  iban: string;
+  holderName: string | null;
+  label: string | null;
+  isActive: boolean;
+  isPrimary: boolean;
+  credentialsSet?: boolean;
+  balance?: number | null;
+  balanceError?: string | null;
+  queuedCount?: number;
+  queuedNet?: number;
+  createdAt?: string;
+}
+
+export interface ApiBankAccountsResponse {
+  parkId: string;
+  count: number;
+  accounts: ApiBankAccount[];
+}
+
+export interface UpsertBankAccountBody {
+  iban?: string;
+  provider?: string;
+  holderName?: string;
+  label?: string;
+  credentialsJson?: string;
+  isPrimary?: boolean;
+  isActive?: boolean;
 }
 
 export interface UpdateDriverBody {
@@ -278,24 +347,32 @@ export interface UpdateParkBody {
   yandexClientId?: string;
   yandexApiKey?: string;
   yandexParkId?: string;
+  cashoutFee?: number;
+  minCashoutAmount?: number;
+  maxCashoutAmount?: number;             // 0 = no limit
+  dailyCashoutLimitPerDriver?: number;   // 0 = no limit
 }
 
 export interface CreateParkBody {
   name: string;
   slug?: string;
-  operatingModel?: string;       // "ModelA5" | "ModelA" | "ModelB"
-  authorizationLimit?: number | null;
-  bankProvider?: string;
+  operatingModel?: string;       // "ModelA" (launch) — legacy values still accepted
+  bankProvider?: string;         // "tbc" | "bog" | "mock" — inferred from IBAN when omitted
+  bankCredentialsJson?: string;
   yandexClientId?: string;
   yandexApiKey?: string;
   yandexParkId: string;
   legalEntityName?: string;
   taxId?: string;
   phone?: string;
-  bankAccountIban?: string;
+  bankAccountIban: string;       // required: the park's primary payout account
   managerEmail?: string;
   managerName?: string;
   managerPassword?: string;
+  cashoutFee?: number;
+  minCashoutAmount?: number;
+  maxCashoutAmount?: number | null;
+  dailyCashoutLimitPerDriver?: number | null;
 }
 
 export interface CreateParkResult {
@@ -345,7 +422,8 @@ export interface ApiKpis {
   pendingQueue: { count: number; value: number };
   failedToday: { count: number };
   activeDrivers: { count: number; total: number };
-  authorizationLimit: number | null;
+  cashoutFee: number;
+  queued: { count: number; value: number; oldestAt: string | null };
   asOf: string;
 }
 
@@ -356,7 +434,10 @@ export interface ApiPark {
   yandexParkId: string;
   bankProvider: string;
   operatingModel: string;
-  authorizationLimit: number | null;
+  cashoutFee: number;
+  minCashoutAmount: number;
+  maxCashoutAmount: number | null;
+  dailyCashoutLimitPerDriver: number | null;
   status: string;
   driverCount: number;
   legalEntityName: string | null;
@@ -365,6 +446,7 @@ export interface ApiPark {
   bankAccountIban: string | null;
   yandexClientId: string | null;
   yandexApiKeySet: boolean;
+  bankAccounts: ApiBankAccount[];
 }
 
 export interface ApiDriversResponse {
@@ -392,6 +474,9 @@ export interface ApiCard {
   id: string;
   maskedPan: string;
   bankType: string;
+  bankCode?: string;
+  iban?: string;
+  holderName?: string | null;
   isDefault: boolean;
 }
 
@@ -413,6 +498,8 @@ export interface CashoutSagaResult {
   yandexTransactionId: string | null;
   failureReason: string | null;
   wasDeduped: boolean;
+  nextAttemptAt?: string | null;
+  attemptCount?: number;
 }
 
 export interface ApiCashoutsResponse {
@@ -430,9 +517,15 @@ export interface ApiCashout {
   status: string;
   bankTransferId: string | null;
   yandexTransactionId: string | null;
+  yandexReversalTransactionId?: string | null;
   failureReason: string | null;
+  initiatedBy?: string | null;
+  attemptCount?: number;
+  nextAttemptAt?: string | null;
   createdAt: string;
   completedAt: string | null;
   bankType: string;
   maskedPan: string;
+  destinationIban?: string;
+  sourceIban?: string | null;
 }

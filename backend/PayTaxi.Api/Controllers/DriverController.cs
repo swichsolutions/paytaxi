@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using PayTaxi.Core.Banking;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
 
@@ -36,7 +37,7 @@ public class DriverController : ControllerBase
         _log = log;
     }
 
-    /// <summary>Profile + park + balance + cards for the currently authenticated driver.</summary>
+    /// <summary>Profile + park config + balance + payout destinations for the authenticated driver.</summary>
     [HttpGet("me")]
     public async Task<IActionResult> Me(CancellationToken ct)
     {
@@ -49,6 +50,7 @@ public class DriverController : ControllerBase
         if (driver is null) return NotFound(new { error = "driver_not_found" });
 
         var park = await _db.Parks.AsNoTracking()
+            .Include(p => p.BankAccounts.Where(a => a.IsActive))
             .FirstOrDefaultAsync(p => p.Id == parkId, ct);
         if (park is null) return NotFound(new { error = "park_not_found" });
 
@@ -56,13 +58,17 @@ public class DriverController : ControllerBase
         string? carPlate = null;
         if (driver.YandexDriverProfileId is not null)
         {
-            // One Yandex call per /me; cached at the resilient-client layer if multiple drivers
-            // in the same park hit this endpoint within the rate-limit window.
             var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
             var match = profiles.FirstOrDefault(p => p.DriverProfileId == driver.YandexDriverProfileId);
             balance = match?.Balance;
             carPlate = match?.CarPlate;
         }
+
+        var supportedBanks = park.BankAccounts
+            .Select(a => a.BankCode)
+            .Distinct()
+            .Select(code => new { bankCode = code, bankLabel = GeorgianIban.BankLabel(code) })
+            .ToList();
 
         return Ok(new
         {
@@ -70,6 +76,7 @@ public class DriverController : ControllerBase
             {
                 id = driver.Id,
                 name = driver.Name,
+                phone = driver.PhoneEncrypted,
                 yandexProfileId = driver.YandexDriverProfileId,
                 status = driver.Status.ToString(),
                 carPlate,
@@ -80,18 +87,78 @@ public class DriverController : ControllerBase
                 id = park.Id,
                 name = park.Name,
                 operatingModel = park.OperatingModel.ToString(),
+                cashoutFee = park.CashoutFee,
+                minCashoutAmount = park.MinCashoutAmount,
+                maxCashoutAmount = park.MaxCashoutAmount,
+                dailyCashoutLimitPerDriver = park.DailyCashoutLimitPerDriver,
+                supportedBanks,
             },
             cards = driver.BankCards
                 .OrderByDescending(b => b.IsDefault)
+                .ThenByDescending(b => b.CreatedAt)
                 .Select(b => new
                 {
                     id = b.Id,
                     maskedPan = b.MaskedPan,
                     bankType = b.BankType,
+                    bankCode = b.BankCode,
+                    iban = b.Iban,
+                    holderName = b.HolderName,
                     isDefault = b.IsDefault,
                 }),
         });
     }
+
+    // ── Payout destinations ──────────────────────────────────────────
+
+    /// <summary>Add a bank account (IBAN) to receive cashouts. Body: { iban, holderName?, makeDefault? }.</summary>
+    [HttpPost("me/cards")]
+    public async Task<IActionResult> AddCard([FromBody] AddMyCardRequest body, CancellationToken ct)
+    {
+        if (!TryGetClaims(out var driverId, out var parkId, out var error))
+            return Unauthorized(new { error });
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var driver = await _db.Drivers.FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
+        if (driver is null) return NotFound(new { error = "driver_not_found" });
+
+        var (outcome, err, payload) = await DestinationHelper.AddAsync(
+            _db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true, ct);
+
+        return outcome switch
+        {
+            DestinationHelper.Outcome.Created => Created("/api/driver/me/cards", payload),
+            DestinationHelper.Outcome.Conflict => Conflict(new { error = err }),
+            _ => BadRequest(payload ?? new { error = err }),
+        };
+    }
+
+    [HttpDelete("me/cards/{cardId:guid}")]
+    public async Task<IActionResult> RemoveCard(Guid cardId, CancellationToken ct)
+    {
+        if (!TryGetClaims(out var driverId, out _, out var error))
+            return Unauthorized(new { error });
+
+        // Don't pull the rug from under an in-flight payout.
+        var inFlight = await _db.Cashouts.AsNoTracking().AnyAsync(c =>
+            c.BankCardId == cardId && c.DriverId == driverId &&
+            (c.Status == Core.Enums.CashoutStatus.Queued || c.Status == Core.Enums.CashoutStatus.Processing), ct);
+        if (inFlight) return Conflict(new { error = "card_has_pending_cashout" });
+
+        var ok = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
+        return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+    }
+
+    [HttpPost("me/cards/{cardId:guid}/default")]
+    public async Task<IActionResult> SetDefaultCard(Guid cardId, CancellationToken ct)
+    {
+        if (!TryGetClaims(out var driverId, out _, out var error))
+            return Unauthorized(new { error });
+        var ok = await DestinationHelper.SetDefaultAsync(_db, driverId, cardId, ct);
+        return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+    }
+
+    // ── Cashouts ─────────────────────────────────────────────────────
 
     /// <summary>Cashouts for the authenticated driver, newest first.</summary>
     [HttpGet("me/cashouts")]
@@ -116,8 +183,12 @@ public class DriverController : ControllerBase
                 bankTransferId = c.BankTransferId,
                 yandexTransactionId = c.YandexTransactionId,
                 failureReason = c.FailureReason,
+                attemptCount = c.AttemptCount,
+                nextAttemptAt = c.NextAttemptAt,
                 createdAt = c.CreatedAt,
                 completedAt = c.CompletedAt,
+                bankType = c.BankCard.BankType,
+                maskedPan = c.BankCard.MaskedPan,
             })
             .ToListAsync(ct);
 
@@ -127,6 +198,7 @@ public class DriverController : ControllerBase
     /// <summary>
     /// Driver-initiated cashout. parkId + driverId come from the JWT.
     /// Body provides amount, cardId, idempotencyKey only.
+    /// 200 Completed · 202 Queued (money on its way) · 422 Failed.
     /// </summary>
     [HttpPost("cashouts")]
     public async Task<IActionResult> CreateMyCashout(
@@ -141,9 +213,9 @@ public class DriverController : ControllerBase
         if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
             return BadRequest(new { error = "idempotency_key_required" });
 
-        // Guard against tampered card IDs — a driver may only spend onto their own cards.
+        // Guard against tampered card IDs — a driver may only pay out to their own destinations.
         var cardBelongsToDriver = await _db.BankCards.AsNoTracking()
-            .AnyAsync(b => b.Id == body.CardId && b.DriverId == driverId, ct);
+            .AnyAsync(b => b.Id == body.CardId && b.DriverId == driverId && b.IsActive, ct);
         if (!cardBelongsToDriver)
             return Forbid();
 
@@ -160,6 +232,7 @@ public class DriverController : ControllerBase
             return result.Status switch
             {
                 "Completed"      => Ok(result),
+                "Queued"         => StatusCode(202, result),
                 "ReviewRequired" => StatusCode(202, result),
                 "Failed"         => UnprocessableEntity(result),
                 _                => Ok(result),
@@ -171,6 +244,8 @@ public class DriverController : ControllerBase
             return BadRequest(new { error = "cashout_rejected", message = ex.Message });
         }
     }
+
+    // ── Notifications ────────────────────────────────────────────────
 
     /// <summary>Notifications inbox for the authenticated driver. Newest-first.</summary>
     [HttpGet("me/notifications")]
@@ -264,3 +339,4 @@ public class DriverController : ControllerBase
 }
 
 public record CreateMyCashoutRequest(Guid CardId, decimal Amount, string IdempotencyKey);
+public record AddMyCardRequest(string Iban, string? HolderName, bool? MakeDefault);

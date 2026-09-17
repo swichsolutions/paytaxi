@@ -8,9 +8,11 @@ import { AdminAuthService } from '../../services/admin-auth.service';
 interface NewParkForm {
   name: string;
   slug: string;
-  operatingModel: string;
-  authorizationLimit: string;
   bankProvider: string;
+  cashoutFee: string;
+  minCashoutAmount: string;
+  maxCashoutAmount: string;
+  dailyCashoutLimitPerDriver: string;
   yandexParkId: string;
   yandexClientId: string;
   yandexApiKey: string;
@@ -24,7 +26,8 @@ interface NewParkForm {
 }
 
 const EMPTY: NewParkForm = {
-  name: '', slug: '', operatingModel: 'ModelA5', authorizationLimit: '', bankProvider: 'bog',
+  name: '', slug: '', bankProvider: 'tbc',
+  cashoutFee: '0.50', minCashoutAmount: '5', maxCashoutAmount: '', dailyCashoutLimitPerDriver: '',
   yandexParkId: '', yandexClientId: '', yandexApiKey: '',
   legalEntityName: '', taxId: '', phone: '', bankAccountIban: '',
   managerEmail: '', managerName: '', managerPassword: '',
@@ -74,16 +77,19 @@ export class AddParkComponent {
       const result = await this.api.createPark({
         name: f.name.trim(),
         slug: f.slug.trim() || undefined,
-        operatingModel: f.operatingModel,
-        authorizationLimit: f.authorizationLimit.trim() ? Number(f.authorizationLimit) : null,
+        operatingModel: 'ModelA',
         bankProvider: f.bankProvider.trim() || undefined,
+        cashoutFee: Number(f.cashoutFee) || 0,
+        minCashoutAmount: Number(f.minCashoutAmount) || 5,
+        maxCashoutAmount: f.maxCashoutAmount.trim() ? Number(f.maxCashoutAmount) : null,
+        dailyCashoutLimitPerDriver: f.dailyCashoutLimitPerDriver.trim() ? Number(f.dailyCashoutLimitPerDriver) : null,
         yandexParkId: f.yandexParkId.trim(),
         yandexClientId: f.yandexClientId.trim() || undefined,
         yandexApiKey: f.yandexApiKey.trim() || undefined,
         legalEntityName: f.legalEntityName.trim() || undefined,
         taxId: f.taxId.trim() || undefined,
         phone: f.phone.trim() || undefined,
-        bankAccountIban: f.bankAccountIban.trim() || undefined,
+        bankAccountIban: f.bankAccountIban.trim(),
         managerEmail: f.managerEmail.trim() || undefined,
         managerName: f.managerName.trim() || undefined,
         managerPassword: f.managerPassword.trim() || undefined,
@@ -101,6 +107,11 @@ export class AddParkComponent {
         : code === 'invalid_tax_id' ? this.t['parkErrInvalidTaxId']
         : code === 'invalid_phone' ? this.t['parkErrInvalidPhone']
         : code === 'invalid_iban' ? this.t['parkErrInvalidIban']
+        : code === 'iban_required' ? this.t['errIbanRequired']
+        : code === 'invalid_fee' ? this.t['errFee']
+        : code === 'invalid_min_cashout' ? this.t['errMinCashout']
+        : code === 'invalid_max_cashout' ? this.t['errMaxCashout']
+        : code === 'invalid_daily_limit' ? this.t['errDailyLimit']
         : err?.error?.message ?? err?.message ?? this.t['errCreatePark']
       );
     } finally {

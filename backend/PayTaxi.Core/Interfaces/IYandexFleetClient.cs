@@ -34,6 +34,18 @@ public interface IYandexFleetClient
         decimal amount,
         string idempotencyKey,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Compensating write: posts a POSITIVE transaction that returns a previously
+    /// debited amount to the driver's Yandex balance. Used when the bank payout is
+    /// abandoned after the debit already went through. Requires an idempotency key.
+    /// </summary>
+    Task<YandexTransactionResult> PostReversalTransactionAsync(
+        Guid parkId,
+        string driverProfileId,
+        decimal amount,
+        string idempotencyKey,
+        CancellationToken ct = default);
 }
 
 public record YandexDriverProfile(

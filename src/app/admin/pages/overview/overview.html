@@ -101,75 +101,80 @@
 
   <!-- ── Float monitor + Action items ─────────────────────────────── -->
   <section class="row row--split">
-    <!-- Float monitor -->
-    <article class="float-card" [class.float-card--low]="floatStatus().lowFloat">
+    <!-- Payout accounts (Model A: the park pays from its own bank accounts) -->
+    <article class="float-card" [class.float-card--low]="lowFloat()">
       <div class="float-card__head">
         <div class="float-card__head-left">
           <span class="float-card__tag">
             <span class="float-card__tag-dot"></span>
-            @if (operatingModel() === 'ModelA5') { {{ t.paytaxiBalanceTag }} } @else { {{ t.floatMonitorTag }} }
+            {{ t.parkPayoutAccountsTag }}
           </span>
-          <h2 class="float-card__title">
-            @if (operatingModel() === 'ModelA5') {
-              {{ t.parkBalanceTitle }}
-            } @else {
-              {{ t.parkBankTitle }}
-            }
-          </h2>
+          <h2 class="float-card__title">{{ t.parkPayoutAccountsTitle }}</h2>
         </div>
-        <button class="btn-admin btn-admin--secondary">
+        <a class="btn-admin btn-admin--secondary" routerLink="/admin/settings">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
-          <span>{{ t.topUp }}</span>
-        </button>
+          <span>{{ t.addBankAccount }}</span>
+        </a>
       </div>
 
       <div class="float-card__body">
-        @if (floatStatus().hasLimit) {
+        @if (activeAccounts().length === 0) {
           <div class="float-card__amount-row">
             <div class="float-card__amount-block">
-              <span class="float-card__amount gel">{{ formatGel(floatStatus().balance, 0) }}</span>
-              <span class="float-card__amount-label">{{ t.availableBalance }}</span>
-            </div>
-            <div class="float-card__amount-block float-card__amount-block--alt">
-              <span class="float-card__amount-alt gel">{{ formatGel(floatStatus().target, 0) }}</span>
-              <span class="float-card__amount-label">{{ t.balanceStartDay }}</span>
-            </div>
-            <div class="float-card__amount-block float-card__amount-block--alt">
-              <span class="float-card__amount-alt gel">{{ formatGel(kpis().cashoutsToday.value, 0) }}</span>
-              <span class="float-card__amount-label">{{ t.spentToday }}</span>
+              <span class="float-card__amount" style="font-size: 1rem; opacity: 0.7;">{{ t.noPayoutAccounts }}</span>
             </div>
           </div>
         } @else {
-          <div class="float-card__amount-row">
-            <div class="float-card__amount-block">
-              <span class="float-card__amount" style="font-size: 1rem; opacity: 0.7;">
-                {{ t.bankBalanceNotExposed }}
-              </span>
-              <span class="float-card__amount-label">{{ t.parkManagesFloat }}</span>
-            </div>
+          <div class="acct-list">
+            @for (a of activeAccounts(); track a.id) {
+              <div class="acct-row">
+                <div class="bank-chip" [attr.data-bank]="a.bankLabel">{{ a.bankLabel }}</div>
+                <div class="acct-row__main">
+                  <span class="acct-row__iban gel">{{ a.iban }}</span>
+                  <span class="acct-row__meta">
+                    {{ a.label || a.holderName }}
+                    @if (a.isPrimary) { · <b>{{ t.primaryTag }}</b> }
+                    @if ((a.queuedCount ?? 0) > 0) { · {{ a.queuedCount }} {{ t.queuedOnAccount }} }
+                  </span>
+                </div>
+                <div class="acct-row__balance">
+                  @if (a.balance !== null && a.balance !== undefined) {
+                    <span class="acct-row__amount gel">{{ formatGel(a.balance, 0) }}</span>
+                    <span class="acct-row__label">{{ t.balanceLabel }}</span>
+                  } @else {
+                    <span class="acct-row__amount acct-row__amount--muted">{{ t.bankBalanceNotExposed }}</span>
+                    <span class="acct-row__label">{{ t.parkManagesFloat }}</span>
+                  }
+                </div>
+              </div>
+            }
           </div>
         }
 
-        @if (floatStatus().hasLimit) {
-          <!-- Meter with threshold marker -->
-          <div class="float-meter">
-            <div class="float-meter__track">
-              <div class="float-meter__bar" [style.width.%]="floatStatus().usedPct"></div>
-              <div
-                class="float-meter__marker"
-                [style.left.%]="(floatStatus().minimum / floatStatus().target) * 100"
-                title="Re-up threshold"
-              ></div>
-            </div>
-            <div class="float-meter__labels">
-              <span>0%</span>
-              <span>{{ floatStatus().usedPct.toFixed(0) }}% {{ t.spentLower }}</span>
-              <span>100%</span>
-            </div>
+        <!-- Queued payouts: Yandex already debited, bank transfer being retried -->
+        <div class="queued-box" [class.queued-box--active]="queuedTotal().count > 0">
+          <div class="queued-box__head">
+            <span class="queued-box__title">{{ t.queuedPayouts }}</span>
+            <span class="queued-box__count gel">{{ queuedTotal().count }} · {{ formatGel(queuedTotal().value, 0) }}</span>
           </div>
-        }
+          @if (queuedRows().length === 0) {
+            <p class="queued-box__empty">{{ t.noQueued }}</p>
+          } @else {
+            <p class="queued-box__sub">{{ t.queuedPayoutsSub }}</p>
+            @for (q of queuedRows(); track q.id) {
+              <div class="queued-row">
+                <span class="queued-row__driver">{{ q.driverName }}</span>
+                <span class="queued-row__amount gel">{{ formatGel(q.net, 2) }}</span>
+                <span class="queued-row__meta">
+                  {{ q.attemptCount }} {{ t.attempts }}
+                  @if (q.nextAttemptAt) { · {{ t.nextAttempt }} {{ formatTime(q.nextAttemptAt) }} }
+                </span>
+              </div>
+            }
+          }
+        </div>
 
         <!-- Hourly volume chart inside the card -->
         <div class="float-card__chart">

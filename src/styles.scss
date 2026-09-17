@@ -132,10 +132,16 @@ input, textarea { font-family: var(--font); }
     color: var(--color-error);
     border-left-color: var(--color-error);
   }
-  &--processing {
+  &--processing,
+  &--queued {
     background: var(--color-info-bg);
     color: var(--color-info);
     border-left-color: var(--color-info);
+  }
+  &--reviewrequired {
+    background: var(--color-warning-bg);
+    color: var(--color-warning-fg);
+    border-left-color: var(--color-warning-fg);
   }
 }
 

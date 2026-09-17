@@ -10,7 +10,11 @@ namespace PayTaxi.Core.Interfaces;
 public interface INotificationService
 {
     Task NotifyCashoutCompletedAsync(
-        Guid driverId, decimal netAmount, string cardMaskedPan, CancellationToken ct = default);
+        Guid driverId, decimal netAmount, string destinationLabel, CancellationToken ct = default);
+
+    /// <summary>Payout is queued behind a bank hiccup — money is on its way, no action needed.</summary>
+    Task NotifyCashoutQueuedAsync(
+        Guid driverId, decimal netAmount, CancellationToken ct = default);
 
     Task NotifyCashoutFailedAsync(
         Guid driverId, decimal amount, string reason, CancellationToken ct = default);

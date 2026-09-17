@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-05-29 (end of long session — 17 commits pushed)
+**Last updated:** 2026-09-17 (Model A cutover session — see the first section below; smoke-tested, NOT yet committed)
 
 ---
 
@@ -11,6 +11,115 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-17 — Model A cutover (fee, IBAN routing, Yandex-first saga, payout queue)
+
+> Driven by `PAYTAXI-CONTEXT.md` (read it first). Everything below compiles (`dotnet build` 0 warnings, `ng build` ok)
+> and has been smoke-tested end to end against the local database (see "Verified" below). Not committed yet.
+
+### What changed
+
+**Business model in code**
+- `Park.OperatingModel` defaults to `ModelA`; the A.5 `AuthorizationLimit` column/constraint/saga branch are gone
+  (`ModelA5` enum value kept only so old rows deserialise; the migration rewrites `model_a5 → model_a`).
+- Per-park fee config on `Parks`: `CashoutFee` (default **0.50**), `MinCashoutAmount` (5), `MaxCashoutAmount?`,
+  `DailyCashoutLimitPerDriver?`. The saga reads them; `ComputeFee()` is gone. Daily limit is enforced.
+- New `ParkBankAccounts` table: one payout account per bank the park holds (`BankCode` TB/BG…, `Provider`
+  tbc/bog/mock, `Iban`, `HolderName`, write-only `CredentialsEncrypted`, `IsPrimary`, `IsActive`).
+  `Park.BankProvider/BankAccountIban` are now mirrors of the primary account.
+- `BankCards` are now **IBAN payout destinations**: `Iban`, `BankCode`, `HolderName` (+ `MaskedPan` derived).
+  `PayTaxi.Core/Banking/GeorgianIban.cs` validates shape + mod-97 and maps bank codes to labels.
+- **Routing by IBAN**: a cashout goes from the park account whose `BankCode` matches the driver's IBAN. No matching
+  account → rejected up front (`bank_not_supported`) — TBC-only launch means drivers must add a TBC IBAN.
+
+**Saga (`CashoutOrchestrator`) is now Yandex-first with a payout queue**
+1. validate + fee/limits + route → insert `Processing` + `CashoutReserved`
+2. Yandex debit (gross). Rejected → `Failed` (nothing moved). Threw → `ReviewRequired` (outcome unknown).
+3. Bank payout (net = gross − fee) via `IBankPayoutAdapter.SendPayoutAsync(BankTransferRequest{Source, DestinationIban…})`
+   - success → `Completed` (+`BankTransferSent`, `FeeCollected`, `CashoutCompleted`, invoice number)
+   - `IsRetryable` failure → **`Queued`** with `NextAttemptAt` backoff (`Cashout:BackoffSeconds`); driver gets a
+     "processing, on its way" notification once
+   - adapter threw → `FindTransferByIdempotencyKeyAsync` before ever re-sending (never blind re-fire)
+   - hard failure or queue exhausted (`Cashout:MaxPayoutAttempts` / `MaxQueueAgeHours`) → **Yandex reversal**
+     (`PostReversalTransactionAsync`, +gross, `YandexReversed` ledger) → `Failed`; reversal failed → `ReviewRequired`
+4. `PayoutQueueWorker` (new `BackgroundService`, `PayoutQueue:*` config) drains `Queued` rows per park sequentially;
+   claim is an atomic `Queued→Processing` UPDATE inside `ProcessQueuedAsync`.
+- `Cashout` gained `ParkBankAccountId`, `InitiatedBy`, `AttemptCount`, `NextAttemptAt`, `LastAttemptAt`,
+  `YandexReversalTransactionId`. `LedgerEntryType.YandexReversed` added.
+- `IBankPayoutAdapter` reshaped: every call takes a `BankAccountContext` (park account + its credentials);
+  added `FindTransferByIdempotencyKeyAsync`, `GetBalanceAsync`, `BankTransferResult.IsRetryable`.
+  Mock gained `AmbiguousFailureRate`, `OutageUntilUtc`, per-account balances. TBC/BoG stubs updated to the new shape.
+- Reconciliation lists bank transfers per park account, treats `Queued` as in-flight, ignores reversal
+  (positive) Yandex txs and debit/credit pairs of `Failed` rows.
+
+**API**
+- `GET/POST /api/admin/parks/{id}/bank-accounts`, `PATCH …/bank-accounts/{accountId}` (balance read where the rail
+  allows; credentials write-only). `POST /api/admin/parks` now **requires** `bankAccountIban` and creates the primary
+  account; accepts `cashoutFee/minCashoutAmount/maxCashoutAmount/dailyCashoutLimitPerDriver`. `PATCH /api/admin/parks/{id}`
+  accepts the same fee fields (0 = no limit). Parks list/KPIs return fee config + `bankAccounts` / `queued` instead of
+  `authorizationLimit`.
+- `POST /api/admin/parks/{id}/drivers/{driverId}/cards`, `DELETE …/cards/{cardId}`; `POST …/drivers` accepts optional
+  `iban`/`holderName`. Bulk onboarding **no longer seeds mock cards** — drivers add their IBAN in the app.
+- Driver: `/api/driver/me` returns `park.cashoutFee/min/max/supportedBanks` and cards with `iban/bankCode/holderName`;
+  `POST /me/cards {iban, holderName?, makeDefault?}`, `DELETE /me/cards/{id}` (409 if a cashout is in flight),
+  `POST /me/cards/{id}/default`. Cashout responses: **202 = Queued or ReviewRequired**, 422 = Failed.
+- `POST /api/admin/parks/{id}/cashouts/{cashoutId}/process-now` clears a Queued row's backoff and runs it.
+- Shared rules for adding destinations live in `Api/Controllers/DestinationHelper.cs`.
+
+**Frontend**
+- Driver: cashout step 2 = "Select bank account" with inline **Add bank account** (IBAN + holder), fee/min/max from park
+  config, success screen handles Completed / Queued ("payment on its way") / ReviewRequired / Failed. Profile lists
+  accounts with add/remove/make-default (real API, no more mock cards). New i18n keys in en/ka/ru.
+- Admin: Add-park has a Fees & limits section and creates the primary payout account from the IBAN; Settings shows/edits
+  fees and manages payout accounts (balance, primary, deactivate, add with credentials JSON); Overview float card became
+  **Payout accounts + Queued payouts**; Cashouts rows show Queued/Needs review, attempts, next attempt, **Process now**;
+  Onboarding manual form has optional IBAN; manual cashout uses the park fee. New i18n keys in en/ka.
+
+### Smart App Control (resolved 2026-09-17, later in the session)
+Windows Smart App Control was ON and blocked every locally built DLL (`0x800711C7`). The user turned it off; the API
+process and `dotnet ef` load fine now. A local tool manifest (`backend/.config/dotnet-tools.json`, dotnet-ef 8.0.11)
+was added — use `dotnet ef …` from `backend/`.
+
+### Migration
+`20260917125014_ModelAFeeIbanPayoutQueue` is **tool-generated** (the earlier hand-written attempt was discarded once the
+tooling worked). Two manual edits inside it: the scaffolder wanted to *rename* `AuthorizationLimit → MaxCashoutAmount`
+(would have carried the seed limits over as caps) — replaced with drop + add; and a `UPDATE Parks SET OperatingModel =
+'model_a'` data fix. A probe migration was generated and came back empty, so the snapshot matches the model.
+**Not yet applied**: the first `dotnet run` applies it via `MigrateAsync`, then `SeedData` upgrades existing rows
+(`EnsureParkBankAccountsSeededAsync` gives each park a mock TBC account [+BoG except park #5]; legacy token-only cards
+get generated valid IBANs; drivers with no card get TBC+BoG IBANs).
+
+### Verified end-to-end on 2026-09-17 (mock bank + mock Yandex, local Postgres)
+Postgres password was reset to the documented `postgres`/`postgres` (pg_hba trust → ALTER USER → scram back).
+Migration applied on first `dotnet run`; seed upgraded 3 parks (TBC[+BoG] mock accounts) and 50 legacy cards to IBANs.
+Smoke results (all via curl, see session transcript): admin login → parks list shows fee 0.50 / Model A / bank accounts;
+`bank-accounts` returns mock balances; adding an NBG-IBAN account via API works. Driver: OTP login (phone must be
+`+995…` — the app prepends it), `/me` returns fee config + supported banks; Liberty IBAN → 400 `bank_not_supported` with
+the supported list; bad check digits → 400 `invalid_iban_checksum`; valid TBC IBAN → 201; 50 GEL cashout → Completed,
+fee 0.50, net 49.50, balance debited; 3 GEL → 400 minimum. Outage test (`BankPayout__Mock__OutageUntilUtc` env var):
+cashout → 202 Queued, Yandex debited immediately, driver got the "on its way" notification, KPIs/bank-accounts/cashouts
+showed the queued row, worker retried on the dev schedule (10s, 20s) and completed it once the outage passed;
+`process-now` also completes a queued row on demand. Ledger for a queued-then-completed cashout: CashoutReserved,
+YandexDeducted, BankTransferSent, FeeCollected, CashoutCompleted. Invoice PDF renders for it.
+Three fixes came out of the run: API pinned to InvariantCulture (messages showed "5,00"); `CashoutOptions.BackoffSeconds`
+default is now empty because the config binder APPENDS to a non-empty default array; the mock's `OutageUntilUtc` is
+normalised to UTC (binder parses "…Z" as local time).
+**Not exercised:** the abandon path (queue exhausted → Yandex reversal → Failed / ReviewRequired) — needs a forced
+non-retryable bank error or `Cashout:MaxPayoutAttempts=1`; and the ambiguous-response lookup (`AmbiguousFailureRate`).
+
+### New config (both appsettings files updated)
+`Cashout:{MaxPayoutAttempts, MaxQueueAgeHours, BackoffSeconds[]}`, `PayoutQueue:{Enabled, PollIntervalSeconds,
+InitialDelaySeconds, MaxPerTick, SpacingMs, StopParkOnFirstRequeue}`, `BankPayout:Mock:{AmbiguousFailureRate,
+InitialBalance, OutageUntilUtc?}`. To demo the queue: set `BankPayout:Mock:OutageUntilUtc` a few minutes ahead, cash out,
+watch it sit in Queued, then complete when the outage passes.
+
+### Not done in this block (next)
+- Settlement engine (nightly park → Swich transfer, phase/rate config, settlement records, operator + Swich views).
+- Real `TbcPayoutAdapter` / `YandexFleetClient` HTTP implementations against public docs.
+- Production plumbing: `environment.ts` for the 8 hardcoded `localhost:5196` URLs, hosting, secrets, PII encryption.
+- Driver dashboard "recent cashouts" still renders mock data (history page is real).
 
 ---
 

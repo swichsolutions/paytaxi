@@ -38,4 +38,8 @@ public class YandexFleetClient : IYandexFleetClient
     public Task<YandexTransactionResult> PostCashoutTransactionAsync(
         Guid parkId, string driverProfileId, decimal amount, string idempotencyKey, CancellationToken ct = default)
         => throw new NotImplementedException(NotImplementedMessage);
+
+    public Task<YandexTransactionResult> PostReversalTransactionAsync(
+        Guid parkId, string driverProfileId, decimal amount, string idempotencyKey, CancellationToken ct = default)
+        => throw new NotImplementedException(NotImplementedMessage);
 }

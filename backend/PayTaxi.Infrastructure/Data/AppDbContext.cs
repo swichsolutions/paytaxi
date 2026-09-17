@@ -10,6 +10,7 @@ public class AppDbContext : DbContext
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<Park> Parks => Set<Park>();
+    public DbSet<ParkBankAccount> ParkBankAccounts => Set<ParkBankAccount>();
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<BankCard> BankCards => Set<BankCard>();
     public DbSet<Cashout> Cashouts => Set<Cashout>();
@@ -108,7 +109,12 @@ public class AppDbContext : DbContext
             e.Property(p => p.Phone).HasMaxLength(30);
             e.Property(p => p.BankProvider).HasMaxLength(40).IsRequired();
             e.Property(p => p.BankAccountIban).HasMaxLength(34);
-            e.Property(p => p.AuthorizationLimit).HasPrecision(18, 2);
+
+            // Per-park fee & limits (PAYTAXI-CONTEXT.md §2/§5)
+            e.Property(p => p.CashoutFee).HasPrecision(18, 2).HasDefaultValue(0.50m);
+            e.Property(p => p.MinCashoutAmount).HasPrecision(18, 2).HasDefaultValue(5m);
+            e.Property(p => p.MaxCashoutAmount).HasPrecision(18, 2);
+            e.Property(p => p.DailyCashoutLimitPerDriver).HasPrecision(18, 2);
 
             // Enums stored as text
             e.Property(p => p.OperatingModel)
@@ -136,10 +142,34 @@ public class AppDbContext : DbContext
                 t.HasCheckConstraint("CK_Parks_SlugFormat",
                     "\"Slug\" ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'");
 
-                // Authorization limit only meaningful for Model A.5; reject negative values.
-                t.HasCheckConstraint("CK_Parks_AuthorizationLimit_NonNegative",
-                    "\"AuthorizationLimit\" IS NULL OR \"AuthorizationLimit\" >= 0");
+                t.HasCheckConstraint("CK_Parks_CashoutFee_NonNegative", "\"CashoutFee\" >= 0");
+                t.HasCheckConstraint("CK_Parks_MinCashout_Positive", "\"MinCashoutAmount\" > 0");
             });
+        });
+
+        modelBuilder.Entity<ParkBankAccount>(e =>
+        {
+            e.Property(a => a.BankCode).HasMaxLength(2).IsRequired();
+            e.Property(a => a.Provider).HasMaxLength(40).IsRequired();
+            e.Property(a => a.Iban).HasMaxLength(34).IsRequired();
+            e.Property(a => a.HolderName).HasMaxLength(200);
+            e.Property(a => a.Label).HasMaxLength(100);
+            e.Property(a => a.CredentialsEncrypted).IsRequired();
+            e.HasIndex(a => new { a.ParkId, a.BankCode });
+            e.HasIndex(a => new { a.ParkId, a.IsPrimary })
+                .IsUnique()
+                .HasFilter("\"IsPrimary\" = TRUE");
+            e.HasOne(a => a.Park).WithMany(p => p.BankAccounts).HasForeignKey(a => a.ParkId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BankCard>(e =>
+        {
+            e.Property(b => b.Iban).HasMaxLength(34).IsRequired();
+            e.Property(b => b.BankCode).HasMaxLength(2).IsRequired();
+            e.Property(b => b.HolderName).HasMaxLength(200);
+            e.Property(b => b.TokenReferenceEncrypted).HasDefaultValue("");
+            e.HasIndex(b => new { b.DriverId, b.Iban });
         });
 
         modelBuilder.Entity<Driver>(e =>
@@ -157,6 +187,12 @@ public class AppDbContext : DbContext
             e.HasIndex(c => new { c.DriverId, c.Status });
             e.HasIndex(c => new { c.ParkId, c.Status });
             e.HasIndex(c => c.InvoiceNumber).IsUnique();
+            // Payout queue worker scans: Queued rows whose NextAttemptAt is due.
+            e.HasIndex(c => new { c.Status, c.NextAttemptAt });
+            e.Property(c => c.InitiatedBy).HasMaxLength(120);
+            e.Property(c => c.YandexReversalTransactionId).HasMaxLength(100);
+            e.HasOne(c => c.ParkBankAccount).WithMany().HasForeignKey(c => c.ParkBankAccountId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // Postgres sequence — assigned by SaveChanges in the orchestrator

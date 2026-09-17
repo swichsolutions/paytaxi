@@ -1,5 +1,14 @@
 # PayTaxi — Project Brief
 
+> **⚠️ Read `PAYTAXI-CONTEXT.md` first (Sep 2026).** It holds the DECIDED business model, bank rail, fee, and
+> revenue split, and supersedes this file wherever they disagree. In particular:
+> - Operating model is **Model A on TBC** for launch (park pays drivers from its own account). The Model A.5
+>   commercial-agent sections below and the `authorization_limit` field are legacy.
+> - Fee is **0.50 GEL flat** per cashout. Open Question 3 below is resolved.
+> - Swich owns the platform; Levan's company is the exclusive operator. Revenue is collected by a
+>   **nightly park → Swich settlement transfer** (phase/rate engine per park) — a subsystem not described below.
+> - Payout routing is by **driver IBAN**; BoG is Phase 2.
+
 > A paypro-style instant-cashout platform for Tbilisi taxi drivers. Drivers see their Yandex Taxi earnings balance and withdraw it to their bank cards 24/7. The park fronts the cashout from its bank account and gets reimbursed by Yandex on weekly settlement.
 
 **Project name:** PayTaxi (working name)

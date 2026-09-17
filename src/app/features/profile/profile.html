@@ -1,28 +1,33 @@
 <div class="profile">
   <header class="prof-header">
-    <div class="prof-avatar">{{ svc.initials(driver.name) }}</div>
+    <div class="prof-avatar">{{ svc.initials(driver().name) }}</div>
     <div class="prof-info">
-      <h1>{{ driver.name }}</h1>
-      <p>{{ maskedPhone(driver.phone) }}</p>
+      <h1>{{ driver().name }}</h1>
+      <p>{{ maskedPhone(driver().phone) }}</p>
     </div>
   </header>
 
-  <!-- My Cards -->
+  <!-- My bank accounts -->
   <section class="prof-section">
     <div class="prof-section__label section-label">{{ t.myCards }}</div>
     <div class="prof-card">
       @for (card of cards; track card.id) {
         <div class="prof-row">
-          <div class="bank-chip" [class.bank-chip--bog]="card.bankType === 'BOG'" [class.bank-chip--tbc]="card.bankType === 'TBC'">
+          <div class="bank-chip" [attr.data-bank]="card.bankType">
             {{ card.bankType }}
           </div>
           <div class="prof-row__info">
             <span class="prof-row__title gel">{{ card.maskedPan }}</span>
-            @if (card.isDefault) {
-              <span class="badge badge--processing">{{ t.defaultCard }}</span>
-            }
+            <span class="prof-row__sub">
+              @if (card.holderName) { {{ card.holderName }} }
+              @if (card.isDefault) {
+                <span class="badge badge--processing">{{ t.defaultCard }}</span>
+              } @else {
+                <button class="prof-link" (click)="makeDefault(card.id)" [disabled]="busy()">{{ t.setDefault }}</button>
+              }
+            </span>
           </div>
-          <button class="remove-btn" (click)="removeCard(card.id)" aria-label="{{ t.remove }}">
+          <button class="remove-btn" (click)="removeCard(card.id)" [disabled]="busy()" aria-label="{{ t.remove }}">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="3 6 5 6 21 6"/>
               <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -32,8 +37,52 @@
           </button>
         </div>
       }
-      @if (cards.length === 0) {
+      @if (cards.length === 0 && !adding()) {
         <div class="prof-row prof-row--empty">{{ t.noCardsAdded }}</div>
+      }
+
+      @if (!adding()) {
+        <button class="prof-add" (click)="openAdd()">
+          <span class="prof-add__icon">+</span>
+          <span>{{ t.addCard }}</span>
+        </button>
+      } @else {
+        <div class="prof-form">
+          <p class="prof-form__hint">{{ t.supportedBanksHint }} <b>{{ supportedBanksLabel() }}</b></p>
+          <label class="prof-field">
+            <span class="prof-field__label">{{ t.iban }}</span>
+            <input
+              type="text"
+              class="prof-field__input gel"
+              autocomplete="off"
+              autocapitalize="characters"
+              spellcheck="false"
+              [value]="newIban()"
+              (input)="onIbanInput($any($event.target).value)"
+              [placeholder]="t.ibanPlaceholder"
+            />
+          </label>
+          <label class="prof-field">
+            <span class="prof-field__label">{{ t.holderName }}</span>
+            <input
+              type="text"
+              class="prof-field__input"
+              autocomplete="name"
+              [value]="newHolder()"
+              (input)="newHolder.set($any($event.target).value)"
+            />
+          </label>
+          <div class="prof-form__actions">
+            <button class="btn btn--ghost btn--sm" (click)="cancelAdd()" [disabled]="busy()">{{ t.cancel }}</button>
+            <button class="btn btn--primary btn--sm" (click)="saveCard()" [disabled]="busy() || !ibanComplete">
+              @if (busy()) { {{ t.adding }} } @else { {{ t.save }} }
+            </button>
+          </div>
+        </div>
+      }
+
+      @if (cardError()) {
+        <p class="prof-error">{{ cardError() }}</p>
       }
     </div>
   </section>

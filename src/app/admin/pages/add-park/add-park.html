@@ -45,31 +45,33 @@
               (input)="setField('slug', $any($event.target).value)" placeholder="tbilisi-auto-park-7" />
             <span class="ap-hint">{{ t.slugHint }}</span>
           </label>
+        </div>
+      </div>
+
+      <div class="ap-section">
+        <h2 class="ap-section__title">{{ t.secFees }}</h2>
+        <p class="ap-section__hint">{{ t.feesHint }}</p>
+        <div class="ap-grid">
           <label class="ap-field">
-            <span class="ap-field__label">{{ t.operatingModelLabel }}</span>
-            <select class="ap-input" [value]="form().operatingModel"
-              (change)="setField('operatingModel', $any($event.target).value)">
-              <option value="ModelA5">{{ t.modelA5Opt }}</option>
-              <option value="ModelA">{{ t.modelAOpt }}</option>
-              <option value="ModelB">{{ t.modelBOpt }}</option>
-            </select>
+            <span class="ap-field__label">{{ t.feeLabel }}</span>
+            <input type="number" step="0.01" min="0" class="ap-input gel" [value]="form().cashoutFee"
+              (input)="setField('cashoutFee', $any($event.target).value)" placeholder="0.50" />
           </label>
           <label class="ap-field">
-            <span class="ap-field__label">{{ t.bankProviderLabel }}</span>
-            <select class="ap-input" [value]="form().bankProvider"
-              (change)="setField('bankProvider', $any($event.target).value)">
-              <option value="bog">BOG</option>
-              <option value="tbc">TBC</option>
-              <option value="mock">mock</option>
-            </select>
+            <span class="ap-field__label">{{ t.minCashoutLabel }}</span>
+            <input type="number" step="1" min="1" class="ap-input gel" [value]="form().minCashoutAmount"
+              (input)="setField('minCashoutAmount', $any($event.target).value)" placeholder="5" />
           </label>
-          @if (form().operatingModel === 'ModelA5') {
-            <label class="ap-field">
-              <span class="ap-field__label">{{ t.authLimitLabel }} <span class="ap-opt">{{ t.optional }}</span></span>
-              <input type="number" class="ap-input gel" [value]="form().authorizationLimit"
-                (input)="setField('authorizationLimit', $any($event.target).value)" placeholder="0" />
-            </label>
-          }
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.maxCashoutLabel }} <span class="ap-opt">{{ t.optional }}</span></span>
+            <input type="number" step="1" min="0" class="ap-input gel" [value]="form().maxCashoutAmount"
+              (input)="setField('maxCashoutAmount', $any($event.target).value)" [placeholder]="t.noLimit" />
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.dailyLimitLabel }} <span class="ap-opt">{{ t.optional }}</span></span>
+            <input type="number" step="1" min="0" class="ap-input gel" [value]="form().dailyCashoutLimitPerDriver"
+              (input)="setField('dailyCashoutLimitPerDriver', $any($event.target).value)" [placeholder]="t.noLimit" />
+          </label>
         </div>
       </div>
 
@@ -113,10 +115,20 @@
             <input type="tel" class="ap-input gel" [value]="form().phone"
               (input)="setField('phone', $any($event.target).value)" [placeholder]="t.phonePlaceholder" />
           </label>
-          <label class="ap-field ap-field--wide">
+          <label class="ap-field">
             <span class="ap-field__label">{{ t.iban }}</span>
             <input type="text" class="ap-input gel" [value]="form().bankAccountIban"
               (input)="setField('bankAccountIban', $any($event.target).value)" [placeholder]="t.ibanPlaceholder" />
+            <span class="ap-hint">{{ t.initialAccountHint }}</span>
+          </label>
+          <label class="ap-field">
+            <span class="ap-field__label">{{ t.bankProviderLabel }}</span>
+            <select class="ap-input" [value]="form().bankProvider"
+              (change)="setField('bankProvider', $any($event.target).value)">
+              <option value="tbc">TBC (Business Integration)</option>
+              <option value="bog">BOG (Business Online)</option>
+              <option value="mock">mock (dev)</option>
+            </select>
           </label>
         </div>
       </div>

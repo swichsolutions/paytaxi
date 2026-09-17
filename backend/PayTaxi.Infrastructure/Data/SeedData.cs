@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using PayTaxi.Core.Banking;
 using PayTaxi.Core.Entities;
 using PayTaxi.Core.Enums;
 
@@ -13,6 +14,10 @@ namespace PayTaxi.Infrastructure.Data;
 /// Seeds 3 demo parks and their drivers if the database is empty.
 /// Driver YandexDriverProfileIds match the in-memory mock data so the mock
 /// Yandex client can resolve balances correctly.
+///
+/// Every park gets a TBC payout account (the launch rail) and a BoG one (Phase 2)
+/// with provider=mock, so the routing-by-IBAN path is exercised end to end in dev.
+/// Every demo driver gets one TBC destination IBAN (default) and one BoG.
 ///
 /// Phone numbers are stored "encrypted" (plaintext placeholder until Phase 8
 /// brings real AES + Key Vault). PhoneHash is real SHA-256 — already correct.
@@ -31,6 +36,7 @@ public static class SeedData
         {
             log.LogInformation("Database already seeded — skipping park seed");
             await EnsurePhonesBackfilledAsync(db, log);
+            await EnsureParkBankAccountsSeededAsync(db, log);
             await EnsureBankCardsSeededAsync(db, log);
             await EnsureAdminUsersSeededAsync(db, log);
             return;
@@ -38,20 +44,16 @@ public static class SeedData
 
         log.LogInformation("Seeding 3 demo parks with drivers");
 
-        // Mix of operating models — Tbilisi #3 = Model A.5 (commercial agent, the primary target),
-        // Tbilisi #5 = Model A (pure SaaS), Batumi #1 = Model A.5 with smaller authorization limit.
         var parks = new[]
         {
             BuildPark(
                 name: "Tbilisi Auto Park #3",
                 yandexParkId: "yx_park_tb3",
-                bankProvider: "bog",
                 legalEntityName: "Tbilisi Taxi Service LLC",
                 taxId: "405123456",
                 phone: "+995 322 12 34 56",
-                iban: "GE29BG0000000123456789",
-                operatingModel: OperatingModel.ModelA5,
-                authorizationLimit: 125_000m,
+                tbcIban: GeorgianIban.Build("TB", "7000000001234567"),
+                bogIban: GeorgianIban.Build("BG", "0000000123456789"),
                 drivers: new[]
                 {
                     ("yp_tb3_001", "გიორგი მამულაშვილი",      "+995599123456"),
@@ -67,13 +69,11 @@ public static class SeedData
             BuildPark(
                 name: "Tbilisi Auto Park #5",
                 yandexParkId: "yx_park_tb5",
-                bankProvider: "tbc",
                 legalEntityName: "Park-5 Operations Ltd.",
                 taxId: "404987654",
                 phone: "+995 322 55 88 99",
-                iban: "GE65TB0000000987654321",
-                operatingModel: OperatingModel.ModelA, // pure SaaS — uses own bank API
-                authorizationLimit: null,
+                tbcIban: GeorgianIban.Build("TB", "7000000987654321"),
+                bogIban: null, // TBC-only park: BoG-card drivers can't be paid here (by design)
                 drivers: new[]
                 {
                     ("yp_tb5_001", "Badri Macharashvili",      "+995597333001"),
@@ -89,13 +89,11 @@ public static class SeedData
             BuildPark(
                 name: "Batumi Auto Park #1",
                 yandexParkId: "yx_park_bt1",
-                bankProvider: "bog",
                 legalEntityName: "Batumi Taxi Co.",
                 taxId: "402555111",
                 phone: "+995 422 77 22 11",
-                iban: "GE12BG0000000555111222",
-                operatingModel: OperatingModel.ModelA5,
-                authorizationLimit: 45_000m, // smaller park, smaller authorization
+                tbcIban: GeorgianIban.Build("TB", "7000000555111222"),
+                bogIban: GeorgianIban.Build("BG", "0000000555111222"),
                 drivers: new[]
                 {
                     ("yp_bt1_001", "ნუგზარ შავიშვილი",         "+995599188220"),
@@ -195,12 +193,69 @@ public static class SeedData
     }
 
     /// <summary>
-    /// Back-fills 2 mock bank cards per driver (BOG default + TBC) if none exist.
-    /// Safe to re-run: only inserts when a driver has zero cards.
-    /// Mock tokens are deterministic from driver Id so retries don't duplicate.
+    /// Upgrade path for databases seeded before ParkBankAccounts existed: every park
+    /// without any payout account gets a mock TBC account (from its legacy IBAN when
+    /// that is a TBC IBAN, else a generated one) and — unless it was seeded as TBC-only —
+    /// a mock BoG account too.
+    /// </summary>
+    private static async Task EnsureParkBankAccountsSeededAsync(AppDbContext db, ILogger log)
+    {
+        var parks = await db.Parks
+            .Where(p => !p.BankAccounts.Any())
+            .ToListAsync();
+        if (parks.Count == 0) return;
+
+        var rng = new Random(7);
+        foreach (var p in parks)
+        {
+            var legacyIsTbc = p.BankAccountIban is { Length: 22 } && p.BankAccountIban.Substring(4, 2) == "TB";
+            var tbcIban = legacyIsTbc ? p.BankAccountIban! : GeorgianIban.Build("TB", RandomDigits(rng, 16));
+            db.ParkBankAccounts.Add(NewAccount(p, "TB", "mock", tbcIban, isPrimary: true, label: "TBC business account"));
+
+            if (p.Slug != "tbilisi-auto-park-5")
+            {
+                var bogIban = p.BankAccountIban is { Length: 22 } && p.BankAccountIban.Substring(4, 2) == "BG"
+                    ? p.BankAccountIban
+                    : GeorgianIban.Build("BG", RandomDigits(rng, 16));
+                db.ParkBankAccounts.Add(NewAccount(p, "BG", "mock", bogIban, isPrimary: false, label: "BoG account (Phase 2)"));
+            }
+
+            p.BankAccountIban = tbcIban;
+            p.BankProvider = "mock";
+            p.BankType = "MOCK";
+            p.OperatingModel = OperatingModel.ModelA;
+        }
+        await db.SaveChangesAsync();
+        log.LogInformation("Seeded payout bank accounts for {Count} parks", parks.Count);
+    }
+
+    /// <summary>
+    /// Back-fills payout destinations for demo drivers that have none: one TBC IBAN
+    /// (default) + one BoG IBAN, all with valid check digits. Also upgrades legacy
+    /// card rows (empty IBAN) in place so pre-existing cashouts keep their FK.
+    /// Safe to re-run.
     /// </summary>
     private static async Task EnsureBankCardsSeededAsync(AppDbContext db, ILogger log)
     {
+        var rng = new Random(42); // deterministic across reseeds
+
+        // 1. Legacy rows: token-only cards from before the IBAN column existed.
+        var legacy = await db.BankCards.Where(b => b.Iban == "" || b.BankCode == "").ToListAsync();
+        foreach (var b in legacy)
+        {
+            var code = string.Equals(b.BankType, "TBC", StringComparison.OrdinalIgnoreCase) ? "TB" : "BG";
+            b.Iban = GeorgianIban.Build(code, RandomDigits(rng, 16));
+            b.BankCode = code;
+            b.BankType = GeorgianIban.BankLabel(code);
+            b.MaskedPan = GeorgianIban.Mask(b.Iban);
+        }
+        if (legacy.Count > 0)
+        {
+            await db.SaveChangesAsync();
+            log.LogInformation("Upgraded {Count} legacy card rows to IBAN destinations", legacy.Count);
+        }
+
+        // 2. Drivers with no destination at all.
         var driversNeedingCards = await db.Drivers
             .Where(d => !d.BankCards.Any())
             .Select(d => new { d.Id, d.Name })
@@ -208,52 +263,31 @@ public static class SeedData
 
         if (driversNeedingCards.Count == 0)
         {
-            log.LogInformation("Bank cards: all drivers already have at least one card");
+            log.LogInformation("Payout destinations: all drivers already have at least one");
             return;
         }
 
-        var rng = new Random(42); // deterministic across reseeds
         var cards = new List<BankCard>(driversNeedingCards.Count * 2);
         foreach (var d in driversNeedingCards)
         {
-            var bogLast4 = rng.Next(1000, 10000).ToString();
-            var tbcLast4 = rng.Next(1000, 10000).ToString();
-            cards.Add(new BankCard
-            {
-                DriverId = d.Id,
-                MaskedPan = $"**** {bogLast4}",
-                TokenReferenceEncrypted = $"mock_tok_bog_{d.Id:N}",
-                BankType = "BOG",
-                IsDefault = true,
-                IsActive = true,
-            });
-            cards.Add(new BankCard
-            {
-                DriverId = d.Id,
-                MaskedPan = $"**** {tbcLast4}",
-                TokenReferenceEncrypted = $"mock_tok_tbc_{d.Id:N}",
-                BankType = "TBC",
-                IsDefault = false,
-                IsActive = true,
-            });
+            cards.Add(NewDestination(d.Id, d.Name, "TB", RandomDigits(rng, 16), isDefault: true));
+            cards.Add(NewDestination(d.Id, d.Name, "BG", RandomDigits(rng, 16), isDefault: false));
         }
 
         db.BankCards.AddRange(cards);
         await db.SaveChangesAsync();
-        log.LogInformation("Seeded {Count} bank cards for {DriverCount} drivers",
+        log.LogInformation("Seeded {Count} payout destinations for {DriverCount} drivers",
             cards.Count, driversNeedingCards.Count);
     }
 
     private static Park BuildPark(
         string name,
         string yandexParkId,
-        string bankProvider,
         string legalEntityName,
         string taxId,
         string phone,
-        string iban,
-        OperatingModel operatingModel,
-        decimal? authorizationLimit,
+        string tbcIban,
+        string? bogIban,
         IEnumerable<(string YandexId, string Name, string Phone)> drivers)
     {
         var park = new Park
@@ -266,17 +300,22 @@ public static class SeedData
             YandexParkId = yandexParkId,
             YandexClientIdEncrypted = "mock_client_id",
             YandexApiKeyEncrypted = "mock_api_key",
-            OperatingModel = operatingModel,
-            AuthorizationLimit = authorizationLimit,
-            BankProvider = bankProvider,
-            BankType = bankProvider.ToUpperInvariant(), // legacy mirror, removed in follow-up migration
+            OperatingModel = OperatingModel.ModelA,
+            CashoutFee = 0.50m,
+            MinCashoutAmount = 5m,
+            BankProvider = "mock",
+            BankType = "MOCK",
             BankCredentialsEncrypted = "{\"provider\":\"mock\"}",
-            BankAccountIban = iban,
+            BankAccountIban = tbcIban,
             Status = ParkStatus.Active,
 #pragma warning disable CS0618 // legacy bool, see Park.IsActive
             IsActive = true,
 #pragma warning restore CS0618
         };
+
+        park.BankAccounts.Add(NewAccount(park, "TB", "mock", tbcIban, isPrimary: true, label: "TBC business account"));
+        if (bogIban is not null)
+            park.BankAccounts.Add(NewAccount(park, "BG", "mock", bogIban, isPrimary: false, label: "BoG account (Phase 2)"));
 
         foreach (var (yid, name_, driverPhone) in drivers)
         {
@@ -297,14 +336,52 @@ public static class SeedData
         return park;
     }
 
+    private static ParkBankAccount NewAccount(Park park, string bankCode, string provider, string iban, bool isPrimary, string label) =>
+        new()
+        {
+            ParkId = park.Id,
+            Park = park,
+            BankCode = bankCode,
+            Provider = provider,
+            Iban = iban,
+            HolderName = park.LegalEntityName ?? park.Name,
+            CredentialsEncrypted = "{\"provider\":\"" + provider + "\"}",
+            IsActive = true,
+            IsPrimary = isPrimary,
+            Label = label,
+        };
+
+    /// <summary>Build a driver payout destination from a bank code + 16-digit account part.</summary>
+    public static BankCard NewDestination(Guid driverId, string? holderName, string bankCode, string account16, bool isDefault)
+    {
+        var iban = GeorgianIban.Build(bankCode, account16);
+        return new BankCard
+        {
+            DriverId = driverId,
+            Iban = iban,
+            BankCode = bankCode,
+            BankType = GeorgianIban.BankLabel(bankCode),
+            MaskedPan = GeorgianIban.Mask(iban),
+            HolderName = holderName,
+            TokenReferenceEncrypted = "",
+            IsDefault = isDefault,
+            IsActive = true,
+        };
+    }
+
+    public static string RandomDigits(Random rng, int count)
+    {
+        var sb = new StringBuilder(count);
+        for (var i = 0; i < count; i++) sb.Append(rng.Next(0, 10));
+        return sb.ToString();
+    }
+
     /// <summary>
     /// Convert a park name to a URL-safe slug. Output matches the Park.Slug check constraint
     /// ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ (lowercase, single-hyphen, no leading/trailing dashes).
     /// </summary>
     public static string ToSlug(string name)
     {
-        // Strip combining marks / accents (not strictly necessary for the seed but
-        // robust for future park names with diacritics)
         var normalised = name.Normalize(NormalizationForm.FormKD);
         var lowered = normalised.ToLowerInvariant();
         var hyphenated = Regex.Replace(lowered, @"[^a-z0-9]+", "-");

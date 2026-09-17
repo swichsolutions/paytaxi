@@ -35,11 +35,14 @@
             <span>{{ t.youReceive }}: <b class="gel fee-preview__net">{{ formatGel(net()) }}</b></span>
           </div>
         }
-        @if (amount() > balance()) {
+        @if (exceedsBalance()) {
           <p class="amount-error">{{ t.exceedsBalance }}</p>
         }
-        @if (amount() > 0 && amount() < 5) {
-          <p class="amount-error">{{ t.minCashout }}</p>
+        @if (belowMin()) {
+          <p class="amount-error">{{ t.minCashout }} <span class="gel">{{ formatGel(minAmount()) }}</span></p>
+        }
+        @if (aboveMax() && maxAmount() !== null) {
+          <p class="amount-error">{{ t.maxCashout }} <span class="gel">{{ formatGel(maxAmount()!) }}</span></p>
         }
 
         <div class="keypad">
@@ -73,7 +76,7 @@
       </div>
     }
 
-    <!-- ── Step 2: Card select ─────────────────────────── -->
+    <!-- ── Step 2: Bank account select ─────────────────── -->
     @if (step() === 2) {
       <div class="co-body">
         <h2 class="co-step-title">{{ t.selectCard }}</h2>
@@ -84,13 +87,16 @@
               [class.card-row--selected]="selectedCard()?.id === card.id"
               (click)="pickCard(card)"
             >
-              <div class="card-row__bank" [class.card-row__bank--bog]="card.bankType === 'BOG'" [class.card-row__bank--tbc]="card.bankType === 'TBC'">
+              <div class="card-row__bank" [attr.data-bank]="card.bankType">
                 {{ card.bankType }}
               </div>
               <div class="card-row__info">
                 <span class="card-row__pan gel">{{ card.maskedPan }}</span>
                 @if (card.isDefault) {
                   <span class="badge badge--processing">{{ t.defaultCard }}</span>
+                }
+                @if (card.holderName) {
+                  <span class="card-row__holder">{{ card.holderName }}</span>
                 }
               </div>
               <div class="card-row__check" [class.card-row__check--active]="selectedCard()?.id === card.id">
@@ -103,13 +109,59 @@
             </button>
           }
 
-          <button class="add-card-row">
-            <span class="add-card-row__icon">+</span>
-            <span>{{ t.addCard }}</span>
-          </button>
+          @if (cards.length === 0 && !addingAccount()) {
+            <p class="card-empty">{{ t.noCardsAdded }}</p>
+          }
+
+          @if (!addingAccount()) {
+            <button class="add-card-row" (click)="openAddAccount()">
+              <span class="add-card-row__icon">+</span>
+              <span>{{ t.addCard }}</span>
+            </button>
+          } @else {
+            <div class="acct-form">
+              <h3 class="acct-form__title">{{ t.addAccountTitle }}</h3>
+              <p class="acct-form__hint">{{ t.supportedBanksHint }} <b>{{ supportedBanksLabel() }}</b></p>
+
+              <label class="acct-field">
+                <span class="acct-field__label">{{ t.iban }}</span>
+                <input
+                  type="text"
+                  class="acct-field__input gel"
+                  autocomplete="off"
+                  autocapitalize="characters"
+                  spellcheck="false"
+                  [value]="newIban()"
+                  (input)="onIbanInput($any($event.target).value)"
+                  [placeholder]="t.ibanPlaceholder"
+                />
+              </label>
+              <label class="acct-field">
+                <span class="acct-field__label">{{ t.holderName }}</span>
+                <input
+                  type="text"
+                  class="acct-field__input"
+                  autocomplete="name"
+                  [value]="newHolder()"
+                  (input)="newHolder.set($any($event.target).value)"
+                />
+              </label>
+
+              @if (addError()) {
+                <p class="amount-error">{{ addError() }}</p>
+              }
+
+              <div class="acct-form__actions">
+                <button class="btn btn--ghost btn--sm" (click)="cancelAddAccount()" [disabled]="addBusy()">{{ t.cancel }}</button>
+                <button class="btn btn--primary btn--sm" (click)="saveAccount()" [disabled]="addBusy() || !ibanComplete()">
+                  @if (addBusy()) { {{ t.adding }} } @else { {{ t.save }} }
+                </button>
+              </div>
+            </div>
+          }
         </div>
 
-        <button class="btn btn--primary" (click)="nextStep()" [disabled]="!selectedCard()">
+        <button class="btn btn--primary" (click)="nextStep()" [disabled]="!selectedCard() || addingAccount()">
           {{ t.next }}
         </button>
       </div>
@@ -137,7 +189,7 @@
           <div class="summary-row">
             <span class="summary-row__label">{{ t.toCard }}</span>
             <span class="summary-row__value">
-              {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}
+              {{ selectedCard()?.bankType }} <span class="gel">{{ selectedCard()?.maskedPan }}</span>
             </span>
           </div>
         </div>
@@ -159,23 +211,43 @@
   }
 
   @if (confirmed() && result(); as r) {
-    <div class="co-success">
+    <div class="co-success"
+         [class.co-success--queued]="r.status === 'Queued' || r.status === 'ReviewRequired'"
+         [class.co-success--failed]="r.status === 'Failed'">
       <div class="co-success__icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="20 6 9 17 4 12"/>
-        </svg>
+        @if (r.status === 'Completed') {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        } @else if (r.status === 'Failed') {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        } @else {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+          </svg>
+        }
       </div>
       <h2>
-        @if (r.status === 'Completed') { {{ t.cashoutSubmitted }} }
-        @else { Cashout {{ r.status }} }
+        @switch (r.status) {
+          @case ('Completed') { {{ t.cashoutSubmitted }} }
+          @case ('Queued') { {{ t.cashoutQueuedTitle }} }
+          @case ('ReviewRequired') { {{ t.cashoutReviewTitle }} }
+          @default { {{ t.cashoutFailedTitle }} }
+        }
       </h2>
       <p>
-        @if (r.status === 'Completed') {
-          {{ formatGel(r.net) }} {{ t.willArriveShortly }}
-        } @else {
-          {{ r.failureReason }}
+        @switch (r.status) {
+          @case ('Completed') { <span class="gel">{{ formatGel(r.net) }}</span> {{ t.willArriveShortly }} }
+          @case ('Queued') { <span class="gel">{{ formatGel(r.net) }}</span> · {{ t.cashoutQueuedDesc }} }
+          @case ('ReviewRequired') { {{ t.cashoutReviewDesc }} }
+          @default { {{ r.failureReason }} }
         }
       </p>
+      @if (r.status !== 'Completed') {
+        <button class="btn btn--ghost btn--sm" (click)="goHistory()">{{ t.history }}</button>
+      }
     </div>
   }
 </div>

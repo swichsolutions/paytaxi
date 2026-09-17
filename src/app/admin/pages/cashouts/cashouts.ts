@@ -18,12 +18,15 @@ interface DisplayCashout {
   fee: number;
   net: number;
   status: CashoutStatus;
+  rawStatus: string;           // backend status: Queued | Processing | Completed | Failed | ReviewRequired
   bankTransferId: string | null;
   yandexTransactionId: string | null;
   errorMessage: string | null;
   initiatedBy: 'driver' | 'manager';
   bankType: string;
   maskedPan: string;
+  attemptCount: number;
+  nextAttemptAt: Date | null;
   createdAt: Date;
 }
 
@@ -85,12 +88,16 @@ export class CashoutsComponent {
     }
   }
 
-  /** Map backend's PascalCase status to the lowercase CashoutStatus used by the UI. */
+  /**
+   * Map backend's PascalCase status to the lowercase CashoutStatus used by the UI pills.
+   * Queued (Yandex debited, bank retrying) renders as "processing" — from the park's
+   * point of view the payout is in flight, not stuck.
+   */
   private mapStatus(s: string): CashoutStatus {
     const lower = s.toLowerCase();
     if (lower === 'completed') return 'completed';
     if (lower === 'failed' || lower === 'reviewrequired') return 'failed';
-    if (lower === 'processing') return 'processing';
+    if (lower === 'processing' || lower === 'queued') return 'processing';
     return 'pending';
   }
 
@@ -102,12 +109,15 @@ export class CashoutsComponent {
     fee: c.fee,
     net: c.amount - c.fee,
     status: this.mapStatus(c.status),
+    rawStatus: c.status,
     bankTransferId: c.bankTransferId,
     yandexTransactionId: c.yandexTransactionId,
     errorMessage: c.failureReason,
-    initiatedBy: 'manager', // backend doesn't track this yet — TODO when InitiatedBy is exposed
+    initiatedBy: (c.initiatedBy ?? '').startsWith('driver') ? 'driver' : 'manager',
     bankType: c.bankType,
     maskedPan: c.maskedPan,
+    attemptCount: c.attemptCount ?? 0,
+    nextAttemptAt: c.nextAttemptAt ? new Date(c.nextAttemptAt) : null,
     createdAt: new Date(c.createdAt),
   })));
 
@@ -192,10 +202,36 @@ export class CashoutsComponent {
     }
   }
 
+  /** Clear a Queued cashout's backoff and run the payout step right now. */
+  async processNow(id: string, e: Event) {
+    e.stopPropagation();
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.retrying()) return;
+    this.retrying.set(id);
+    this.retryMessage.set(null);
+    try {
+      const result = await this.api.processCashoutNow(parkId, id);
+      this.retryMessage.set(this.describeRetry(result));
+      await this.fetchFor(parkId);
+    } catch (err: any) {
+      const sagaResult = err?.error;
+      if (sagaResult && typeof sagaResult.status === 'string' && sagaResult.cashoutId) {
+        this.retryMessage.set(this.describeRetry(sagaResult));
+        await this.fetchFor(parkId);
+      } else {
+        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? this.t['retryFailed'];
+        this.retryMessage.set(`${this.t['retryFailed']} ${msg}`);
+      }
+    } finally {
+      this.retrying.set(null);
+    }
+  }
+
   private describeRetry(r: { status: string; cashoutId: string; failureReason: string | null }): string {
     const short = r.cashoutId.slice(0, 8);
     if (r.status === 'Completed')      return `${this.t['retrySucceeded']} ${short}…`;
     if (r.status === 'ReviewRequired') return `${this.t['retryNeedsReview']} ${short}…`;
+    if (r.status === 'Queued')         return `${this.t['queued']} · ${short}…`;
     if (r.status === 'Failed')         return `${this.t['retryFailedAgain']} ${r.failureReason ?? this.t['noReason']}`;
     return `${this.t['retryReturned']} ${r.status}`;
   }

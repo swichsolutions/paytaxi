@@ -2,7 +2,7 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
 import {
-  AdminApiService, ApiCashout, ApiKpis, ApiActivityEvent, ApiHourBucket,
+  AdminApiService, ApiCashout, ApiKpis, ApiActivityEvent, ApiHourBucket, ApiBankAccount,
 } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
@@ -37,6 +37,7 @@ export class OverviewComponent {
   private cashoutsRaw = signal<ApiCashout[]>([]);
   private activityRaw = signal<ApiActivityEvent[]>([]);
   private hourlyRaw = signal<ApiHourBucket[]>([]);
+  accounts = signal<ApiBankAccount[]>([]);
 
   constructor() {
     this.parkCtx.ensureLoaded();
@@ -50,16 +51,18 @@ export class OverviewComponent {
     this.loading.set(true);
     this.loadError.set(null);
     try {
-      const [kpis, cashouts, activity, hourly] = await Promise.all([
+      const [kpis, cashouts, activity, hourly, accounts] = await Promise.all([
         this.api.getKpis(parkId),
         this.api.listCashouts(parkId, 50),
         this.api.getActivity(parkId, 12),
         this.api.getHourly(parkId),
+        this.api.listBankAccounts(parkId).catch(() => ({ parkId, count: 0, accounts: [] as ApiBankAccount[] })),
       ]);
       this.kpisRaw.set(kpis);
       this.cashoutsRaw.set(cashouts.cashouts);
       this.activityRaw.set(activity.events);
       this.hourlyRaw.set(hourly.buckets);
+      this.accounts.set(accounts.accounts);
     } catch (err: any) {
       this.loadError.set(`Could not load overview: ${err?.message ?? err}`);
     } finally {
@@ -80,22 +83,37 @@ export class OverviewComponent {
     };
   });
 
-  // Float card now shows Model A.5's authorizationLimit (or hidden block for Model A).
-  // usedPct = how much of the limit has been spent today.
-  floatStatus = computed(() => {
-    const k = this.kpisRaw();
-    const limit = k?.authorizationLimit ?? null;
-    const spentToday = k?.cashoutsToday.value ?? 0;
-    return {
-      hasLimit: limit !== null,
-      balance:  limit ?? 0,                         // remaining authorization
-      target:   limit !== null ? limit + spentToday : 0, // starting authorization
-      minimum:  limit !== null ? (limit + spentToday) * 0.2 : 0,
-      usedPct:  limit !== null && (limit + spentToday) > 0
-        ? (spentToday / (limit + spentToday)) * 100
-        : 0,
-      lowFloat: limit !== null && limit < (k?.pendingQueue.value ?? 0) * 2,
-    };
+  // Model A: the park pays from its own bank account(s). The float card lists the
+  // park's payout accounts with a live balance where the rail exposes one, plus
+  // the payouts currently queued behind the bank.
+  activeAccounts = computed(() => this.accounts().filter(a => a.isActive));
+
+  knownBalance = computed(() => {
+    const withBalance = this.activeAccounts().filter(a => typeof a.balance === 'number');
+    return withBalance.length === 0 ? null : withBalance.reduce((s, a) => s + (a.balance ?? 0), 0);
+  });
+
+  queuedRows = computed(() =>
+    this.cashoutsRaw()
+      .filter(c => c.status === 'Queued')
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(0, 6)
+      .map(c => ({
+        id: c.id,
+        driverName: c.driverName ?? '(unnamed)',
+        net: c.amount - c.fee,
+        attemptCount: c.attemptCount ?? 0,
+        nextAttemptAt: c.nextAttemptAt ? new Date(c.nextAttemptAt) : null,
+        lastError: c.failureReason,
+        createdAt: new Date(c.createdAt),
+      })));
+
+  queuedTotal = computed(() => this.kpisRaw()?.queued ?? { count: 0, value: 0, oldestAt: null });
+
+  lowFloat = computed(() => {
+    const bal = this.knownBalance();
+    const q = this.queuedTotal().value;
+    return bal !== null && q > 0 && bal < q * 2;
   });
 
   operatingModel = computed(() => this.kpisRaw()?.park.operatingModel ?? '');
@@ -185,5 +203,6 @@ export class OverviewComponent {
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }
   formatRel(d: Date)          { return this.svc.formatRelTime(d); }
+  formatTime(d: Date)         { return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); }
   initials(name: string)      { return this.svc.initials(name); }
 }

@@ -93,16 +93,30 @@
             <span class="set-row__label">{{ t.operatingModelLabel }}</span>
             <span class="set-row__value">{{ modelLabel(p.operatingModel) }}</span>
           </div>
-          @if (p.authorizationLimit !== null) {
-            <div class="set-row">
-              <span class="set-row__label">{{ t.authLimitLabel }}</span>
-              <span class="set-row__value gel">{{ formatGel(p.authorizationLimit, 0) }}</span>
-            </div>
-          }
+
+          <div class="set-rows__divider">{{ t.secFees }}</div>
           <div class="set-row">
-            <span class="set-row__label">{{ t.bankProviderLabel }}</span>
-            <span class="set-row__value">{{ p.bankProvider }}</span>
+            <span class="set-row__label">{{ t.feeLabel }}</span>
+            <span class="set-row__value gel">{{ formatGel(p.cashoutFee, 2) }}</span>
           </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.minCashoutLabel }}</span>
+            <span class="set-row__value gel">{{ formatGel(p.minCashoutAmount, 2) }}</span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.maxCashoutLabel }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="p.maxCashoutAmount === null">
+              {{ p.maxCashoutAmount !== null ? formatGel(p.maxCashoutAmount, 2) : t.noLimit }}
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.dailyLimitLabel }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="p.dailyCashoutLimitPerDriver === null">
+              {{ p.dailyCashoutLimitPerDriver !== null ? formatGel(p.dailyCashoutLimitPerDriver, 2) : t.noLimit }}
+            </span>
+          </div>
+
+          <div class="set-rows__divider">{{ t.secYandex }}</div>
           <div class="set-row">
             <span class="set-row__label">{{ t.yandexParkIdLabel }}</span>
             <code class="set-row__code">{{ p.yandexParkId }}</code>
@@ -127,84 +141,70 @@
         <div class="set-edit">
           <label class="set-field">
             <span class="set-field__label">{{ t.legalEntity }}</span>
-            <input
-              type="text"
-              class="set-field__input"
-              [value]="form().legalEntityName"
-              (input)="setField('legalEntityName', $any($event.target).value)"
-              [placeholder]="t.legalEntityPlaceholder"
-            />
+            <input type="text" class="set-field__input" [value]="form().legalEntityName"
+              (input)="setField('legalEntityName', $any($event.target).value)" [placeholder]="t.legalEntityPlaceholder" />
           </label>
           <label class="set-field">
             <span class="set-field__label">{{ t.identificationCode }}</span>
-            <input
-              type="text"
-              inputmode="numeric"
-              class="set-field__input gel"
-              [value]="form().taxId"
-              (input)="setField('taxId', $any($event.target).value)"
-              [placeholder]="t.taxIdPlaceholder"
-            />
+            <input type="text" inputmode="numeric" class="set-field__input gel" [value]="form().taxId"
+              (input)="setField('taxId', $any($event.target).value)" [placeholder]="t.taxIdPlaceholder" />
           </label>
           <label class="set-field">
             <span class="set-field__label">{{ t.phone }}</span>
-            <input
-              type="tel"
-              class="set-field__input gel"
-              [value]="form().phone"
-              (input)="setField('phone', $any($event.target).value)"
-              [placeholder]="t.phonePlaceholder"
-            />
+            <input type="tel" class="set-field__input gel" [value]="form().phone"
+              (input)="setField('phone', $any($event.target).value)" [placeholder]="t.phonePlaceholder" />
           </label>
           <label class="set-field">
             <span class="set-field__label">{{ t.iban }}</span>
-            <input
-              type="text"
-              class="set-field__input gel"
-              [value]="form().bankAccountIban"
-              (input)="setField('bankAccountIban', $any($event.target).value)"
-              [placeholder]="t.ibanPlaceholder"
-            />
+            <input type="text" class="set-field__input gel" [value]="form().bankAccountIban"
+              (input)="setField('bankAccountIban', $any($event.target).value)" [placeholder]="t.ibanPlaceholder" />
           </label>
 
-          <div class="set-edit__divider">
-            <span>{{ t.secYandex }}</span>
+          <div class="set-edit__divider"><span>{{ t.secFees }}</span></div>
+          <p class="set-edit__hint">{{ t.feesHint }}</p>
+          <div class="set-edit__grid">
+            <label class="set-field">
+              <span class="set-field__label">{{ t.feeLabel }}</span>
+              <input type="number" step="0.01" min="0" class="set-field__input gel" [value]="form().cashoutFee"
+                (input)="setField('cashoutFee', $any($event.target).value)" />
+            </label>
+            <label class="set-field">
+              <span class="set-field__label">{{ t.minCashoutLabel }}</span>
+              <input type="number" step="1" min="1" class="set-field__input gel" [value]="form().minCashoutAmount"
+                (input)="setField('minCashoutAmount', $any($event.target).value)" />
+            </label>
+            <label class="set-field">
+              <span class="set-field__label">{{ t.maxCashoutLabel }}</span>
+              <input type="number" step="1" min="0" class="set-field__input gel" [value]="form().maxCashoutAmount"
+                (input)="setField('maxCashoutAmount', $any($event.target).value)" [placeholder]="t.noLimit" />
+            </label>
+            <label class="set-field">
+              <span class="set-field__label">{{ t.dailyLimitLabel }}</span>
+              <input type="number" step="1" min="0" class="set-field__input gel" [value]="form().dailyCashoutLimitPerDriver"
+                (input)="setField('dailyCashoutLimitPerDriver', $any($event.target).value)" [placeholder]="t.noLimit" />
+            </label>
           </div>
+
+          <div class="set-edit__divider"><span>{{ t.secYandex }}</span></div>
           <p class="set-edit__hint">{{ t.yandexFleetHint }}</p>
 
           <label class="set-field">
             <span class="set-field__label">{{ t.yandexParkIdLabel }}</span>
-            <input
-              type="text"
-              class="set-field__input gel"
-              [value]="form().yandexParkId"
-              (input)="setField('yandexParkId', $any($event.target).value)"
-              [placeholder]="t.yandexParkIdPlaceholder"
-            />
+            <input type="text" class="set-field__input gel" [value]="form().yandexParkId"
+              (input)="setField('yandexParkId', $any($event.target).value)" [placeholder]="t.yandexParkIdPlaceholder" />
           </label>
           <label class="set-field">
             <span class="set-field__label">{{ t.clientId }}</span>
-            <input
-              type="text"
-              class="set-field__input gel"
-              [value]="form().yandexClientId"
-              (input)="setField('yandexClientId', $any($event.target).value)"
-              [placeholder]="t.yandexClientIdPlaceholder"
-            />
+            <input type="text" class="set-field__input gel" [value]="form().yandexClientId"
+              (input)="setField('yandexClientId', $any($event.target).value)" [placeholder]="t.yandexClientIdPlaceholder" />
           </label>
           <label class="set-field">
             <span class="set-field__label">
               {{ t.apiKey }}
               <span class="set-field__note">· {{ p.yandexApiKeySet ? t.apiKeyConfigured : t.notSet }}</span>
             </span>
-            <input
-              type="password"
-              autocomplete="off"
-              class="set-field__input gel"
-              [value]="form().yandexApiKey"
-              (input)="setField('yandexApiKey', $any($event.target).value)"
-              [placeholder]="t.apiKeyReplaceHint"
-            />
+            <input type="password" autocomplete="off" class="set-field__input gel" [value]="form().yandexApiKey"
+              (input)="setField('yandexApiKey', $any($event.target).value)" [placeholder]="t.apiKeyReplaceHint" />
           </label>
 
           @if (editError()) {
@@ -220,6 +220,114 @@
             </button>
           </div>
         </div>
+      }
+    </section>
+
+    <!-- ── Payout accounts ─────────────────────────────────────────── -->
+    <section class="set-card">
+      <header class="set-card__head set-card__head--plain">
+        <div>
+          <h2 class="set-card__title">{{ t.secBankAccounts }}</h2>
+          <p class="set-card__hint">{{ t.bankAccountsHint }}</p>
+        </div>
+        <div class="set-card__head-actions">
+          @if (!addingAccount()) {
+            <button class="set-edit-btn" (click)="openAddAccount()">+ {{ t.addBankAccount }}</button>
+          }
+        </div>
+      </header>
+
+      <div class="acct-list">
+        @for (a of accounts(); track a.id) {
+          <div class="acct" [class.acct--inactive]="!a.isActive">
+            <div class="acct__chip" [attr.data-bank]="a.bankLabel">{{ a.bankLabel }}</div>
+            <div class="acct__main">
+              <div class="acct__line">
+                <span class="acct__iban gel">{{ a.iban }}</span>
+                @if (a.isPrimary) { <span class="acct__tag acct__tag--primary">{{ t.primaryTag }}</span> }
+                @if (!a.isActive) { <span class="acct__tag acct__tag--inactive">{{ t.inactiveTag }}</span> }
+              </div>
+              <div class="acct__meta">
+                <span>{{ a.label || a.holderName || '—' }}</span>
+                <span>· {{ t.providerLabel }}: <code>{{ a.provider }}</code></span>
+                <span [class.acct__meta--warn]="!a.credentialsSet">
+                  · {{ a.credentialsSet ? t.credentialsSet : t.credentialsMissing }}
+                </span>
+                @if ((a.queuedCount ?? 0) > 0) {
+                  <span class="acct__meta--warn">· {{ a.queuedCount }} {{ t.queuedOnAccount }} ({{ formatGel(a.queuedNet ?? 0, 2) }})</span>
+                }
+              </div>
+            </div>
+            <div class="acct__balance">
+              @if (a.balance !== null && a.balance !== undefined) {
+                <span class="acct__amount gel">{{ formatGel(a.balance, 2) }}</span>
+                <span class="acct__amount-label">{{ t.balanceLabel }}</span>
+              } @else if (a.isActive) {
+                <span class="acct__amount acct__amount--muted">{{ t.bankBalanceNotExposed }}</span>
+              }
+            </div>
+            <div class="acct__actions">
+              @if (a.isActive && !a.isPrimary) {
+                <button class="acct__btn" (click)="makePrimary(a)" [disabled]="accountBusy() !== null">{{ t.makePrimary }}</button>
+              }
+              <button class="acct__btn" [class.acct__btn--danger]="a.isActive" (click)="toggleActive(a)" [disabled]="accountBusy() !== null || (a.isActive && a.isPrimary && accounts().length > 1)">
+                {{ a.isActive ? t.deactivate : t.activate }}
+              </button>
+            </div>
+          </div>
+        }
+        @if (accounts().length === 0 && !accountsLoading() && !addingAccount()) {
+          <p class="acct-empty">{{ t.noPayoutAccounts }}</p>
+        }
+      </div>
+
+      @if (addingAccount()) {
+        <div class="set-edit">
+          <label class="set-field">
+            <span class="set-field__label">{{ t.iban }}</span>
+            <input type="text" class="set-field__input gel" autocapitalize="characters" spellcheck="false"
+              [value]="accountForm().iban" (input)="setAccountField('iban', $any($event.target).value)" [placeholder]="t.ibanPlaceholder" />
+          </label>
+          <div class="set-edit__grid">
+            <label class="set-field">
+              <span class="set-field__label">{{ t.providerLabel }}</span>
+              <select class="set-field__input" [value]="accountForm().provider" (change)="setAccountField('provider', $any($event.target).value)">
+                <option value="">—</option>
+                <option value="tbc">tbc — TBC Business Integration</option>
+                <option value="bog">bog — BoG Business Online</option>
+                <option value="mock">mock — dev</option>
+              </select>
+            </label>
+            <label class="set-field">
+              <span class="set-field__label">{{ t.accountLabelLabel }}</span>
+              <input type="text" class="set-field__input" [value]="accountForm().label"
+                (input)="setAccountField('label', $any($event.target).value)" placeholder="TBC business account" />
+            </label>
+          </div>
+          <label class="set-field">
+            <span class="set-field__label">{{ t.holderNameLabel }}</span>
+            <input type="text" class="set-field__input" [value]="accountForm().holderName"
+              (input)="setAccountField('holderName', $any($event.target).value)" />
+          </label>
+          <label class="set-field">
+            <span class="set-field__label">{{ t.credentialsJsonLabel }}</span>
+            <textarea class="set-field__input set-field__input--mono" rows="4" autocomplete="off" spellcheck="false"
+              [value]="accountForm().credentialsJson" (input)="setAccountField('credentialsJson', $any($event.target).value)"
+              placeholder='{ "clientId": "…", "clientSecret": "…", "certificateThumbprint": "…" }'></textarea>
+            <span class="set-field__note">{{ t.credentialsHint }}</span>
+          </label>
+
+          <div class="set-edit__actions">
+            <button class="btn-admin btn-admin--secondary" (click)="cancelAddAccount()" [disabled]="accountBusy() === 'new'">{{ t.cancel }}</button>
+            <button class="btn-admin btn-admin--brand" (click)="saveAccount()" [disabled]="!canSaveAccount()">
+              @if (accountBusy() === 'new') { {{ t.saving }} } @else { {{ t.save }} }
+            </button>
+          </div>
+        </div>
+      }
+
+      @if (accountsError()) {
+        <p class="set-edit__error set-edit__error--pad">{{ accountsError() }}</p>
       }
     </section>
   }

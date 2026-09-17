@@ -709,3 +709,77 @@
   }
   .activity-row__amount { display: none; }
 }
+
+// ── Payout accounts list (Model A) ────────────────────────────────
+.acct-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: var(--space-4);
+}
+
+.acct-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  .bank-chip {
+    width: 52px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.12);
+    color: #fff;
+    &[data-bank="TBC"] { background: #FFF4E5; color: #E67E22; }
+    &[data-bank="BOG"] { background: #E8F0FE; color: #1A56DB; }
+  }
+
+  &__main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  &__iban { font-size: 13px; font-weight: 700; color: #fff; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  &__meta { font-size: 11px; color: rgba(255,255,255,0.55); b { color: var(--color-brand); letter-spacing: 0.06em; } }
+  &__balance { text-align: right; display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; max-width: 46%; }
+  &__amount { font-size: 1.05rem; font-weight: 800; color: #fff; letter-spacing: -0.02em; &--muted { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6); } }
+  &__label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); }
+}
+
+// ── Queued payouts box ────────────────────────────────────────────
+.queued-box {
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  margin-bottom: var(--space-4);
+
+  &--active {
+    background: rgba(255, 184, 0, 0.08);
+    border: 1px solid rgba(255, 184, 0, 0.35);
+  }
+
+  &__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); }
+  &__title { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.7); }
+  &__count { font-size: 13px; font-weight: 800; color: var(--color-brand); }
+  &__sub { font-size: 11px; color: rgba(255,255,255,0.55); margin: 6px 0 8px; }
+  &__empty { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 6px; }
+}
+
+.queued-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+
+  &__driver { font-size: 13px; font-weight: 700; color: #fff; }
+  &__amount { font-size: 13px; font-weight: 800; color: #fff; text-align: right; }
+  &__meta { grid-column: 1 / -1; font-size: 11px; color: rgba(255,255,255,0.5); }
+}

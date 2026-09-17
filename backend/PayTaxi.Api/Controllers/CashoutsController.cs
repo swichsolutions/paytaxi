@@ -57,11 +57,17 @@ public class CashoutsController : AdminControllerBase
                 status = c.Status.ToString(),
                 bankTransferId = c.BankTransferId,
                 yandexTransactionId = c.YandexTransactionId,
+                yandexReversalTransactionId = c.YandexReversalTransactionId,
                 failureReason = c.FailureReason,
+                initiatedBy = c.InitiatedBy,
+                attemptCount = c.AttemptCount,
+                nextAttemptAt = c.NextAttemptAt,
                 createdAt = c.CreatedAt,
                 completedAt = c.CompletedAt,
                 bankType = c.BankCard.BankType,
                 maskedPan = c.BankCard.MaskedPan,
+                destinationIban = c.BankCard.Iban,
+                sourceIban = c.ParkBankAccount != null ? c.ParkBankAccount.Iban : null,
             })
             .ToListAsync(ct);
 
@@ -96,13 +102,7 @@ public class CashoutsController : AdminControllerBase
                 IdempotencyKey: body.IdempotencyKey,
                 InitiatedBy: body.InitiatedBy ?? "admin"), ct);
 
-            return result.Status switch
-            {
-                "Completed"      => Ok(result),
-                "ReviewRequired" => StatusCode(202, result), // accepted but needs human follow-up
-                "Failed"         => UnprocessableEntity(result),
-                _                => Ok(result),
-            };
+            return SagaResponse(result);
         }
         catch (InvalidOperationException ex)
         {
@@ -141,7 +141,8 @@ public class CashoutsController : AdminControllerBase
     /// idempotency key) that re-runs the saga using the original
     /// driverId/cardId/amount. The original Failed row is preserved as a
     /// historical record. Only allowed when the source cashout's status
-    /// is Failed; for <c>ReviewRequired</c> a human must reconcile first.
+    /// is Failed; for <c>ReviewRequired</c> a human must reconcile first,
+    /// and <c>Queued</c> rows retry themselves.
     /// </summary>
     [HttpPost("{cashoutId:guid}/retry")]
     public async Task<IActionResult> Retry(Guid parkId, Guid cashoutId, CancellationToken ct)
@@ -176,13 +177,7 @@ public class CashoutsController : AdminControllerBase
                 "Retried cashout {SourceId} → new cashout {NewId} status={Status}",
                 source.Id, result.CashoutId, result.Status);
 
-            return result.Status switch
-            {
-                "Completed"      => Ok(result),
-                "ReviewRequired" => StatusCode(202, result),
-                "Failed"         => UnprocessableEntity(result),
-                _                => Ok(result),
-            };
+            return SagaResponse(result);
         }
         catch (InvalidOperationException ex)
         {
@@ -190,6 +185,33 @@ public class CashoutsController : AdminControllerBase
             return BadRequest(new { error = "retry_rejected", message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Nudge a Queued cashout: clear its backoff so the payout worker picks it up on
+    /// the next tick (e.g. right after the park topped up its account).
+    /// </summary>
+    [HttpPost("{cashoutId:guid}/process-now")]
+    public async Task<IActionResult> ProcessNow(Guid parkId, Guid cashoutId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var rows = await _db.Cashouts
+            .Where(c => c.Id == cashoutId && c.ParkId == parkId && c.Status == Core.Enums.CashoutStatus.Queued)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.NextAttemptAt, DateTime.UtcNow), ct);
+        if (rows == 0) return BadRequest(new { error = "not_queued" });
+
+        var result = await _orchestrator.ProcessQueuedAsync(cashoutId, ct);
+        return SagaResponse(result);
+    }
+
+    private IActionResult SagaResponse(CashoutSagaResult result) => result.Status switch
+    {
+        "Completed"      => Ok(result),
+        "Queued"         => StatusCode(202, result), // accepted; payout worker will finish it
+        "ReviewRequired" => StatusCode(202, result), // accepted but needs human follow-up
+        "Failed"         => UnprocessableEntity(result),
+        _                => Ok(result),
+    };
 }
 
 public record CreateCashoutRequest(

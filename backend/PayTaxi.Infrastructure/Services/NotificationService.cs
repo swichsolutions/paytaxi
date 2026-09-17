@@ -26,10 +26,18 @@ public class NotificationService : INotificationService
     }
 
     public Task NotifyCashoutCompletedAsync(
-        Guid driverId, decimal netAmount, string cardMaskedPan, CancellationToken ct = default) =>
+        Guid driverId, decimal netAmount, string destinationLabel, CancellationToken ct = default) =>
         InsertAsync(driverId, "cashout_completed",
             title: "Cashout sent",
-            body: $"₾ {netAmount:F2} sent to {cardMaskedPan}.",
+            body: $"₾ {netAmount:F2} sent to {destinationLabel}.",
+            link: "/history",
+            ct);
+
+    public Task NotifyCashoutQueuedAsync(
+        Guid driverId, decimal netAmount, CancellationToken ct = default) =>
+        InsertAsync(driverId, "cashout_queued",
+            title: "Cashout processing",
+            body: $"₾ {netAmount:F2} is on its way — the bank is taking a little longer than usual. No action needed.",
             link: "/history",
             ct);
 

@@ -114,6 +114,28 @@ public class MockYandexFleetClient : IYandexFleetClient
         return new YandexTransactionResult(false, null, error, $"Mock failure: {error}");
     }
 
+    public async Task<YandexTransactionResult> PostReversalTransactionAsync(
+        Guid parkId, string driverProfileId, decimal amount, string idempotencyKey, CancellationToken ct = default)
+    {
+        if (_opts.ReadOnlyMode)
+            throw new YandexReadOnlyModeException();
+
+        await SimulateCallAsync(ct);
+        var yandexParkId = await ResolveYandexParkIdAsync(parkId, ct);
+
+        var txId = $"yx_rv_{idempotencyKey.Substring(0, Math.Min(12, idempotencyKey.Length))}";
+
+        if (_data.TryCredit(yandexParkId, driverProfileId, amount, txId, out var error))
+        {
+            _log.LogInformation(
+                "Mock Yandex credited {Amount} GEL back to driver {Profile} in park {Park}; tx_id={Tx}",
+                amount, driverProfileId, yandexParkId, txId);
+            return new YandexTransactionResult(true, txId, null, null);
+        }
+
+        return new YandexTransactionResult(false, null, error, $"Mock failure: {error}");
+    }
+
     // ── Internals ─────────────────────────────────────────────────────
     private async Task<string> ResolveYandexParkIdAsync(Guid parkId, CancellationToken ct)
     {

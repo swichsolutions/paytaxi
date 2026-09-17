@@ -7,5 +7,8 @@ public enum LedgerEntryType
     YandexDeducted,
     CashoutCompleted,
     CashoutReversed,
-    FeeCollected
+    FeeCollected,
+
+    /// <summary>Compensating +amount posted to Yandex after an abandoned payout.</summary>
+    YandexReversed
 }

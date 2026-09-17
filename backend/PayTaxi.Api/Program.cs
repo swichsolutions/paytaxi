@@ -10,6 +10,11 @@ using PayTaxi.Infrastructure.Services;
 using System.Text;
 using System.Threading.RateLimiting;
 
+// Server-side formatting must not depend on the host machine's locale (money strings in
+// API messages, logs). Invoices already format explicitly with InvariantCulture.
+System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ── Database ─────────────────────────────────────────────────────
@@ -47,10 +52,14 @@ var useMockBank = builder.Configuration.GetValue("BankPayout:UseMock", true);
 builder.Services.Configure<MockBankPayoutOptions>(
     builder.Configuration.GetSection(MockBankPayoutOptions.SectionName));
 
+// The mock is always registered under "mock"/"MOCK" so a park account with
+// provider=mock keeps working in any environment (dev demos, pilot dry-runs).
+builder.Services.AddSingleton<MockBankPayoutProvider>();
+builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("MOCK", (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("mock", (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
+
 if (useMockBank)
 {
-    builder.Services.AddSingleton<MockBankPayoutProvider>();
-    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("MOCK", (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
     builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("BOG",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
     builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("TBC",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
     builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("bog",  (sp, _) => sp.GetRequiredService<MockBankPayoutProvider>());
@@ -106,8 +115,13 @@ else
             log:     sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ResilientYandexFleetClient>>()));
 }
 
-// ── Cashout saga + notifications + invoices ──────────────────────
+// ── Cashout saga + payout queue + notifications + invoices ───────
+builder.Services.Configure<CashoutOptions>(
+    builder.Configuration.GetSection(CashoutOptions.SectionName));
 builder.Services.AddScoped<ICashoutOrchestrator, CashoutOrchestrator>();
+builder.Services.Configure<PayoutQueueOptions>(
+    builder.Configuration.GetSection(PayoutQueueOptions.SectionName));
+builder.Services.AddHostedService<PayoutQueueWorker>();
 builder.Services.AddSingleton<INotificationService, NotificationService>();
 builder.Services.Configure<InvoiceOptions>(
     builder.Configuration.GetSection(InvoiceOptions.SectionName));

@@ -72,6 +72,40 @@ public class MockYandexFleetData
         }
     }
 
+    /// <summary>Compensating credit: returns a previously debited amount and appends a positive transaction.</summary>
+    public bool TryCredit(string yandexParkId, string driverProfileId, decimal amount, string txId, out string? error)
+    {
+        lock (_lock)
+        {
+            if (!ByPark.TryGetValue(yandexParkId, out var drivers))
+            {
+                error = "park_not_found";
+                return false;
+            }
+            var driver = drivers.Find(d => d.DriverProfileId == driverProfileId);
+            if (driver is null)
+            {
+                error = "driver_not_found";
+                return false;
+            }
+            driver.Balance += amount;
+            var key = (yandexParkId, driverProfileId);
+            if (!Transactions.TryGetValue(key, out var list))
+            {
+                list = new();
+                Transactions[key] = list;
+            }
+            list.Insert(0, new YandexTransaction(
+                TransactionId: txId,
+                Amount: amount,
+                Category: "partner_service_manual",
+                Description: "Cashout reversal · PayTaxi",
+                CreatedAt: DateTime.UtcNow));
+            error = null;
+            return true;
+        }
+    }
+
     private void Seed()
     {
         // Stable IDs that match the database seed in Data/SeedData.cs

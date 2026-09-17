@@ -23,38 +23,46 @@ public class Park : BaseEntity
     public string? Phone { get; set; }
 
     // ── Operating model ───────────────────────────────────────────────
-    /// <summary>How money moves for this park's cashouts. See <see cref="OperatingModel"/>.</summary>
-    public OperatingModel OperatingModel { get; set; } = OperatingModel.ModelA5;
-
     /// <summary>
-    /// Model A.5 only: the ceiling the park has authorized PayTaxi to spend on their behalf.
-    /// Each cashout decrements this; the park signals PayTaxi to refill it.
-    /// Null for Model A (park's own bank API gates the limit instead).
+    /// How money moves for this park's cashouts. See <see cref="OperatingModel"/>.
+    /// Launch default is Model A: the park pays its drivers from its own bank account(s)
+    /// via the park's own bank API credentials — PayTaxi never holds funds.
     /// </summary>
-    public decimal? AuthorizationLimit { get; set; }
+    public OperatingModel OperatingModel { get; set; } = OperatingModel.ModelA;
+
+    // ── Fee & limits (per-park config, see PAYTAXI-CONTEXT.md §2, §5) ─
+    /// <summary>Flat fee in GEL charged to the driver per cashout. Launch value 0.50.</summary>
+    public decimal CashoutFee { get; set; } = 0.50m;
+
+    /// <summary>Smallest gross cashout amount a driver may request.</summary>
+    public decimal MinCashoutAmount { get; set; } = 5m;
+
+    /// <summary>Largest gross cashout amount per request. Null = no cap.</summary>
+    public decimal? MaxCashoutAmount { get; set; }
+
+    /// <summary>Per-driver rolling-day gross cashout ceiling. Null = no cap.</summary>
+    public decimal? DailyCashoutLimitPerDriver { get; set; }
 
     // ── Yandex Fleet ──────────────────────────────────────────────────
     public string YandexClientIdEncrypted { get; set; } = default!;
     public string YandexApiKeyEncrypted { get; set; } = default!;
     public string YandexParkId { get; set; } = default!;
 
-    // ── Bank ──────────────────────────────────────────────────────────
+    // ── Bank (legacy single-provider columns) ─────────────────────────
     /// <summary>
-    /// Identifier for which bank/PSP integration to use ("bog", "tbc", "paypro_psp", …).
-    /// Free-form string rather than enum — we don't yet know all providers we'll integrate with.
+    /// Legacy: identifier for the park's primary bank integration. Superseded by
+    /// <see cref="BankAccounts"/> (one row per bank the park holds an account at).
+    /// Kept populated as a mirror of the primary account for reporting queries.
     /// </summary>
     public string BankProvider { get; set; } = default!;
 
-    /// <summary>
-    /// Legacy column. Will be replaced by <see cref="BankProvider"/> in a follow-up migration
-    /// once the codebase no longer references it.
-    /// </summary>
+    /// <summary>Legacy column mirroring <see cref="BankProvider"/> upper-cased.</summary>
     public string BankType { get; set; } = default!;
 
-    /// <summary>Provider-specific credentials blob (JSONB). Structure varies per provider.</summary>
+    /// <summary>Legacy credentials blob. Real credentials live on <see cref="ParkBankAccount"/>.</summary>
     public string BankCredentialsEncrypted { get; set; } = default!;
 
-    /// <summary>Display-only IBAN of the park's bank account. Reporting and invoices, never used for routing.</summary>
+    /// <summary>Display-only IBAN of the park's primary bank account (invoices, reports).</summary>
     public string? BankAccountIban { get; set; }
 
     // ── Lifecycle ─────────────────────────────────────────────────────
@@ -70,4 +78,5 @@ public class Park : BaseEntity
     // ── Navigation ────────────────────────────────────────────────────
     public ICollection<Driver> Drivers { get; set; } = new List<Driver>();
     public ICollection<Cashout> Cashouts { get; set; } = new List<Cashout>();
+    public ICollection<ParkBankAccount> BankAccounts { get; set; } = new List<ParkBankAccount>();
 }

@@ -1,31 +1,31 @@
 namespace PayTaxi.Core.Enums;
 
 /// <summary>
-/// How money flows from a park to its drivers — see CLAUDE.md "Business Model and Multi-Tenancy".
+/// How money flows from a park to its drivers — see PAYTAXI-CONTEXT.md §3 and
+/// CLAUDE.md "Business Model and Multi-Tenancy".
 /// Persisted as snake_case text in Postgres with a check constraint, not a Postgres enum,
 /// so we can evolve the set without ALTER TYPE migrations.
 /// </summary>
 public enum OperatingModel
 {
     /// <summary>
-    /// Pure SaaS — park uses its OWN bank mass-payout API. PayTaxi never touches the money,
-    /// never has authorization over the park's funds. Slowest onboarding (4–8 weeks per park
-    /// for bank API agreement), but cleanest legally for PayTaxi.
+    /// LAUNCH MODEL. The park pays drivers from its OWN bank account using its own bank
+    /// API credentials (TBC Business Integration Service). PayTaxi orchestrates the
+    /// transfer but never holds or has discretionary control over the money, so no
+    /// PSP/NBG licence is needed. The 0.50 GEL fee never moves — it stays in the park's
+    /// account and is settled to Swich by a nightly aggregated transfer.
     /// </summary>
     ModelA,
 
     /// <summary>
-    /// Commercial agent — PayTaxi initiates transfers from the park's bank account under a
-    /// pre-signed commercial agent authorization (this is what paypro does). Each cashout
-    /// debits the park's <see cref="Entities.Park.AuthorizationLimit"/> on PayTaxi.
-    /// Primary target model. Onboarding: 1–3 weeks per park.
+    /// Legacy: commercial-agent model with a PayTaxi-side authorization limit. Retired in
+    /// September 2026 in favour of Model A. Kept so historical rows still deserialise.
     /// </summary>
     ModelA5,
 
     /// <summary>
-    /// PSP-licensed fintech — PayTaxi advances its own money, reimbursed by parks later.
-    /// Requires a PSP license from the National Bank of Georgia. Documented for completeness
-    /// but explicitly NOT in scope for the current build.
+    /// PSP-licensed fintech — PayTaxi advances its own money. Requires a licence from the
+    /// National Bank of Georgia. Explicitly NOT in scope.
     /// </summary>
     ModelB,
 }

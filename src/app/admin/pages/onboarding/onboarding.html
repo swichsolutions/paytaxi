@@ -258,6 +258,33 @@
             />
           </label>
 
+          <label class="field">
+            <span class="field__label">{{ t.obIbanLabel }} <span class="field__opt">· {{ t.optional }}</span></span>
+            <input
+              type="text"
+              class="field__input field__input--mono"
+              autocapitalize="characters"
+              spellcheck="false"
+              [ngModel]="iban()"
+              (ngModelChange)="iban.set($event)"
+              [placeholder]="t.ibanPlaceholder"
+            />
+            <span class="field__hint">{{ t.obIbanHint }}</span>
+          </label>
+
+          @if (iban().trim()) {
+            <label class="field">
+              <span class="field__label">{{ t.obHolderLabel }}</span>
+              <input
+                type="text"
+                class="field__input"
+                [ngModel]="holderName()"
+                (ngModelChange)="holderName.set($event)"
+                [placeholder]="driverName()"
+              />
+            </label>
+          }
+
           <div class="ob-toggle">
             <label class="ob-toggle__label">
               <span class="ob-toggle__title">{{ t.sendWelcomeSms }}</span>

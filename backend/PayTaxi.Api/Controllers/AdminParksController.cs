@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using PayTaxi.Core.Banking;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
 
@@ -53,7 +54,10 @@ public class AdminParksController : AdminControllerBase
                 p.YandexParkId,
                 p.BankProvider,
                 operatingModel = p.OperatingModel.ToString(),
-                authorizationLimit = p.AuthorizationLimit,
+                cashoutFee = p.CashoutFee,
+                minCashoutAmount = p.MinCashoutAmount,
+                maxCashoutAmount = p.MaxCashoutAmount,
+                dailyCashoutLimitPerDriver = p.DailyCashoutLimitPerDriver,
                 status = p.Status.ToString(),
                 driverCount = p.Drivers.Count(),
                 p.LegalEntityName,
@@ -62,6 +66,21 @@ public class AdminParksController : AdminControllerBase
                 p.BankAccountIban,
                 yandexClientId = p.YandexClientIdEncrypted,
                 yandexApiKeySet = p.YandexApiKeyEncrypted != null && p.YandexApiKeyEncrypted != "",
+                bankAccounts = p.BankAccounts
+                    .Where(a => a.IsActive)
+                    .OrderByDescending(a => a.IsPrimary)
+                    .Select(a => new
+                    {
+                        id = a.Id,
+                        bankCode = a.BankCode,
+                        // Translatable inline mapping (a static helper call would not be SQL-translatable here).
+                        bankLabel = a.BankCode == "TB" ? "TBC" : a.BankCode == "BG" ? "BOG" : a.BankCode == "LB" ? "LIBERTY" : a.BankCode,
+                        provider = a.Provider,
+                        iban = a.Iban,
+                        holderName = a.HolderName,
+                        isPrimary = a.IsPrimary,
+                        label = a.Label,
+                    }),
             })
             .ToListAsync(ct);
 
@@ -90,8 +109,17 @@ public class AdminParksController : AdminControllerBase
         if (string.IsNullOrWhiteSpace(body.YandexParkId))
             return BadRequest(new { error = "yandex_park_id_required" });
 
+        // Model A is the launch model (PAYTAXI-CONTEXT.md §3). Other values are
+        // accepted only for historical compatibility.
         if (!Enum.TryParse<Core.Enums.OperatingModel>(body.OperatingModel, ignoreCase: true, out var model))
-            model = Core.Enums.OperatingModel.ModelA5;
+            model = Core.Enums.OperatingModel.ModelA;
+
+        var cashoutFee = body.CashoutFee ?? 0.50m;
+        if (cashoutFee < 0 || cashoutFee > 50) return BadRequest(new { error = "invalid_fee" });
+        var minCashout = body.MinCashoutAmount ?? 5m;
+        if (minCashout <= cashoutFee) return BadRequest(new { error = "invalid_min_cashout" });
+        if (body.MaxCashoutAmount is { } maxC && maxC < minCashout) return BadRequest(new { error = "invalid_max_cashout" });
+        if (body.DailyCashoutLimitPerDriver is { } dl && dl < minCashout) return BadRequest(new { error = "invalid_daily_limit" });
 
         // Optional billing fields — validate the same way as the PATCH endpoint.
         var taxId = Blank(body.TaxId ?? "");
@@ -109,13 +137,9 @@ public class AdminParksController : AdminControllerBase
             if (phone is null) return BadRequest(new { error = "invalid_phone" });
         }
 
-        var iban = Blank(body.BankAccountIban ?? "");
-        if (iban is not null)
-        {
-            iban = iban.Replace(" ", "").ToUpperInvariant();
-            if (!System.Text.RegularExpressions.Regex.IsMatch(iban, "^[A-Z]{2}[0-9A-Z]{13,32}$"))
-                return BadRequest(new { error = "invalid_iban" });
-        }
+        // The park's payout account. Required: without it no driver can be paid.
+        if (!GeorgianIban.TryParse(body.BankAccountIban, out var iban, out var parkBankCode, out var ibanError))
+            return BadRequest(new { error = ibanError == "iban_required" ? "iban_required" : "invalid_iban" });
 
         // Manager login is optional but recommended.
         string? managerEmail = Blank(body.ManagerEmail ?? "")?.ToLowerInvariant();
@@ -128,22 +152,26 @@ public class AdminParksController : AdminControllerBase
                 return Conflict(new { error = "email_taken" });
         }
 
-        var provider = Blank(body.BankProvider ?? "") ?? "mock";
+        var provider = (Blank(body.BankProvider ?? "") ?? ProviderForBankCode(parkBankCode)).ToLowerInvariant();
+        var legalEntity = Blank(body.LegalEntityName ?? "");
         var park = new Core.Entities.Park
         {
             Name = name,
             Slug = slug,
-            LegalEntityName = Blank(body.LegalEntityName ?? ""),
+            LegalEntityName = legalEntity,
             TaxId = taxId,
             Phone = phone,
             YandexParkId = body.YandexParkId.Trim(),
             YandexClientIdEncrypted = body.YandexClientId?.Trim() ?? "",
             YandexApiKeyEncrypted = body.YandexApiKey?.Trim() ?? "",
             OperatingModel = model,
-            AuthorizationLimit = model == Core.Enums.OperatingModel.ModelA5 ? body.AuthorizationLimit : null,
+            CashoutFee = cashoutFee,
+            MinCashoutAmount = minCashout,
+            MaxCashoutAmount = body.MaxCashoutAmount,
+            DailyCashoutLimitPerDriver = body.DailyCashoutLimitPerDriver,
             BankProvider = provider,
             BankType = provider.ToUpperInvariant(),
-            BankCredentialsEncrypted = "{\"provider\":\"mock\"}",
+            BankCredentialsEncrypted = "{}",
             BankAccountIban = iban,
             Status = Core.Enums.ParkStatus.Active,
         };
@@ -151,6 +179,19 @@ public class AdminParksController : AdminControllerBase
         park.IsActive = true;
 #pragma warning restore CS0618
         _db.Parks.Add(park);
+
+        _db.ParkBankAccounts.Add(new Core.Entities.ParkBankAccount
+        {
+            ParkId = park.Id,
+            BankCode = parkBankCode,
+            Provider = provider,
+            Iban = iban,
+            HolderName = legalEntity ?? name,
+            CredentialsEncrypted = Blank(body.BankCredentialsJson ?? "") ?? "{}",
+            IsActive = true,
+            IsPrimary = true,
+            Label = $"{GeorgianIban.BankLabel(parkBankCode)} business account",
+        });
 
         if (managerEmail is not null)
         {
@@ -226,6 +267,9 @@ public class AdminParksController : AdminControllerBase
                     id = b.Id,
                     maskedPan = b.MaskedPan,
                     bankType = b.BankType,
+                    bankCode = b.BankCode,
+                    iban = b.Iban,
+                    holderName = b.HolderName,
                     isDefault = b.IsDefault,
                 }),
         });
@@ -320,6 +364,13 @@ public class AdminParksController : AdminControllerBase
             c.Status == Core.Enums.CashoutStatus.Failed ||
             c.Status == Core.Enums.CashoutStatus.ReviewRequired).ToList();
 
+        // Queue depth is not day-bounded: a payout stuck since yesterday still matters.
+        var queuedAll = await _db.Cashouts
+            .AsNoTracking()
+            .Where(c => c.ParkId == parkId && c.Status == Core.Enums.CashoutStatus.Queued)
+            .Select(c => new { c.Amount, c.Fee, c.CreatedAt })
+            .ToListAsync(ct);
+
         var driverCounts = await _db.Drivers
             .AsNoTracking()
             .Where(d => d.ParkId == parkId)
@@ -346,7 +397,13 @@ public class AdminParksController : AdminControllerBase
             },
             failedToday = new { count = failedToday.Count },
             activeDrivers = new { count = activeDrivers, total = totalDrivers },
-            authorizationLimit = park.AuthorizationLimit, // null for Model A
+            cashoutFee = park.CashoutFee,
+            queued = new
+            {
+                count = queuedAll.Count,
+                value = queuedAll.Sum(c => c.Amount - c.Fee),
+                oldestAt = queuedAll.Count == 0 ? (DateTime?)null : queuedAll.Min(c => c.CreatedAt),
+            },
             asOf = now,
         });
     }
@@ -664,30 +721,29 @@ public class AdminParksController : AdminControllerBase
         };
         _db.Drivers.Add(driver);
 
-        // Seed two default mock cards so the driver can cashout immediately.
-        // Real onboarding will collect card details via a separate "add card" flow;
-        // this is a dev-time shortcut while Phase 4 bank tokenisation isn't wired.
-        var rng = new Random(driver.Id.GetHashCode());
-        var bogLast4 = rng.Next(1000, 10000).ToString();
-        var tbcLast4 = rng.Next(1000, 10000).ToString();
-        _db.BankCards.Add(new Core.Entities.BankCard
+        // Optional payout destination collected at onboarding. Otherwise the driver
+        // adds their own IBAN in the app before the first cashout.
+        if (!string.IsNullOrWhiteSpace(body.Iban))
         {
-            DriverId = driver.Id,
-            MaskedPan = $"**** {bogLast4}",
-            TokenReferenceEncrypted = $"mock_tok_bog_{driver.Id:N}",
-            BankType = "BOG",
-            IsDefault = true,
-            IsActive = true,
-        });
-        _db.BankCards.Add(new Core.Entities.BankCard
-        {
-            DriverId = driver.Id,
-            MaskedPan = $"**** {tbcLast4}",
-            TokenReferenceEncrypted = $"mock_tok_tbc_{driver.Id:N}",
-            BankType = "TBC",
-            IsDefault = false,
-            IsActive = true,
-        });
+            if (!GeorgianIban.TryParse(body.Iban, out var iban, out var bankCode, out var ibanError))
+                return BadRequest(new { error = ibanError });
+            var supported = await _db.ParkBankAccounts.AsNoTracking()
+                .AnyAsync(a => a.ParkId == parkId && a.IsActive && a.BankCode == bankCode, ct);
+            if (!supported)
+                return BadRequest(new { error = "bank_not_supported", bankCode, bankLabel = GeorgianIban.BankLabel(bankCode) });
+            _db.BankCards.Add(new Core.Entities.BankCard
+            {
+                DriverId = driver.Id,
+                Iban = iban,
+                BankCode = bankCode,
+                BankType = GeorgianIban.BankLabel(bankCode),
+                MaskedPan = GeorgianIban.Mask(iban),
+                HolderName = Blank(body.HolderName ?? "") ?? driver.Name,
+                TokenReferenceEncrypted = "",
+                IsDefault = true,
+                IsActive = true,
+            });
+        }
 
         await _db.SaveChangesAsync(ct);
 
@@ -786,22 +842,8 @@ public class AdminParksController : AdminControllerBase
                 ConsentTimestamp = DateTime.UtcNow,
             };
             _db.Drivers.Add(driver);
-
-            var rng = new Random(driver.Id.GetHashCode());
-            _db.BankCards.Add(new Core.Entities.BankCard
-            {
-                DriverId = driver.Id,
-                MaskedPan = $"**** {rng.Next(1000, 10000)}",
-                TokenReferenceEncrypted = $"mock_tok_bog_{driver.Id:N}",
-                BankType = "BOG", IsDefault = true, IsActive = true,
-            });
-            _db.BankCards.Add(new Core.Entities.BankCard
-            {
-                DriverId = driver.Id,
-                MaskedPan = $"**** {rng.Next(1000, 10000)}",
-                TokenReferenceEncrypted = $"mock_tok_tbc_{driver.Id:N}",
-                BankType = "TBC", IsDefault = false, IsActive = true,
-            });
+            // No payout destination yet: drivers add their own IBAN in the app
+            // (or an operator adds one via POST drivers/{id}/cards).
 
             taken.Add(pid); // guard against duplicate ids within the same request
             created.Add(new { id = driver.Id, yandexProfileId = pid, name = driver.Name, phone });
@@ -966,6 +1008,26 @@ public class AdminParksController : AdminControllerBase
         if (!string.IsNullOrWhiteSpace(body.YandexApiKey))
             park.YandexApiKeyEncrypted = body.YandexApiKey.Trim();
 
+        // ── Fee & limits ─────────────────────────────────────────────
+        if (body.CashoutFee is { } fee)
+        {
+            if (fee < 0 || fee > 50) return BadRequest(new { error = "invalid_fee" });
+            park.CashoutFee = Math.Round(fee, 2);
+        }
+        if (body.MinCashoutAmount is { } minC)
+        {
+            if (minC <= 0) return BadRequest(new { error = "invalid_min_cashout" });
+            park.MinCashoutAmount = Math.Round(minC, 2);
+        }
+        if (body.MaxCashoutAmount is not null)
+            park.MaxCashoutAmount = body.MaxCashoutAmount <= 0 ? null : Math.Round(body.MaxCashoutAmount.Value, 2);
+        if (body.DailyCashoutLimitPerDriver is not null)
+            park.DailyCashoutLimitPerDriver = body.DailyCashoutLimitPerDriver <= 0 ? null : Math.Round(body.DailyCashoutLimitPerDriver.Value, 2);
+
+        if (park.MinCashoutAmount <= park.CashoutFee) return BadRequest(new { error = "invalid_min_cashout" });
+        if (park.MaxCashoutAmount is { } mx && mx < park.MinCashoutAmount) return BadRequest(new { error = "invalid_max_cashout" });
+        if (park.DailyCashoutLimitPerDriver is { } dlim && dlim < park.MinCashoutAmount) return BadRequest(new { error = "invalid_daily_limit" });
+
         await _db.SaveChangesAsync(ct);
         _log.LogInformation("Park {ParkId} account details updated by admin", park.Id);
 
@@ -980,8 +1042,254 @@ public class AdminParksController : AdminControllerBase
             yandexClientId = park.YandexClientIdEncrypted,
             yandexParkId = park.YandexParkId,
             yandexApiKeySet = !string.IsNullOrEmpty(park.YandexApiKeyEncrypted),
+            cashoutFee = park.CashoutFee,
+            minCashoutAmount = park.MinCashoutAmount,
+            maxCashoutAmount = park.MaxCashoutAmount,
+            dailyCashoutLimitPerDriver = park.DailyCashoutLimitPerDriver,
         });
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Park payout accounts (one per bank; TBC at launch, BoG in Phase 2)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// The park's payout accounts with a live balance read where the rail exposes it.
+    /// Credentials are never returned — only whether they are set.
+    /// </summary>
+    [HttpGet("bank-accounts")]
+    public async Task<IActionResult> ListBankAccounts(Guid parkId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+
+        var park = await _db.Parks.AsNoTracking().FirstOrDefaultAsync(p => p.Id == parkId, ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        var accounts = await _db.ParkBankAccounts.AsNoTracking()
+            .Where(a => a.ParkId == parkId)
+            .OrderByDescending(a => a.IsPrimary).ThenBy(a => a.BankCode)
+            .ToListAsync(ct);
+
+        var queuedByAccount = await _db.Cashouts.AsNoTracking()
+            .Where(c => c.ParkId == parkId && c.Status == Core.Enums.CashoutStatus.Queued && c.ParkBankAccountId != null)
+            .GroupBy(c => c.ParkBankAccountId!.Value)
+            .Select(g => new { AccountId = g.Key, Count = g.Count(), Net = g.Sum(c => c.Amount - c.Fee) })
+            .ToDictionaryAsync(g => g.AccountId, ct);
+
+        var rows = new List<object>(accounts.Count);
+        foreach (var a in accounts)
+        {
+            decimal? balance = null;
+            string? balanceError = null;
+            if (a.IsActive)
+            {
+                try
+                {
+                    var adapter = HttpContext.RequestServices.GetKeyedService<IBankPayoutAdapter>(a.Provider)
+                        ?? HttpContext.RequestServices.GetKeyedService<IBankPayoutAdapter>(a.Provider.ToUpperInvariant());
+                    if (adapter is not null)
+                        balance = await adapter.GetBalanceAsync(new BankAccountContext(
+                            parkId, a.Id, a.Provider, a.BankCode, a.Iban,
+                            a.HolderName ?? park.LegalEntityName ?? park.Name, a.CredentialsEncrypted), ct);
+                }
+                catch (NotImplementedException) { balanceError = "adapter_not_implemented"; }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Balance read failed for account {Account}", a.Id);
+                    balanceError = "balance_unavailable";
+                }
+            }
+
+            queuedByAccount.TryGetValue(a.Id, out var q);
+            rows.Add(new
+            {
+                id = a.Id,
+                bankCode = a.BankCode,
+                bankLabel = GeorgianIban.BankLabel(a.BankCode),
+                provider = a.Provider,
+                iban = a.Iban,
+                holderName = a.HolderName,
+                label = a.Label,
+                isActive = a.IsActive,
+                isPrimary = a.IsPrimary,
+                credentialsSet = !string.IsNullOrWhiteSpace(a.CredentialsEncrypted) && a.CredentialsEncrypted != "{}",
+                balance,
+                balanceError,
+                queuedCount = q?.Count ?? 0,
+                queuedNet = q?.Net ?? 0m,
+                createdAt = a.CreatedAt,
+            });
+        }
+
+        return Ok(new { parkId, count = rows.Count, accounts = rows });
+    }
+
+    /// <summary>
+    /// Add a payout account. Body: { iban, provider?, holderName?, label?, credentialsJson?, isPrimary? }.
+    /// The bank code is read from the IBAN; provider defaults from it (TB→tbc, BG→bog).
+    /// </summary>
+    [HttpPost("bank-accounts")]
+    public async Task<IActionResult> CreateBankAccount(
+        Guid parkId, [FromBody] UpsertBankAccountRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var park = await _db.Parks.FirstOrDefaultAsync(p => p.Id == parkId, ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        if (!GeorgianIban.TryParse(body.Iban, out var iban, out var bankCode, out var ibanError))
+            return BadRequest(new { error = ibanError });
+
+        if (await _db.ParkBankAccounts.AsNoTracking().AnyAsync(a => a.ParkId == parkId && a.Iban == iban, ct))
+            return Conflict(new { error = "iban_already_added" });
+
+        var provider = (Blank(body.Provider ?? "") ?? ProviderForBankCode(bankCode)).ToLowerInvariant();
+        if (provider is not ("tbc" or "bog" or "mock"))
+            return BadRequest(new { error = "invalid_provider", allowed = new[] { "tbc", "bog", "mock" } });
+
+        var hasAny = await _db.ParkBankAccounts.AnyAsync(a => a.ParkId == parkId && a.IsActive, ct);
+        var makePrimary = body.IsPrimary ?? !hasAny;
+        if (makePrimary)
+        {
+            await _db.ParkBankAccounts
+                .Where(a => a.ParkId == parkId && a.IsPrimary)
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.IsPrimary, false), ct);
+        }
+
+        var account = new Core.Entities.ParkBankAccount
+        {
+            ParkId = parkId,
+            BankCode = bankCode,
+            Provider = provider,
+            Iban = iban,
+            HolderName = Blank(body.HolderName ?? "") ?? park.LegalEntityName ?? park.Name,
+            Label = Blank(body.Label ?? "") ?? $"{GeorgianIban.BankLabel(bankCode)} account",
+            CredentialsEncrypted = Blank(body.CredentialsJson ?? "") ?? "{}",
+            IsActive = true,
+            IsPrimary = makePrimary,
+        };
+        _db.ParkBankAccounts.Add(account);
+
+        if (makePrimary)
+        {
+            park.BankAccountIban = iban;
+            park.BankProvider = provider;
+            park.BankType = provider.ToUpperInvariant();
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _log.LogInformation("Park {ParkId}: payout account {Account} added ({Bank}/{Provider}, primary={Primary})",
+            parkId, account.Id, bankCode, provider, makePrimary);
+
+        return Created($"/api/admin/parks/{parkId}/bank-accounts/{account.Id}", new
+        {
+            id = account.Id,
+            bankCode,
+            bankLabel = GeorgianIban.BankLabel(bankCode),
+            provider,
+            iban,
+            holderName = account.HolderName,
+            label = account.Label,
+            isActive = true,
+            isPrimary = makePrimary,
+        });
+    }
+
+    /// <summary>
+    /// Edit a payout account. Credentials are write-only: blank keeps the current value.
+    /// Setting isActive=false takes the account out of routing (queued payouts re-route or wait).
+    /// </summary>
+    [HttpPatch("bank-accounts/{accountId:guid}")]
+    public async Task<IActionResult> UpdateBankAccount(
+        Guid parkId, Guid accountId, [FromBody] UpsertBankAccountRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var account = await _db.ParkBankAccounts.FirstOrDefaultAsync(a => a.Id == accountId && a.ParkId == parkId, ct);
+        if (account is null) return NotFound(new { error = "account_not_found" });
+        var park = await _db.Parks.FirstAsync(p => p.Id == parkId, ct);
+
+        if (body.HolderName is not null) account.HolderName = Blank(body.HolderName);
+        if (body.Label is not null) account.Label = Blank(body.Label);
+        if (!string.IsNullOrWhiteSpace(body.CredentialsJson)) account.CredentialsEncrypted = body.CredentialsJson.Trim();
+        if (body.Provider is not null)
+        {
+            var provider = body.Provider.Trim().ToLowerInvariant();
+            if (provider is not ("tbc" or "bog" or "mock"))
+                return BadRequest(new { error = "invalid_provider", allowed = new[] { "tbc", "bog", "mock" } });
+            account.Provider = provider;
+        }
+        if (body.IsActive is { } active) account.IsActive = active;
+        if (body.IsPrimary == true && !account.IsPrimary)
+        {
+            await _db.ParkBankAccounts
+                .Where(a => a.ParkId == parkId && a.IsPrimary && a.Id != accountId)
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.IsPrimary, false), ct);
+            account.IsPrimary = true;
+        }
+        if (account.IsPrimary)
+        {
+            park.BankAccountIban = account.Iban;
+            park.BankProvider = account.Provider;
+            park.BankType = account.Provider.ToUpperInvariant();
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return Ok(new
+        {
+            id = account.Id,
+            bankCode = account.BankCode,
+            bankLabel = GeorgianIban.BankLabel(account.BankCode),
+            provider = account.Provider,
+            iban = account.Iban,
+            holderName = account.HolderName,
+            label = account.Label,
+            isActive = account.IsActive,
+            isPrimary = account.IsPrimary,
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Driver payout destinations (operator-side)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>Add a payout IBAN for a driver on their behalf (onboarding desk).</summary>
+    [HttpPost("drivers/{driverId:guid}/cards")]
+    public async Task<IActionResult> AddDriverCard(
+        Guid parkId, Guid driverId, [FromBody] AddDestinationRequest body, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var driver = await _db.Drivers.FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
+        if (driver is null) return NotFound(new { error = "driver_not_found" });
+
+        var (result, error, payload) = await DestinationHelper.AddAsync(_db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true, ct);
+        return result switch
+        {
+            DestinationHelper.Outcome.Created => Created($"/api/admin/parks/{parkId}/drivers/{driverId}/cards", payload),
+            DestinationHelper.Outcome.Conflict => Conflict(new { error }),
+            _ => BadRequest(payload ?? new { error }),
+        };
+    }
+
+    /// <summary>Remove (deactivate) a driver's payout destination.</summary>
+    [HttpDelete("drivers/{driverId:guid}/cards/{cardId:guid}")]
+    public async Task<IActionResult> RemoveDriverCard(Guid parkId, Guid driverId, Guid cardId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        var ok = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
+        return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+    }
+
+    private static string ProviderForBankCode(string bankCode) => bankCode switch
+    {
+        "TB" => "tbc",
+        "BG" => "bog",
+        _ => "mock",
+    };
 
     private static string? Blank(string s)
     {
@@ -1043,7 +1351,20 @@ public record CreateDriverRequest(
     string Phone,
     string YandexProfileId,
     string Name,
-    bool ConsentGiven);
+    bool ConsentGiven,
+    string? Iban = null,
+    string? HolderName = null);
+
+public record AddDestinationRequest(string Iban, string? HolderName, bool? MakeDefault);
+
+public record UpsertBankAccountRequest(
+    string? Iban,
+    string? Provider,
+    string? HolderName,
+    string? Label,
+    string? CredentialsJson,
+    bool? IsPrimary,
+    bool? IsActive);
 
 public record UpdateDriverRequest(
     string? Name,
@@ -1058,14 +1379,18 @@ public record UpdateParkRequest(
     string? BankAccountIban,
     string? YandexClientId = null,
     string? YandexApiKey = null,
-    string? YandexParkId = null);
+    string? YandexParkId = null,
+    decimal? CashoutFee = null,
+    decimal? MinCashoutAmount = null,
+    decimal? MaxCashoutAmount = null,
+    decimal? DailyCashoutLimitPerDriver = null);
 
 public record CreateParkRequest(
     string? Name,
     string? Slug,
     string? OperatingModel,
-    decimal? AuthorizationLimit,
     string? BankProvider,
+    string? BankCredentialsJson,
     string? YandexClientId,
     string? YandexApiKey,
     string? YandexParkId,
@@ -1075,7 +1400,11 @@ public record CreateParkRequest(
     string? BankAccountIban,
     string? ManagerEmail,
     string? ManagerName,
-    string? ManagerPassword);
+    string? ManagerPassword,
+    decimal? CashoutFee = null,
+    decimal? MinCashoutAmount = null,
+    decimal? MaxCashoutAmount = null,
+    decimal? DailyCashoutLimitPerDriver = null);
 
 public record BulkOnboardRequest(string[] YandexProfileIds);
 

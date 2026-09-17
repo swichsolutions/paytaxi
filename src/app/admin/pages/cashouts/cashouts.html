@@ -160,7 +160,9 @@
         <div class="queue__cell queue__cell--status">
           <span class="status-pill" [attr.data-status]="c.status">
             <span class="status-pill__dot"></span>
-            {{ t[c.status] }}
+            @if (c.rawStatus === 'Queued') { {{ t.queued }} }
+            @else if (c.rawStatus === 'ReviewRequired') { {{ t.reviewrequired }} }
+            @else { {{ t[c.status] }} }
           </span>
         </div>
         <div class="queue__cell queue__cell--action">
@@ -198,7 +200,26 @@
                 <span class="detail-label">{{ t.yandexTransaction }}</span>
                 <code class="detail-code">{{ c.yandexTransactionId ?? '—' }}</code>
               </div>
+              @if (c.rawStatus === 'Queued' || c.attemptCount > 1) {
+                <div class="detail-cell">
+                  <span class="detail-label">{{ t.attempts }}</span>
+                  <span class="detail-value">
+                    {{ c.attemptCount }}
+                    @if (c.rawStatus === 'Queued' && c.nextAttemptAt) { · {{ t.nextAttempt }} {{ formatTime(c.nextAttemptAt) }} }
+                  </span>
+                </div>
+              }
             </div>
+            @if (c.rawStatus === 'Queued') {
+              <div class="detail-actions">
+                <button class="btn-admin btn-admin--brand" (click)="processNow(c.id, $event)" [disabled]="retrying() === c.id">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  <span>{{ t.processNow }}</span>
+                </button>
+              </div>
+            }
             @if (c.errorMessage) {
               <div class="detail-error">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

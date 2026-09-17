@@ -39,6 +39,8 @@ export class OnboardingComponent {
   // Editable fields populated from Yandex lookup
   driverName = signal('');
   carPlate   = signal('');
+  iban       = signal('');
+  holderName = signal('');
   notify     = signal(true);
   creating   = signal(false);
   createError = signal<string | null>(null);
@@ -176,6 +178,8 @@ export class OnboardingComponent {
         yandexProfileId: this.yandexId().trim(),
         name: this.driverName().trim(),
         consentGiven: true, // operator confirms on driver's behalf at this step
+        iban: this.iban().replace(/\s+/g, '') || undefined,
+        holderName: this.holderName().trim() || undefined,
       });
       this.step.set(3);
     } catch (err: any) {
@@ -183,6 +187,8 @@ export class OnboardingComponent {
       const msg =
         code === 'phone_already_registered'      ? this.t['obErrPhoneLinked']
       : code === 'yandex_profile_already_linked' ? this.t['obErrYandexLinked']
+      : code === 'bank_not_supported' ? this.t['obErrBankNotSupported']
+      : (code === 'invalid_iban_format' || code === 'invalid_iban_checksum') ? this.t['obErrInvalidIban']
       : err?.error?.message ?? err?.message ?? this.t['obErrCreate'];
       this.createError.set(msg);
     } finally {
@@ -198,6 +204,8 @@ export class OnboardingComponent {
     this.lookupError.set(null);
     this.driverName.set('');
     this.carPlate.set('');
+    this.iban.set('');
+    this.holderName.set('');
     this.createError.set(null);
   }
 

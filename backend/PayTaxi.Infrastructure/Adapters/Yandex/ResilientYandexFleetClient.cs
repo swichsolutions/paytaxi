@@ -79,6 +79,14 @@ public class ResilientYandexFleetClient : IYandexFleetClient
             action: () => _inner.PostCashoutTransactionAsync(parkId, driverProfileId, amount, idempotencyKey, ct),
             ct: ct);
 
+    public Task<YandexTransactionResult> PostReversalTransactionAsync(
+        Guid parkId, string driverProfileId, decimal amount, string idempotencyKey, CancellationToken ct = default) =>
+        ExecuteAsync(parkId,
+            endpoint: "POST /v2/parks/driver-profile/transactions (reversal)",
+            paramsObj: new { parkId, driverProfileId, amount, idempotencyKey, reversal = true },
+            action: () => _inner.PostReversalTransactionAsync(parkId, driverProfileId, amount, idempotencyKey, ct),
+            ct: ct);
+
     // ── Core execution path ───────────────────────────────────────────
     private async Task<T> ExecuteAsync<T>(
         Guid parkId,

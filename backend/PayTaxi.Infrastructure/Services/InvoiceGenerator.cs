@@ -226,9 +226,7 @@ public class InvoiceGenerator : IInvoiceGenerator
             ParkPhone: c.Park.Phone ?? "—",
             NetAmount: net,
             DriverBankName: c.BankCard.BankType,
-            // TODO Phase 8: collect real driver IBAN at onboarding. For now, surface
-            // the masked PAN so the recipient is at least uniquely identifiable.
-            DriverIbanOrPan: c.BankCard.MaskedPan,
+            DriverIbanOrPan: string.IsNullOrWhiteSpace(c.BankCard.Iban) ? c.BankCard.MaskedPan : c.BankCard.Iban,
             PaymentPurpose: purpose,
             Note: note);
     }
