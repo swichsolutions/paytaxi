@@ -1,0 +1,171 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">{{ t.navSettlements }}</h1>
+      <p class="page-head__sub">{{ t.settlementsSub }}</p>
+    </div>
+    <div class="page-head__actions">
+      @if (isSuperAdmin()) {
+        <button class="btn-admin btn-admin--brand" (click)="runNow()" [disabled]="busy() !== null">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          <span>@if (busy() === 'run') { {{ t.runningSettlement }} } @else { {{ t.runSettlementNow }} }</span>
+        </button>
+      }
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+          <path d="M21 3v5h-5"/>
+        </svg>
+        <span>{{ t.refresh }}</span>
+      </button>
+    </div>
+  </header>
+
+  @if (loadError()) { <div class="stl-error">{{ loadError() }}</div> }
+  @if (message()) { <div class="stl-message">{{ message() }}</div> }
+
+  @if (summary(); as s) {
+    <!-- ── Tiles ─────────────────────────────────────────────────── -->
+    <section class="stl-tiles">
+      <div class="stl-tile stl-tile--dark">
+        <span class="stl-tile__label">{{ t.settledToSwich }}</span>
+        <span class="stl-tile__value gel">{{ formatGel(s.settledToSwich, 2) }}</span>
+        <span class="stl-tile__sub">{{ s.park.name }} · {{ t.allTime }}</span>
+      </div>
+
+      <div class="stl-tile stl-tile--phase">
+        @if (hasPhase1()) {
+          <span class="stl-tile__label">{{ t.phase1Progress }}</span>
+          <span class="stl-tile__value gel">
+            {{ formatGel(s.phase1Progress ?? 0, 0) }}
+            <span class="stl-tile__of">{{ t.phase1Of }} {{ formatGel(s.park.phase1CapGel ?? 0, 0) }}</span>
+          </span>
+          <div class="stl-bar"><div class="stl-bar__fill" [style.width.%]="phasePct()"></div></div>
+          <span class="stl-tile__sub">
+            @if (s.inPhase1) {
+              {{ formatGel(s.phase1Remaining ?? 0, 0) }} {{ t.phase1Remaining }} {{ s.park.phase1SharePercent }}% → {{ s.park.swichSharePercent }}%
+            } @else { {{ t.phase1Done }} {{ s.park.swichSharePercent }}% }
+          </span>
+        } @else {
+          <span class="stl-tile__label">{{ t.steadyShare }}</span>
+          <span class="stl-tile__value gel">{{ s.park.swichSharePercent }}%</span>
+          <span class="stl-tile__sub">{{ t.ofEveryFee }}</span>
+        }
+      </div>
+
+      <div class="stl-tile">
+        <span class="stl-tile__label">{{ t.waitingTonight }}</span>
+        <span class="stl-tile__value gel">{{ formatGel(s.unsettled.fees, 2) }}</span>
+        <span class="stl-tile__sub">{{ s.unsettled.count }} {{ t.cashoutsLabel }} · {{ t.unsettledFees }}</span>
+      </div>
+
+      <div class="stl-tile" [class.stl-tile--alert]="(totals()?.failedCount ?? 0) > 0">
+        <span class="stl-tile__label">{{ t.failedSettlements }}</span>
+        <span class="stl-tile__value gel">{{ totals()?.failedCount ?? 0 }}</span>
+        <span class="stl-tile__sub">{{ formatGel(totals()?.failedSwichShare ?? 0, 2) }} {{ t.needsRetry }}</span>
+      </div>
+    </section>
+
+    <!-- ── Daily fees ─────────────────────────────────────────────── -->
+    <section class="stl-card">
+      <header class="stl-card__head"><h2>{{ t.dailyFees }} · {{ s.park.name }}</h2></header>
+      <div class="stl-table stl-table--daily">
+        <div class="stl-table__head">
+          <span>{{ t.colDate }}</span><span>{{ t.cashoutsLabel }}</span><span>{{ t.colVolume }}</span>
+          <span>{{ t.colFees }}</span><span>{{ t.colSettlement }}</span><span>{{ t.colSwichShare }}</span>
+        </div>
+        @for (d of s.daily; track d.date) {
+          <div class="stl-table__row" [class.stl-table__row--muted]="d.cashouts === 0">
+            <span>{{ formatDate(d.date) }}</span>
+            <span class="gel">{{ d.cashouts }}</span>
+            <span class="gel">{{ formatGel(d.volume, 0) }}</span>
+            <span class="gel">{{ formatGel(d.fees, 2) }}</span>
+            <span>
+              @if (d.settlementStatus) {
+                <span class="stl-pill" [attr.data-status]="statusKey(d.settlementStatus)">{{ statusLabel(d.settlementStatus) }}</span>
+              } @else if (d.cashouts > 0) { <span class="stl-muted">{{ t.notSettled }}</span> } @else { — }
+            </span>
+            <span class="gel">{{ d.swichShare !== null ? formatGel(d.swichShare, 2) : '—' }}</span>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
+  <!-- ── History ──────────────────────────────────────────────────── -->
+  <section class="stl-card">
+    <header class="stl-card__head">
+      <h2>{{ t.settlementHistory }}</h2>
+      @if (seesAllParks()) {
+        <div class="stl-scope">
+          <button class="stl-scope__btn" [class.stl-scope__btn--on]="!scopeAll()" (click)="setScopeAll(false)">{{ t.thisPark }}</button>
+          <button class="stl-scope__btn" [class.stl-scope__btn--on]="scopeAll()" (click)="setScopeAll(true)">{{ t.allParks }}</button>
+        </div>
+      }
+    </header>
+
+    @if (settlements().length === 0 && !loading()) {
+      <p class="stl-empty">{{ t.noSettlements }}</p>
+    }
+
+    <div class="stl-list">
+      @for (st of settlements(); track st.id) {
+        <div class="stl-row" [class.stl-row--failed]="st.status === 'Failed'" [class.stl-row--open]="expanded() === st.id" (click)="toggleExpand(st)">
+          <div class="stl-row__main">
+            <span class="stl-row__date">{{ formatDate(st.settlementDate) }}</span>
+            @if (scopeAll()) { <span class="stl-row__park">{{ st.parkName }}</span> }
+            <span class="stl-row__desc">{{ st.cashoutCount }} {{ t.cashoutsLabel }} · {{ t.colFees }} <b class="gel">{{ formatGel(st.feeTotal, 2) }}</b>
+              @if (st.phase1Fees > 0 && st.phase2Fees > 0) { <span class="stl-muted">({{ t.phaseSplit }}: {{ formatGel(st.phase1Fees, 2) }} / {{ formatGel(st.phase2Fees, 2) }})</span> }
+            </span>
+          </div>
+          <div class="stl-row__amount">
+            <span class="stl-row__swich gel">{{ formatGel(st.swichShare, 2) }}</span>
+            <span class="stl-row__amount-label">{{ t.colSwichShare }}</span>
+          </div>
+          <div class="stl-row__status">
+            <span class="stl-pill" [attr.data-status]="statusKey(st.status)">{{ statusLabel(st.status) }}</span>
+            <span class="stl-row__ref">{{ st.bankTransferId ?? st.invoiceRef }}</span>
+          </div>
+          <div class="stl-row__action" (click)="$event.stopPropagation()">
+            @if (st.status === 'Failed' && isSuperAdmin()) {
+              <button class="btn-admin btn-admin--brand" (click)="retry(st, $event)" [disabled]="busy() !== null">
+                @if (busy() === st.id) { {{ t.runningSettlement }} } @else { {{ t.retrySettlement }} }
+              </button>
+            }
+          </div>
+
+          @if (expanded() === st.id) {
+            <div class="stl-row__detail" (click)="$event.stopPropagation()">
+              <div class="stl-detail-grid">
+                <div><span class="stl-detail__label">{{ t.colTransfer }}</span><code>{{ st.bankTransferId ?? '—' }}</code></div>
+                <div><span class="stl-detail__label">IBAN</span><code>{{ st.sourceIban ?? '—' }} → {{ st.swichIban ?? '—' }}</code></div>
+                <div><span class="stl-detail__label">{{ t.attempts }}</span><span>{{ st.attemptCount }} · {{ formatDateTime(st.lastAttemptAt) }}</span></div>
+                <div><span class="stl-detail__label">{{ t.phaseSplit }}</span><span class="gel">{{ formatGel(st.phase1Fees, 2) }} / {{ formatGel(st.phase2Fees, 2) }}</span></div>
+              </div>
+              <p class="stl-detail__desc">{{ st.description }}</p>
+              @if (st.failureReason) { <p class="stl-detail__error">{{ st.failureReason }}</p> }
+
+              <h4 class="stl-detail__sub">{{ t.coveredCashouts }}</h4>
+              @if (expandedLoading()) { <p class="stl-muted">{{ t.loadingCashouts }}</p> }
+              @if (expandedCashouts(); as ec) {
+                <div class="stl-table stl-table--cashouts">
+                  @for (c of ec.cashouts; track c.id) {
+                    <div class="stl-table__row">
+                      <span>{{ formatDateTime(c.completedAt) }}</span>
+                      <span>{{ c.driverName || '—' }}</span>
+                      <span class="gel">{{ formatGel(c.amount, 2) }}</span>
+                      <span class="gel">{{ formatGel(c.fee, 2) }}</span>
+                      <code>{{ c.invoiceNumber ?? '—' }}</code>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </section>
+</div>

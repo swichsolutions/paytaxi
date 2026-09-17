@@ -116,6 +116,20 @@
             </span>
           </div>
 
+          <div class="set-rows__divider">{{ t.secRevenueSplit }}</div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.swichShareLabel }}</span>
+            <span class="set-row__value gel">{{ p.swichSharePercent }}%</span>
+          </div>
+          <div class="set-row">
+            <span class="set-row__label">{{ t.phase1Label }}</span>
+            <span class="set-row__value gel" [class.set-row__value--muted]="p.phase1CapGel === null">
+              @if (p.phase1CapGel !== null) {
+                {{ p.phase1SharePercent }}% {{ t.untilCap }} {{ formatGel(p.phase1CapGel, 0) }}
+              } @else { {{ t.noPhase1 }} }
+            </span>
+          </div>
+
           <div class="set-rows__divider">{{ t.secYandex }}</div>
           <div class="set-row">
             <span class="set-row__label">{{ t.yandexParkIdLabel }}</span>
@@ -184,6 +198,28 @@
                 (input)="setField('dailyCashoutLimitPerDriver', $any($event.target).value)" [placeholder]="t.noLimit" />
             </label>
           </div>
+
+          @if (isSuperAdmin()) {
+            <div class="set-edit__divider"><span>{{ t.secRevenueSplit }}</span></div>
+            <p class="set-edit__hint">{{ t.revenueSplitHint }}</p>
+            <div class="set-edit__grid">
+              <label class="set-field">
+                <span class="set-field__label">{{ t.swichShareLabel }}</span>
+                <input type="number" step="1" min="0" max="100" class="set-field__input gel" [value]="form().swichSharePercent"
+                  (input)="setField('swichSharePercent', $any($event.target).value)" />
+              </label>
+              <label class="set-field">
+                <span class="set-field__label">{{ t.phase1ShareLabel }}</span>
+                <input type="number" step="1" min="0" max="100" class="set-field__input gel" [value]="form().phase1SharePercent"
+                  (input)="setField('phase1SharePercent', $any($event.target).value)" [placeholder]="t.noPhase1" />
+              </label>
+              <label class="set-field">
+                <span class="set-field__label">{{ t.phase1CapLabel }}</span>
+                <input type="number" step="100" min="0" class="set-field__input gel" [value]="form().phase1CapGel"
+                  (input)="setField('phase1CapGel', $any($event.target).value)" [placeholder]="t.noPhase1" />
+              </label>
+            </div>
+          }
 
           <div class="set-edit__divider"><span>{{ t.secYandex }}</span></div>
           <p class="set-edit__hint">{{ t.yandexFleetHint }}</p>

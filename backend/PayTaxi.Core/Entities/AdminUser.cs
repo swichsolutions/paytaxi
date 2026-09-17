@@ -16,7 +16,7 @@ public class AdminUser : BaseEntity
     public string Email { get; set; } = default!;
     public string PasswordHash { get; set; } = default!; // BCrypt
     public string? Name { get; set; }
-    public string Role { get; set; } = default!; // "super_admin" | "park_admin"
+    public string Role { get; set; } = default!; // "super_admin" (Swich) | "operator" (Levan's company, all parks, read-only ops) | "park_admin"
     public Guid? ParkId { get; set; }            // null = super_admin; required for park_admin
     public DateTime? LastLoginAt { get; set; }
     public bool IsActive { get; set; } = true;

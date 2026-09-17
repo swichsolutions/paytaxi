@@ -18,6 +18,9 @@ interface ParkForm {
   minCashoutAmount: string;
   maxCashoutAmount: string;
   dailyCashoutLimitPerDriver: string;
+  swichSharePercent: string;
+  phase1SharePercent: string;
+  phase1CapGel: string;
 }
 
 interface AccountForm {
@@ -56,7 +59,10 @@ export class SettingsComponent {
     legalEntityName: '', taxId: '', phone: '', bankAccountIban: '',
     yandexClientId: '', yandexApiKey: '', yandexParkId: '',
     cashoutFee: '0.50', minCashoutAmount: '5', maxCashoutAmount: '', dailyCashoutLimitPerDriver: '',
+    swichSharePercent: '50', phase1SharePercent: '', phase1CapGel: '',
   });
+
+  readonly isSuperAdmin = computed(() => this.auth.admin()?.role === 'super_admin');
 
   // ── Payout accounts ──────────────────────────────────────────────
   accounts = signal<ApiBankAccount[]>([]);
@@ -81,6 +87,7 @@ export class SettingsComponent {
 
   roleLabel(role: string | undefined): string {
     if (role === 'super_admin') return this.t['roleSuperAdmin'];
+    if (role === 'operator') return this.t['roleOperator'];
     return this.t['roleParkManager'];
   }
 
@@ -121,6 +128,9 @@ export class SettingsComponent {
       minCashoutAmount: String(p.minCashoutAmount ?? 5),
       maxCashoutAmount: p.maxCashoutAmount === null || p.maxCashoutAmount === undefined ? '' : String(p.maxCashoutAmount),
       dailyCashoutLimitPerDriver: p.dailyCashoutLimitPerDriver === null || p.dailyCashoutLimitPerDriver === undefined ? '' : String(p.dailyCashoutLimitPerDriver),
+      swichSharePercent: String(p.swichSharePercent ?? 50),
+      phase1SharePercent: p.phase1SharePercent === null || p.phase1SharePercent === undefined ? '' : String(p.phase1SharePercent),
+      phase1CapGel: p.phase1CapGel === null || p.phase1CapGel === undefined ? '' : String(p.phase1CapGel),
     });
     this.editError.set(null);
     this.editing.set(true);
@@ -150,6 +160,11 @@ export class SettingsComponent {
         minCashoutAmount: Number(f.minCashoutAmount) || 0,
         maxCashoutAmount: f.maxCashoutAmount.trim() ? Number(f.maxCashoutAmount) : 0,               // 0 = no limit
         dailyCashoutLimitPerDriver: f.dailyCashoutLimitPerDriver.trim() ? Number(f.dailyCashoutLimitPerDriver) : 0,
+        ...(this.isSuperAdmin() ? {
+          swichSharePercent: Number(f.swichSharePercent) || 0,
+          phase1SharePercent: f.phase1SharePercent.trim() ? Number(f.phase1SharePercent) : -1,
+          phase1CapGel: f.phase1CapGel.trim() ? Number(f.phase1CapGel) : 0,
+        } : {}),
       });
       await this.parkCtx.refresh();
       this.editing.set(false);
@@ -171,6 +186,7 @@ export class SettingsComponent {
       case 'invalid_min_cashout': return t['errMinCashout'];
       case 'invalid_max_cashout': return t['errMaxCashout'];
       case 'invalid_daily_limit': return t['errDailyLimit'];
+      case 'invalid_share': return t['errShare'];
       default: return err?.error?.message ?? err?.message ?? t['parkErrSave'];
     }
   }

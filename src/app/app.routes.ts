@@ -70,6 +70,10 @@ export const routes: Routes = [
         loadComponent: () => import('./admin/pages/onboarding/onboarding').then(m => m.OnboardingComponent),
       },
       {
+        path: 'settlements',
+        loadComponent: () => import('./admin/pages/settlements/settlements').then(m => m.SettlementsComponent),
+      },
+      {
         path: 'reconciliation',
         loadComponent: () => import('./admin/pages/reconciliation/reconciliation').then(m => m.ReconciliationComponent),
       },

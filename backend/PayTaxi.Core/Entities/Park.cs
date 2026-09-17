@@ -43,6 +43,16 @@ public class Park : BaseEntity
     /// <summary>Per-driver rolling-day gross cashout ceiling. Null = no cap.</summary>
     public decimal? DailyCashoutLimitPerDriver { get; set; }
 
+    // ── Revenue split with Swich (PAYTAXI-CONTEXT.md §2, §5) ──────────
+    /// <summary>Steady-state percentage of every cashout fee that goes to Swich. Network parks: 50.</summary>
+    public decimal SwichSharePercent { get; set; } = 50m;
+
+    /// <summary>Phase-1 percentage while cumulative fees are under <see cref="Phase1CapGel"/>. Levan's park: 100. Null = no phase 1.</summary>
+    public decimal? Phase1SharePercent { get; set; }
+
+    /// <summary>Cumulative fee income (GEL) at which phase 1 ends. Levan's park: 20,000. Null = no phase 1.</summary>
+    public decimal? Phase1CapGel { get; set; }
+
     // ── Yandex Fleet ──────────────────────────────────────────────────
     public string YandexClientIdEncrypted { get; set; } = default!;
     public string YandexApiKeyEncrypted { get; set; } = default!;
@@ -79,4 +89,5 @@ public class Park : BaseEntity
     public ICollection<Driver> Drivers { get; set; } = new List<Driver>();
     public ICollection<Cashout> Cashouts { get; set; } = new List<Cashout>();
     public ICollection<ParkBankAccount> BankAccounts { get; set; } = new List<ParkBankAccount>();
+    public ICollection<Settlement> Settlements { get; set; } = new List<Settlement>();
 }

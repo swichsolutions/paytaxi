@@ -13,16 +13,27 @@ namespace PayTaxi.Api.Controllers;
 /// </summary>
 public abstract class AdminControllerBase : ControllerBase
 {
-    /// <summary>True if the caller is a super-admin.</summary>
+    /// <summary>True if the caller is a Swich super-admin (full control).</summary>
     protected bool IsSuperAdmin =>
         User.FindFirst("adminScope")?.Value == "super_admin";
 
-    /// <summary>The park id the caller is scoped to, or null for super-admins (= all parks).</summary>
+    /// <summary>
+    /// True for the exclusive operator's staff (Levan's company): every park is visible,
+    /// day-to-day operations are allowed, but Swich-only controls (fee/split config,
+    /// settlement retry, park creation) are not.
+    /// </summary>
+    protected bool IsOperator =>
+        User.FindFirst("adminScope")?.Value == "operator";
+
+    /// <summary>True when the caller sees every park (Swich or operator).</summary>
+    protected bool SeesAllParks => IsSuperAdmin || IsOperator;
+
+    /// <summary>The park id the caller is scoped to, or null when they see all parks.</summary>
     protected Guid? ScopedParkId
     {
         get
         {
-            if (IsSuperAdmin) return null;
+            if (SeesAllParks) return null;
             return Guid.TryParse(User.FindFirst("parkId")?.Value, out var p) ? p : null;
         }
     }
@@ -33,7 +44,7 @@ public abstract class AdminControllerBase : ControllerBase
     /// </summary>
     protected bool CanAccessPark(Guid parkId)
     {
-        if (IsSuperAdmin) return true;
+        if (SeesAllParks) return true;
         return ScopedParkId == parkId;
     }
 }

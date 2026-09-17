@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
 
     public DbSet<Park> Parks => Set<Park>();
     public DbSet<ParkBankAccount> ParkBankAccounts => Set<ParkBankAccount>();
+    public DbSet<Settlement> Settlements => Set<Settlement>();
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<BankCard> BankCards => Set<BankCard>();
     public DbSet<Cashout> Cashouts => Set<Cashout>();
@@ -40,6 +41,10 @@ public class AppDbContext : DbContext
     private static readonly ValueConverter<ReconciliationStatus, string> ReconciliationStatusConverter = new(
         v => Converters.ToText(v),
         v => Converters.ToReconciliationStatus(v));
+
+    private static readonly ValueConverter<SettlementStatus, string> SettlementStatusConverter = new(
+        v => Converters.ToText(v),
+        v => Converters.ToSettlementStatus(v));
 
     private static class Converters
     {
@@ -85,6 +90,24 @@ public class AppDbContext : DbContext
             _ => throw new ArgumentOutOfRangeException(nameof(v), v, "Unknown ReconciliationStatus"),
         };
 
+        public static string ToText(SettlementStatus v) => v switch
+        {
+            SettlementStatus.Pending    => "pending",
+            SettlementStatus.Processing => "processing",
+            SettlementStatus.Completed  => "completed",
+            SettlementStatus.Failed     => "failed",
+            _ => throw new ArgumentOutOfRangeException(nameof(v), v, "Unknown SettlementStatus"),
+        };
+
+        public static SettlementStatus ToSettlementStatus(string v) => v switch
+        {
+            "pending"    => SettlementStatus.Pending,
+            "processing" => SettlementStatus.Processing,
+            "completed"  => SettlementStatus.Completed,
+            "failed"     => SettlementStatus.Failed,
+            _ => throw new ArgumentOutOfRangeException(nameof(v), v, "Unknown settlement status value"),
+        };
+
         public static ReconciliationStatus ToReconciliationStatus(string v) => v switch
         {
             "running"   => ReconciliationStatus.Running,
@@ -115,6 +138,9 @@ public class AppDbContext : DbContext
             e.Property(p => p.MinCashoutAmount).HasPrecision(18, 2).HasDefaultValue(5m);
             e.Property(p => p.MaxCashoutAmount).HasPrecision(18, 2);
             e.Property(p => p.DailyCashoutLimitPerDriver).HasPrecision(18, 2);
+            e.Property(p => p.SwichSharePercent).HasPrecision(5, 2).HasDefaultValue(50m);
+            e.Property(p => p.Phase1SharePercent).HasPrecision(5, 2);
+            e.Property(p => p.Phase1CapGel).HasPrecision(18, 2);
 
             // Enums stored as text
             e.Property(p => p.OperatingModel)
@@ -144,7 +170,39 @@ public class AppDbContext : DbContext
 
                 t.HasCheckConstraint("CK_Parks_CashoutFee_NonNegative", "\"CashoutFee\" >= 0");
                 t.HasCheckConstraint("CK_Parks_MinCashout_Positive", "\"MinCashoutAmount\" > 0");
+                t.HasCheckConstraint("CK_Parks_SwichShare_Percent", "\"SwichSharePercent\" >= 0 AND \"SwichSharePercent\" <= 100");
             });
+        });
+
+        modelBuilder.Entity<Settlement>(e =>
+        {
+            e.Property(s => s.FeeTotal).HasPrecision(18, 4);
+            e.Property(s => s.Phase1Fees).HasPrecision(18, 4);
+            e.Property(s => s.Phase2Fees).HasPrecision(18, 4);
+            e.Property(s => s.SwichShare).HasPrecision(18, 2);
+            e.Property(s => s.ParkShare).HasPrecision(18, 2);
+            e.Property(s => s.CumulativeFeesBefore).HasPrecision(18, 4);
+            e.Property(s => s.IdempotencyKey).HasMaxLength(80).IsRequired();
+            e.Property(s => s.BankTransferId).HasMaxLength(100);
+            e.Property(s => s.FailureReason).HasMaxLength(1000);
+            e.Property(s => s.Description).HasMaxLength(200).IsRequired();
+            e.Property(s => s.InvoiceRef).HasMaxLength(20).IsRequired();
+            e.Property(s => s.SwichIban).HasMaxLength(34);
+            e.Property(s => s.InitiatedBy).HasMaxLength(120);
+            e.Property(s => s.Status)
+                .HasConversion(SettlementStatusConverter)
+                .HasMaxLength(20)
+                .IsRequired();
+            e.HasIndex(s => new { s.ParkId, s.SettlementDate }).IsUnique();
+            e.HasIndex(s => s.IdempotencyKey).IsUnique();
+            e.HasIndex(s => new { s.Status, s.SettlementDate });
+            e.HasOne(s => s.Park).WithMany(p => p.Settlements).HasForeignKey(s => s.ParkId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(s => s.ParkBankAccount).WithMany().HasForeignKey(s => s.ParkBankAccountId)
+                .OnDelete(DeleteBehavior.SetNull);
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_Settlements_Status",
+                "\"Status\" IN ('pending', 'processing', 'completed', 'failed')"));
         });
 
         modelBuilder.Entity<ParkBankAccount>(e =>
@@ -193,6 +251,9 @@ public class AppDbContext : DbContext
             e.Property(c => c.YandexReversalTransactionId).HasMaxLength(100);
             e.HasOne(c => c.ParkBankAccount).WithMany().HasForeignKey(c => c.ParkBankAccountId)
                 .OnDelete(DeleteBehavior.SetNull);
+            e.HasIndex(c => c.SettlementId);
+            e.HasOne(c => c.Settlement).WithMany(s => s.Cashouts).HasForeignKey(c => c.SettlementId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         // Postgres sequence — assigned by SaveChanges in the orchestrator
@@ -204,7 +265,16 @@ public class AppDbContext : DbContext
         {
             e.Property(l => l.Amount).HasPrecision(18, 4);
             e.HasIndex(l => l.CashoutId);
+            e.HasIndex(l => l.SettlementId);
             e.HasIndex(l => new { l.ParkId, l.CreatedAt });
+            e.HasOne(l => l.Cashout).WithMany(c => c.LedgerEntries).HasForeignKey(l => l.CashoutId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(l => l.Settlement).WithMany().HasForeignKey(l => l.SettlementId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Append-only ledger: every row belongs to exactly one of the two.
+            e.ToTable(t => t.HasCheckConstraint(
+                "CK_LedgerEntries_Owner",
+                "(\"CashoutId\" IS NOT NULL) <> (\"SettlementId\" IS NOT NULL)"));
         });
 
         modelBuilder.Entity<ApiAuditLog>(e =>
@@ -291,7 +361,7 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.SetNull);
             e.ToTable(t => t.HasCheckConstraint(
                 "CK_AdminUsers_Role",
-                "\"Role\" IN ('super_admin', 'park_admin')"));
+                "\"Role\" IN ('super_admin', 'operator', 'park_admin')"));
         });
 
         base.OnModelCreating(modelBuilder);

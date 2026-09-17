@@ -58,6 +58,9 @@ public class AdminParksController : AdminControllerBase
                 minCashoutAmount = p.MinCashoutAmount,
                 maxCashoutAmount = p.MaxCashoutAmount,
                 dailyCashoutLimitPerDriver = p.DailyCashoutLimitPerDriver,
+                swichSharePercent = p.SwichSharePercent,
+                phase1SharePercent = p.Phase1SharePercent,
+                phase1CapGel = p.Phase1CapGel,
                 status = p.Status.ToString(),
                 driverCount = p.Drivers.Count(),
                 p.LegalEntityName,
@@ -1024,6 +1027,26 @@ public class AdminParksController : AdminControllerBase
         if (body.DailyCashoutLimitPerDriver is not null)
             park.DailyCashoutLimitPerDriver = body.DailyCashoutLimitPerDriver <= 0 ? null : Math.Round(body.DailyCashoutLimitPerDriver.Value, 2);
 
+        // ── Revenue split (Swich only) ────────────────────────────────
+        if (body.SwichSharePercent is not null || body.Phase1SharePercent is not null || body.Phase1CapGel is not null)
+        {
+            if (!IsSuperAdmin) return Forbid();
+            if (body.SwichSharePercent is { } sp)
+            {
+                if (sp < 0 || sp > 100) return BadRequest(new { error = "invalid_share" });
+                park.SwichSharePercent = Math.Round(sp, 2);
+            }
+            if (body.Phase1SharePercent is { } p1)
+            {
+                // Negative = clear phase 1.
+                if (p1 > 100) return BadRequest(new { error = "invalid_share" });
+                park.Phase1SharePercent = p1 < 0 ? null : Math.Round(p1, 2);
+            }
+            if (body.Phase1CapGel is not null)
+                park.Phase1CapGel = body.Phase1CapGel <= 0 ? null : Math.Round(body.Phase1CapGel.Value, 2);
+            if (park.Phase1CapGel is null) park.Phase1SharePercent = null;
+        }
+
         if (park.MinCashoutAmount <= park.CashoutFee) return BadRequest(new { error = "invalid_min_cashout" });
         if (park.MaxCashoutAmount is { } mx && mx < park.MinCashoutAmount) return BadRequest(new { error = "invalid_max_cashout" });
         if (park.DailyCashoutLimitPerDriver is { } dlim && dlim < park.MinCashoutAmount) return BadRequest(new { error = "invalid_daily_limit" });
@@ -1046,6 +1069,9 @@ public class AdminParksController : AdminControllerBase
             minCashoutAmount = park.MinCashoutAmount,
             maxCashoutAmount = park.MaxCashoutAmount,
             dailyCashoutLimitPerDriver = park.DailyCashoutLimitPerDriver,
+            swichSharePercent = park.SwichSharePercent,
+            phase1SharePercent = park.Phase1SharePercent,
+            phase1CapGel = park.Phase1CapGel,
         });
     }
 
@@ -1383,7 +1409,10 @@ public record UpdateParkRequest(
     decimal? CashoutFee = null,
     decimal? MinCashoutAmount = null,
     decimal? MaxCashoutAmount = null,
-    decimal? DailyCashoutLimitPerDriver = null);
+    decimal? DailyCashoutLimitPerDriver = null,
+    decimal? SwichSharePercent = null,
+    decimal? Phase1SharePercent = null,
+    decimal? Phase1CapGel = null);
 
 public record CreateParkRequest(
     string? Name,

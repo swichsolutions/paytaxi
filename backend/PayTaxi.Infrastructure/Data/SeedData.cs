@@ -39,6 +39,8 @@ public static class SeedData
             await EnsureParkBankAccountsSeededAsync(db, log);
             await EnsureBankCardsSeededAsync(db, log);
             await EnsureAdminUsersSeededAsync(db, log);
+            await EnsureOperatorSeededAsync(db, log);
+            await EnsureSettlementConfigSeededAsync(db, log);
             return;
         }
 
@@ -114,6 +116,40 @@ public static class SeedData
 
         await EnsureBankCardsSeededAsync(db, log);
         await EnsureAdminUsersSeededAsync(db, log);
+        await EnsureOperatorSeededAsync(db, log);
+        await EnsureSettlementConfigSeededAsync(db, log);
+    }
+
+    /// <summary>
+    /// Demo revenue-split config: Tbilisi #3 plays "Levan's own park" (100% to Swich until
+    /// 20,000 GEL of fees, then 50/50); the others are network parks (50/50).
+    /// </summary>
+    private static async Task EnsureSettlementConfigSeededAsync(AppDbContext db, ILogger log)
+    {
+        var levan = await db.Parks.FirstOrDefaultAsync(p => p.Slug == "tbilisi-auto-park-3");
+        if (levan is null || levan.Phase1CapGel is not null) return;
+        levan.Phase1SharePercent = 100m;
+        levan.Phase1CapGel = 20_000m;
+        levan.SwichSharePercent = 50m;
+        await db.SaveChangesAsync();
+        log.LogInformation("Seeded phase-1 revenue split on {Park} (100% until 20,000 GEL, then 50/50)", levan.Name);
+    }
+
+    /// <summary>Operator login for the exclusive operator's staff (sees all parks, no Swich-only controls).</summary>
+    private static async Task EnsureOperatorSeededAsync(AppDbContext db, ILogger log)
+    {
+        if (await db.AdminUsers.AnyAsync(a => a.Role == "operator")) return;
+        db.AdminUsers.Add(new AdminUser
+        {
+            Email = "levan@operator.local",
+            Name = "Levan · Operator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("operator1!"),
+            Role = "operator",
+            ParkId = null,
+            IsActive = true,
+        });
+        await db.SaveChangesAsync();
+        log.LogInformation("Dev creds — operator: levan@operator.local / operator1!");
     }
 
     /// <summary>

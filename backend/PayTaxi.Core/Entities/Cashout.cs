@@ -11,6 +11,9 @@ public class Cashout : BaseEntity
     /// <summary>The park account the payout was routed from. Null until routing succeeded.</summary>
     public Guid? ParkBankAccountId { get; set; }
 
+    /// <summary>The nightly settlement that swept this cashout's fee share to Swich. Null until settled.</summary>
+    public Guid? SettlementId { get; set; }
+
     /// <summary>Gross amount debited from the driver's Yandex balance.</summary>
     public decimal Amount { get; set; }
 
@@ -51,5 +54,6 @@ public class Cashout : BaseEntity
     public Park Park { get; set; } = default!;
     public BankCard BankCard { get; set; } = default!;
     public ParkBankAccount? ParkBankAccount { get; set; }
+    public Settlement? Settlement { get; set; }
     public ICollection<LedgerEntry> LedgerEntries { get; set; } = new List<LedgerEntry>();
 }

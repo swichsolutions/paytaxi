@@ -165,12 +165,103 @@ export class AdminApiService {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
+  // ── Settlements ───────────────────────────────────────────────────
+  listSettlements(parkId: string | null, take = 60, status?: string): Promise<ApiSettlementsResponse> {
+    const q = new URLSearchParams({ take: String(take) });
+    if (parkId) q.set('parkId', parkId);
+    if (status) q.set('status', status);
+    return firstValueFrom(this.http.get<ApiSettlementsResponse>(`${this.base}/settlements?${q}`));
+  }
+
+  getSettlementSummary(parkId: string, days = 14): Promise<ApiSettlementSummary> {
+    return firstValueFrom(this.http.get<ApiSettlementSummary>(
+      `${this.base}/parks/${parkId}/settlements/summary?days=${days}`));
+  }
+
+  listSettlementCashouts(settlementId: string): Promise<ApiSettlementCashoutsResponse> {
+    return firstValueFrom(this.http.get<ApiSettlementCashoutsResponse>(
+      `${this.base}/settlements/${settlementId}/cashouts`));
+  }
+
+  retrySettlement(settlementId: string): Promise<ApiSettlement> {
+    return firstValueFrom(this.http.post<ApiSettlement>(`${this.base}/settlements/${settlementId}/retry`, {}));
+  }
+
+  runSettlementNow(parkId: string, date?: string): Promise<any> {
+    const q = new URLSearchParams({ parkId });
+    if (date) q.set('date', date);
+    return firstValueFrom(this.http.post<any>(`${this.base}/settlements/run?${q}`, {}));
+  }
+
   // ── Reports ───────────────────────────────────────────────────────
   getReport(parkId: string, fromIso: string, toIso: string, topDrivers = 10): Promise<ApiReport> {
     const q = new URLSearchParams({ from: fromIso, to: toIso, topDrivers: String(topDrivers) }).toString();
     return firstValueFrom(this.http.get<ApiReport>(
       `${this.base}/parks/${parkId}/reports?${q}`));
   }
+}
+
+export interface ApiSettlement {
+  id: string;
+  parkId: string;
+  parkName?: string;
+  settlementDate: string;          // YYYY-MM-DD
+  periodFromUtc?: string;
+  periodToUtc?: string;
+  cashoutCount: number;
+  feeTotal: number;
+  phase1Fees: number;
+  phase2Fees: number;
+  swichShare: number;
+  parkShare: number;
+  cumulativeFeesBefore: number;
+  status: string;                  // Pending | Processing | Completed | Failed
+  bankTransferId: string | null;
+  failureReason: string | null;
+  attemptCount: number;
+  lastAttemptAt?: string | null;
+  completedAt: string | null;
+  description: string;
+  invoiceRef: string;
+  sourceIban?: string | null;
+  swichIban?: string | null;
+  initiatedBy?: string | null;
+  createdAt?: string;
+}
+
+export interface ApiSettlementsResponse {
+  count: number;
+  totals: { completedSwichShare: number; failedCount: number; failedSwichShare: number };
+  settlements: ApiSettlement[];
+}
+
+export interface ApiSettlementSummary {
+  park: {
+    id: string; name: string; cashoutFee: number;
+    swichSharePercent: number; phase1SharePercent: number | null; phase1CapGel: number | null;
+  };
+  cumulativeFees: number;
+  phase1Progress: number | null;
+  phase1Remaining: number | null;
+  inPhase1: boolean;
+  settledFees: number;
+  settledToSwich: number;
+  failedToSwich: number;
+  unsettled: { count: number; fees: number };
+  daily: Array<{
+    date: string; cashouts: number; volume: number; fees: number;
+    settlementStatus: string | null; swichShare: number | null;
+  }>;
+  asOf: string;
+}
+
+export interface ApiSettlementCashoutsResponse {
+  settlementId: string;
+  count: number;
+  cashouts: Array<{
+    id: string; driverName: string | null; amount: number; fee: number;
+    completedAt: string | null; bankTransferId: string | null; invoiceNumber: number | null;
+  }>;
 }
 
 export interface ApiReport {
@@ -351,6 +442,9 @@ export interface UpdateParkBody {
   minCashoutAmount?: number;
   maxCashoutAmount?: number;             // 0 = no limit
   dailyCashoutLimitPerDriver?: number;   // 0 = no limit
+  swichSharePercent?: number;            // Swich only
+  phase1SharePercent?: number;           // Swich only; -1 = clear
+  phase1CapGel?: number;                 // Swich only; 0 = clear
 }
 
 export interface CreateParkBody {
@@ -438,6 +532,9 @@ export interface ApiPark {
   minCashoutAmount: number;
   maxCashoutAmount: number | null;
   dailyCashoutLimitPerDriver: number | null;
+  swichSharePercent: number;
+  phase1SharePercent: number | null;
+  phase1CapGel: number | null;
   status: string;
   driverCount: number;
   legalEntityName: string | null;

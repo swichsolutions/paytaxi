@@ -48,6 +48,7 @@ export class AdminTopbarComponent implements OnInit {
     const a = this.admin();
     if (!a) return '';
     if (a.role === 'super_admin') return this.t['roleSuperAdmin'];
+    if (a.role === 'operator') return this.t['roleOperator'];
     return a.parkName ? `${this.t['roleManager']} · ${a.parkName}` : this.t['roleParkManager'];
   });
   readonly adminInitials = computed(() => {

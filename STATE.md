@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-17 (Model A cutover session — see the first section below; smoke-tested, NOT yet committed)
+**Last updated:** 2026-09-17 (part 1 committed as 78f20a5; part 2 = settlement engine, see first section)
 
 ---
 
@@ -11,6 +11,48 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-17 (part 2) — saga paths closed + Settlement engine
+
+### Saga paths verified (mock knobs via env vars)
+- **Abandon → reversal**: `Cashout__MaxPayoutAttempts=1` + `BankPayout__Mock__OutageUntilUtc` → cashout came back
+  422 `Failed`, Yandex balance restored, ledger = CashoutReserved, YandexDeducted, YandexReversed, CashoutReversed,
+  driver got the failed notification, mock Yandex history shows the −30 / +30 pair.
+- **Ambiguous bank response**: `BankPayout__Mock__AmbiguousFailureRate=1` → adapter threw after recording the
+  transfer, saga found it by document id and completed on attempt 1 (no duplicate transfer).
+
+### Settlement engine (PAYTAXI-CONTEXT.md §4/§5) — built and verified
+- `Settlement` entity (one per park per local day; covers a fixed set of cashouts via `Cashout.SettlementId`;
+  FeeTotal / Phase1Fees / Phase2Fees / SwichShare / ParkShare / CumulativeFeesBefore; status pending → processing →
+  completed | failed; `IdempotencyKey = settle:{id}`; description `PayTaxi settlement YYYY-MM-DD, N tx, inv ref PT-YYYY-MM`).
+- Per-park split config on `Parks`: `SwichSharePercent` (50), `Phase1SharePercent` + `Phase1CapGel` (Levan's park:
+  100 / 20,000; seed puts this on Tbilisi #3). `SettlementService.ComputeShares` walks cashouts in completion order and
+  splits a straddling cashout exactly at the cap.
+- `SettlementService.RunDueAsync(date)`: retries earlier Failed settlements first, then creates + executes each park's
+  settlement (transfer from the park's primary account to `Settlement:SwichIban` via the bank adapter; balance pre-check
+  → `INSUFFICIENT_PARK_BALANCE` fail, no partial take). `SettlementWorker` fires daily at 00:30 Tbilisi for the previous
+  day; idempotent, so restarts are harmless (it also catches up on startup — it settled the June stragglers as 09-16).
+- `LedgerEntry.CashoutId` is now nullable + `SettlementId` (check constraint: exactly one owner); new types
+  `SettlementSent` / `SettlementFailed`.
+- New **operator** admin role (`levan@operator.local` / `operator1!`): sees all parks, cannot create parks, edit the
+  revenue split, retry or run settlements (all 403 — verified). `AdminControllerBase.SeesAllParks`.
+- API: `GET /api/admin/settlements?parkId&status&take`, `GET /api/admin/settlements/{id}/cashouts`,
+  `GET /api/admin/parks/{id}/settlements/summary?days` (phase progress `X / cap`, settled-to-Swich, waiting-for-tonight,
+  daily fee table), `POST /api/admin/settlements/{id}/retry` (Swich), `POST /api/admin/settlements/run?parkId&date`
+  (Swich, idempotent). `PATCH /api/admin/parks/{id}` accepts `swichSharePercent/phase1SharePercent(-1 clears)/phase1CapGel(0 clears)` — Swich only.
+- Frontend: **Settlements** page (tiles: settled to Swich, phase-1 recovery bar, waiting for tonight, failed; daily fee
+  table; history with expand → covered cashouts; retry + "Settle now" for Swich; this park / all parks toggle for Swich
+  and operator). Settings shows the revenue split (editable by Swich). Sidebar link, route, en/ka keys, operator role label.
+- Verified via API: Levan's park settled 4 cashouts, fees 2.00 → Swich 2.00 (phase 1), cumulative before 10.00;
+  re-run idempotent; Batumi with the cap set 1.20 above its cumulative fees: fees 1.50 → phase1 1.20 / phase2 0.30 → Swich 1.35 (crossover
+  split correct); retry on a Completed settlement → 400.
+- Migration `SettlementsAndOperatorRole` (tool-generated, applied). Config: `Settlement:{Enabled, SwichIban,
+  SwichHolderName, TimeZoneId, RunAtLocalTime, MinTransferGel, PollIntervalSeconds, InitialDelaySeconds}` — dev uses a
+  placeholder valid IBAN `GE12TB7100000000000001`; **production needs Swich Solutions LLC's real TBC IBAN**.
+- Not done: alerting both sides on a failed settlement (only logged + visible in the panel); monthly invoice document
+  (PT-YYYY-MM) for the park; Failed-settlement path only unit-reasoned (needs a mock knob for a settlement-time outage).
 
 ---
 

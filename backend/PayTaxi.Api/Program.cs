@@ -122,6 +122,12 @@ builder.Services.AddScoped<ICashoutOrchestrator, CashoutOrchestrator>();
 builder.Services.Configure<PayoutQueueOptions>(
     builder.Configuration.GetSection(PayoutQueueOptions.SectionName));
 builder.Services.AddHostedService<PayoutQueueWorker>();
+
+// ── Nightly settlement (park → Swich fee share) ──────────────────
+builder.Services.Configure<SettlementOptions>(
+    builder.Configuration.GetSection(SettlementOptions.SectionName));
+builder.Services.AddScoped<ISettlementService, SettlementService>();
+builder.Services.AddHostedService<SettlementWorker>();
 builder.Services.AddSingleton<INotificationService, NotificationService>();
 builder.Services.Configure<InvoiceOptions>(
     builder.Configuration.GetSection(InvoiceOptions.SectionName));
