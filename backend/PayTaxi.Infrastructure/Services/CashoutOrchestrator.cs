@@ -214,13 +214,19 @@ public class CashoutOrchestrator : ICashoutOrchestrator
 
     public async Task<CashoutSagaResult> ProcessQueuedAsync(Guid cashoutId, CancellationToken ct = default)
     {
-        // Atomic claim: only one worker/tick may pick this row up.
+        // Atomic claim: only one worker/tick may pick this row up. Two shapes qualify:
+        //   · Queued            — bank said "not now", retry the payout
+        //   · Processing + BankTransferId + NextAttemptAt — bank accepted asynchronously, poll its status
+        // Clearing NextAttemptAt marks the row as claimed until the step decides what's next.
         var now = DateTime.UtcNow;
         var claimed = await _db.Cashouts
             .Where(c => c.Id == cashoutId
-                     && c.Status == CashoutStatus.Queued
-                     && (c.NextAttemptAt == null || c.NextAttemptAt <= now))
-            .ExecuteUpdateAsync(s => s.SetProperty(c => c.Status, CashoutStatus.Processing), ct);
+                     && ((c.Status == CashoutStatus.Queued && (c.NextAttemptAt == null || c.NextAttemptAt <= now))
+                      || (c.Status == CashoutStatus.Processing && c.BankTransferId != null
+                          && c.NextAttemptAt != null && c.NextAttemptAt <= now)))
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(c => c.Status, CashoutStatus.Processing)
+                .SetProperty(c => c.NextAttemptAt, (DateTime?)null), ct);
 
         var cashout = await _db.Cashouts.FirstOrDefaultAsync(c => c.Id == cashoutId, ct)
             ?? throw new InvalidOperationException($"Cashout {cashoutId} not found");
@@ -250,8 +256,77 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         }
 
         cashout.ParkBankAccountId = account.Id;
+
+        if (cashout.BankTransferId is not null)
+        {
+            // Accepted by an asynchronous rail earlier — ask how it went.
+            await CheckPendingAsync(cashout, park, driver, card, account, ct);
+            return ToResult(cashout);
+        }
+
         await AttemptPayoutAsync(cashout, park, driver, card, account, ct);
         return ToResult(cashout);
+    }
+
+    /// <summary>
+    /// The bank accepted the order but executes it asynchronously (TBC: statuses G/WC/CERT/VERIF).
+    /// Keep the cashout Processing with the bank id and let the queue worker poll.
+    /// </summary>
+    private async Task MarkPendingAtBankAsync(Cashout cashout, string transferId, CancellationToken ct)
+    {
+        cashout.BankTransferId = transferId;
+        cashout.Status = CashoutStatus.Processing;
+        cashout.NextAttemptAt = DateTime.UtcNow.AddSeconds(_opts.PendingPollSeconds);
+        cashout.FailureReason = null;
+        await _db.SaveChangesAsync(ct);
+        _log.LogInformation("Cashout {Id}: bank accepted transfer {TransferId}, awaiting execution (poll in {S}s)",
+            cashout.Id, transferId, _opts.PendingPollSeconds);
+    }
+
+    /// <summary>Poll a pending bank transfer. Money may already have moved, so this never reverses on Unknown.</summary>
+    private async Task CheckPendingAsync(
+        Cashout cashout, Park park, Driver driver, BankCard card, ParkBankAccount account, CancellationToken ct)
+    {
+        var bank = ResolveBankAdapter(account.Provider);
+        var source = ToContext(park, account);
+        BankTransferStatus status;
+        try
+        {
+            status = await bank.GetTransferStatusAsync(source, cashout.BankTransferId!, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Status poll failed for cashout {Id} / transfer {TransferId}", cashout.Id, cashout.BankTransferId);
+            status = BankTransferStatus.Unknown;
+        }
+
+        switch (status)
+        {
+            case BankTransferStatus.Completed:
+                await CompleteAsync(cashout, park, driver, card, account, cashout.BankTransferId!, ct);
+                return;
+
+            case BankTransferStatus.Failed:
+                // The bank rejected the order after accepting it — nothing was paid out.
+                await AbandonAsync(cashout, park, driver, "BANK_REPORTED_FAILED",
+                    $"Bank reports transfer {cashout.BankTransferId} failed", ct);
+                return;
+
+            default:
+                var age = DateTime.UtcNow - cashout.CreatedAt;
+                if (age > TimeSpan.FromHours(_opts.MaxQueueAgeHours))
+                {
+                    // Too long in limbo and the money MAY have moved: a human must look, no reversal.
+                    await FlagForReviewAsync(cashout, "BANK_PENDING_TIMEOUT",
+                        $"Transfer {cashout.BankTransferId} still not final after {age.TotalHours:F1} h", ct);
+                    return;
+                }
+                cashout.NextAttemptAt = DateTime.UtcNow.AddSeconds(_opts.PendingPollSeconds);
+                await _db.SaveChangesAsync(ct);
+                _log.LogInformation("Cashout {Id}: transfer {TransferId} still {Status}; polling again in {S}s",
+                    cashout.Id, cashout.BankTransferId, status, _opts.PendingPollSeconds);
+                return;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -318,6 +393,12 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             {
                 result = new BankTransferResult(false, null, "BANK_EXCEPTION", ex.Message, IsRetryable: true);
             }
+        }
+
+        if (result.Success && result.IsPending)
+        {
+            await MarkPendingAtBankAsync(cashout, result.TransferId!, ct);
+            return;
         }
 
         if (result.Success)
@@ -577,6 +658,9 @@ public class CashoutOptions
 
     /// <summary>Hard ceiling on how long a cashout may sit in the queue, regardless of attempts.</summary>
     public int MaxQueueAgeHours { get; set; } = 12;
+
+    /// <summary>How often to poll a bank-accepted-but-not-executed transfer (asynchronous rails such as TBC).</summary>
+    public int PendingPollSeconds { get; set; } = 20;
 
     /// <summary>
     /// Delay before attempt N+1, indexed by attempt number (last value repeats).

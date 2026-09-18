@@ -8,8 +8,8 @@ public class YandexFleetOptions
     public bool UseMock { get; set; } = true;
 
     /// <summary>
-    /// When true, the write endpoint (PostCashoutTransactionAsync) throws YandexReadOnlyModeException.
-    /// Defaults to true so accidents don't move money.
+    /// When true, the write endpoints (PostCashoutTransactionAsync / PostReversalTransactionAsync)
+    /// throw YandexReadOnlyModeException. Defaults to true so accidents don't move money.
     /// </summary>
     public bool ReadOnlyMode { get; set; } = true;
 
@@ -27,4 +27,27 @@ public class YandexFleetOptions
 
     /// <summary>Probability (0..1) of the mock returning a transient failure to exercise retry.</summary>
     public double MockTransientFailureRate { get; set; } = 0.03;
+
+    // ── Real HTTP client ─────────────────────────────────────────────
+
+    /// <summary>Fleet API host. Same for all parks; credentials are per park.</summary>
+    public string BaseUrl { get; set; } = "https://fleet-api.taxi.yandex.net/";
+
+    public int TimeoutSeconds { get; set; } = 20;
+
+    /// <summary>Sent as Accept-Language; Yandex localises category names and messages.</summary>
+    public string AcceptLanguage { get; set; } = "en";
+
+    /// <summary>
+    /// Transaction category for the cashout debit. CLAUDE.md says "partner_service_manual";
+    /// PAYTAXI-CONTEXT.md §9 asks to confirm against the category paypro uses in the park's
+    /// Fleet history. Overridable per environment without a code change.
+    /// </summary>
+    public string CashoutCategoryId { get; set; } = "partner_service_manual";
+
+    /// <summary>Category for the compensating +amount when a payout is abandoned. Defaults to the cashout category.</summary>
+    public string? ReversalCategoryId { get; set; }
+
+    /// <summary>Page size for list endpoints (Yandex maximum is 1000 for profiles, 500 for orders).</summary>
+    public int PageSize { get; set; } = 500;
 }

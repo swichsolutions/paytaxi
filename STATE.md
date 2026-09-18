@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-17 (part 1 committed as 78f20a5; part 2 = settlement engine, see first section)
+**Last updated:** 2026-09-18 (TBC adapter + Yandex client both built; see the two newest sections)
 
 ---
 
@@ -11,6 +11,99 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-18 — real Yandex Fleet HTTP client
+
+- `Infrastructure/Adapters/Yandex/YandexFleetClient.cs` is now a real implementation (was a NotImplemented stub).
+  Endpoints: `POST v1/parks/driver-profiles/list` (offset/limit paging, fields driver_profile/account/car),
+  `POST v2/parks/driver-profiles/transactions/list` (cursor), `POST v1/parks/orders/list` (cursor),
+  `POST v2/parks/driver-profiles/transactions` (the write: `park_id, driver_profile_id, category_id, amount, description`
+  with `X-Idempotency-Token`). Headers on every call: `X-Client-ID` (the literal value from fleet.yandex.com, format
+  `taxi/park/{id}`), `X-API-Key`, `X-Park-ID`, `Accept-Language`. Money is sent/read as decimal strings.
+- Error contract for the existing `ResilientYandexFleetClient` wrapper: 429 / 5xx / timeouts / connection errors →
+  `YandexTransientException` (retried with backoff); other 4xx → `YandexApiException` → for writes a failed
+  `YandexTransactionResult` with Yandex's `code`. `ReadOnlyMode` still guards both writes.
+- Reversal posts `+amount` with `YandexFleet:ReversalCategoryId` (defaults to `CashoutCategoryId`). Idempotency token =
+  first 32 hex of SHA-256(our key), so retries reuse it exactly and Yandex declines duplicates.
+- `YandexFleetOptions` gained `BaseUrl, TimeoutSeconds, AcceptLanguage, CashoutCategoryId (partner_service_manual —
+  STILL TO CONFIRM against paypro's entries in the park's Fleet history), ReversalCategoryId, PageSize`.
+- Credentials: `IYandexParkCredentialsProvider` → `DbYandexParkCredentialsProvider` (parks table). DI:
+  `YandexFleet:UseMock=false` → `AddHttpClient<YandexFleetClient>` + provider; the resilient wrapper is unchanged.
+- Sources: the official reference (fleet.taxi.yandex.ru) is not reachable from this network, so shapes were taken from
+  three open-source wrappers of the API (JS `yandex-fleet-wrapper`, PHP `antonowano/yandex-taxi-api` v7 and
+  `i-pinchuk/php-yandex-taxi-api`) which agree on paths, headers and body keys. Response field names for profiles /
+  transactions / orders follow the Fleet API convention (`driver_profiles[].driver_profile|accounts|car`,
+  `transactions[]`, `orders[]`, `cursor`, `total`) — **verify against the first real response** and adjust `MapProfile`
+  if a field differs; the mapping is tolerant (missing fields → null/0, no throws).
+- Tests: `PayTaxi.Tests/Yandex/YandexFleetClientTests.cs` (10) — paging, headers, balance filter, cashout body +
+  token, reversal, read-only guard, 429/5xx transient, 400 rejection code, cursor paging, orders mapping. 40 tests total.
+- Wiring check: API started with `YandexFleet__UseMock=false` and the seed's mock credentials → the real host answered
+  403 "invalid client id or api key" (expected; proves DI, path and headers reach Yandex's auth layer).
+- New `Api/Middleware/IntegrationErrorMiddleware`: Yandex/TBC failures become 502 `upstream_rejected` (definitive) or
+  503 `upstream_unavailable` (transient / read-only) with provider + code, instead of a 500.
+
+### When Levan's park credentials arrive
+1. Settings → Yandex credentials (Client ID exactly as shown on fleet.yandex.com, API key, Park ID).
+2. `YandexFleet:UseMock=false`, keep `ReadOnlyMode=true` first: roster sync + balances + transactions must look right.
+3. Look at paypro's debit rows in the park's Fleet transaction history → set `CashoutCategoryId` to that category.
+4. `ReadOnlyMode=false`, one 5 GEL cashout on a test driver, check the Fleet history shows the −5 with our description.
+
+---
+
+## Session 2026-09-17 (part 3) — real TBC adapter (Integration Service / DBI)
+
+### What TBC's API actually is (researched from developers.tbcbank.ge + the bank's WSDL/XSD 1.14)
+- **SOAP 1.1, document/literal**, namespace `http://www.mygemini.com/schemas/mygemini`, SOAPAction `{ns}/{Operation}`.
+  It is NOT the REST `api.tbcbank.ge` — that host is the PSD2/OpenID stack. PAYTAXI-CONTEXT.md §3 was wrong on this
+  point; a correction section was appended there.
+- Endpoints (Standard+ = client certificate): prod `https://secdbi.tbconline.ge/dbi/dbiService`,
+  test `https://secdbitst.tbconline.ge/dbi/dbiService`. Auth = WS-Security UsernameToken (username + password issued by
+  the banker) **plus** the company's `.pfx` client certificate on the TLS connection. The `Nonce` element is the Digipass
+  one-time code — required for ChangePassword (and payment import on the no-certificate Standard package); omitted for
+  the certificate package. TLS 1.2. Temporary password must be changed via ChangePassword; expiry → `CREDENTIALS_MUST_BE_CHANGED`.
+- Operations: `ImportSinglePaymentOrders` (order types `TransferWithinBankPaymentOrderIo` for TBC→TBC,
+  `TransferToOtherBankNationalCurrencyPaymentOrderIo` for other Georgian banks; `singlePaymentRequestId` xsd:long is the
+  client's idempotency id → `DUPLICATED_SINGLE_PAYMENT_REQUEST` fault on repeat), `GetPaymentOrderStatus` (async statuses:
+  I/DR/G/WC/CERT/VERIF/WS processing · F done · FL/C/D/CPE failed), `GetSinglePaymentId` (recover paymentId by request id;
+  `SINGLE_PAYMENT_REQUEST_NOT_FOUND`), `GetAccountMovements` (paged, ≤700), `GetAccountStatement` (opening/closing balance),
+  `ChangePassword`, plus batch + postbox operations we don't use. Faults: `VALIDATION_ERROR`, `INCORRECT_INPUT_DATA`,
+  `GENERAL_ERROR`. WSDL/XSD archive: `tbcbank-developers.apigee.io/files/WSDL_XSD_and_Single_WSDL.zip`.
+- **Execution is asynchronous** — import returns a paymentId, the order then goes through certification. Whether the
+  certificate package auto-certifies (no human approval in internet banking) is exactly the question for the branch visit.
+
+### Code
+- `Infrastructure/Adapters/Banks/Tbc/`: `TbcSoapClient` (envelopes, mTLS HttpClient cache per park credential set,
+  fault parsing), `TbcPayoutAdapter` (IBankPayoutAdapter mapping), `TbcCredentials` (per-park JSON on
+  `ParkBankAccount.CredentialsEncrypted`: username, password, environment, certificatePfxBase64|certificatePath,
+  certificatePassword, nonce?, debitCurrency), `TbcDbiOptions` (`BankPayout:Tbc` — endpoints, poll attempts, page size,
+  `TrustTestServerCertificate` for the test host's own root cert).
+- Idempotency: `TbcSoapClient.RequestIdFromKey` maps our string key → deterministic 18-digit `singlePaymentRequestId`;
+  a duplicate fault recovers the original paymentId via GetSinglePaymentId and continues with status.
+- `BankTransferResult.IsPending` + `BankTransferRequest.DestinationTaxCode` added to the adapter contract.
+- **Saga gained a "pending at bank" state**: `Success+IsPending` → cashout stays `Processing` with `BankTransferId` and
+  `NextAttemptAt`; `PayoutQueueWorker` also picks up `Processing + BankTransferId + NextAttemptAt due` rows;
+  `ProcessQueuedAsync` → `CheckPendingAsync` polls `GetTransferStatusAsync`: Completed → complete, Failed → abandon
+  (Yandex reversal), still pending past `Cashout:MaxQueueAgeHours` → `ReviewRequired` (money may have moved, never
+  reverse). `Cashout:PendingPollSeconds` (20). Settlements handle pending the same way (`ResolvePendingAsync`, run first
+  in the nightly job and on retry). Verified with the mock's new `BankPayout:Mock:AsyncExecution` knob: accepted →
+  polled twice → Completed with the full ledger trail.
+- DI: with `BankPayout:UseMock=false`, keys `tbc`/`TBC` → real `TbcPayoutAdapter` (singleton), BoG stays a stub.
+- **Tests**: new `PayTaxi.Tests` (xunit) — 30 tests: TBC adapter against a scripted fake DBI server using envelope shapes
+  from the docs (within-bank vs other-bank order, WS-Security header, nonce rules, async pending, FL failure detail,
+  duplicate recovery, lookup-by-key, faults retryable/non-retryable, statement balance, movements), GeorgianIban,
+  settlement share math incl. crossover. Run: `dotnet test backend/PayTaxi.Tests`.
+
+### Still needed for the pilot (bank-side)
+- Park's DBI username + temporary password + `.pfx` certificate from the TBC branch (Standard+ / non-standard package);
+  run ChangePassword once (needs a Digipass code → `nonce`), then store creds on the park's payout account via
+  `PATCH /api/admin/parks/{id}/bank-accounts/{accountId}` `credentialsJson`, set `BankPayout:UseMock=false`.
+- Confirm at the branch: auto-certification of imported orders for the certificate package (else every payout sits in
+  WC "awaiting certification" until someone approves in internet banking); transfer-to-third-party permission;
+  whether `beneficiaryTaxCode` (driver personal number) is demanded for TBC→TBC — we don't collect it yet
+  (light-KYC gap; the adapter passes it when present).
+- Sandbox run against `secdbitst` with the test certificate (`TBCRootCer.cer` → `TrustTestServerCertificate=true`).
 
 ---
 

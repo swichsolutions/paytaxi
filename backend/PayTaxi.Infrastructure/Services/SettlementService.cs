@@ -50,6 +50,18 @@ public class SettlementService : ISettlementService
     {
         int created = 0, completed = 0, failed = 0, retried = 0, skipped = 0;
 
+        // 0. Transfers the bank accepted asynchronously last time: ask how they ended.
+        var pending = await _db.Settlements
+            .Where(s => s.Status == SettlementStatus.Processing && s.BankTransferId != null)
+            .Select(s => s.Id)
+            .ToListAsync(ct);
+        foreach (var id in pending)
+        {
+            ct.ThrowIfCancellationRequested();
+            var s = await _db.Settlements.FirstAsync(x => x.Id == id, ct);
+            await ResolvePendingAsync(s, ct);
+        }
+
         // 1. Earlier failures first — "roll into next day".
         var stale = await _db.Settlements
             .Where(s => s.Status == SettlementStatus.Failed && s.SettlementDate < settlementDate)
@@ -162,9 +174,52 @@ public class SettlementService : ISettlementService
             ?? throw new InvalidOperationException($"Settlement {settlementId} not found");
         if (s.Status == SettlementStatus.Completed)
             throw new InvalidOperationException("Settlement is already completed");
+        if (s.Status == SettlementStatus.Processing && s.BankTransferId is not null)
+            return await ResolvePendingAsync(s, ct);
         if (s.Status == SettlementStatus.Processing)
             throw new InvalidOperationException("Settlement is currently processing");
         return await ExecuteAsync(s, initiatedBy, ct);
+    }
+
+    /// <summary>Poll a bank-accepted settlement transfer until it is final.</summary>
+    private async Task<Settlement> ResolvePendingAsync(Settlement s, CancellationToken ct)
+    {
+        var park = await _db.Parks.Include(p => p.BankAccounts).FirstAsync(p => p.Id == s.ParkId, ct);
+        var account = park.BankAccounts.FirstOrDefault(a => a.Id == s.ParkBankAccountId)
+                   ?? park.BankAccounts.FirstOrDefault(a => a.IsPrimary);
+        if (account is null) return s;
+
+        var bank = _services.GetKeyedService<IBankPayoutAdapter>(account.Provider)
+            ?? _services.GetKeyedService<IBankPayoutAdapter>(account.Provider.ToUpperInvariant())
+            ?? _services.GetKeyedService<IBankPayoutAdapter>("MOCK");
+        if (bank is null) return s;
+
+        var source = new BankAccountContext(park.Id, account.Id, account.Provider, account.BankCode, account.Iban,
+            account.HolderName ?? park.LegalEntityName ?? park.Name, account.CredentialsEncrypted);
+
+        BankTransferStatus status;
+        try { status = await bank.GetTransferStatusAsync(source, s.BankTransferId!, ct); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogWarning(ex, "Settlement {Id}: status poll failed for transfer {Tx}", s.Id, s.BankTransferId);
+            return s;
+        }
+
+        if (status == BankTransferStatus.Completed)
+        {
+            s.Status = SettlementStatus.Completed;
+            s.CompletedAt = DateTime.UtcNow;
+            s.FailureReason = null;
+            _db.LedgerEntries.Add(Entry(s, LedgerEntryType.SettlementSent, s.SwichShare, s.BankTransferId,
+                $"{s.Description} · confirmed by bank after asynchronous execution"));
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Settlement {Id} confirmed by bank: transfer {Tx}", s.Id, s.BankTransferId);
+        }
+        else if (status == BankTransferStatus.Failed)
+        {
+            await FailAsync(s, "BANK_REPORTED_FAILED", $"Bank reports transfer {s.BankTransferId} failed", ct);
+        }
+        return s;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -245,6 +300,16 @@ public class SettlementService : ISettlementService
             Amount: s.SwichShare,
             Currency: "GEL",
             Reference: s.Description), _log, ct);
+
+        if (result.Success && result.IsPending)
+        {
+            // Accepted, executing asynchronously. Stays Processing; the next run (or a retry) resolves it.
+            s.BankTransferId = result.TransferId;
+            s.FailureReason = null;
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Settlement {Id}: bank accepted transfer {Tx}, awaiting execution", s.Id, result.TransferId);
+            return s;
+        }
 
         if (result.Success)
         {

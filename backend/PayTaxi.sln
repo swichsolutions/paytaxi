@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayTaxi.Core", "PayTaxi.Cor
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayTaxi.Infrastructure", "PayTaxi.Infrastructure\PayTaxi.Infrastructure.csproj", "{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PayTaxi.Tests", "PayTaxi.Tests\PayTaxi.Tests.csproj", "{245665D5-EFA5-4D16-B4C5-0DFD26E53202}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +32,9 @@ Global
 		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B9504DCC-B3B4-4DCA-B0F8-3F1D43C97E0C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{245665D5-EFA5-4D16-B4C5-0DFD26E53202}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{245665D5-EFA5-4D16-B4C5-0DFD26E53202}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{245665D5-EFA5-4D16-B4C5-0DFD26E53202}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{245665D5-EFA5-4D16-B4C5-0DFD26E53202}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

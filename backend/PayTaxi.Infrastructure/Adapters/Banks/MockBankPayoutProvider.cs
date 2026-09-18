@@ -47,6 +47,9 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
     // Running balance per park account (starts at a comfortable float).
     private readonly ConcurrentDictionary<Guid, decimal> _balances = new();
 
+    // Async-execution simulation: transfer_id → remaining status polls before it turns Completed.
+    private readonly ConcurrentDictionary<string, int> _pendingPolls = new();
+
     public string BankType => "MOCK";
 
     public MockBankPayoutProvider(
@@ -113,14 +116,18 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
             Status: BankTransferStatus.Completed,
             SentAt: DateTime.UtcNow);
 
-        _statuses[transferId] = BankTransferStatus.Completed;
+        _statuses[transferId] = _opts.AsyncExecution ? BankTransferStatus.Pending : BankTransferStatus.Completed;
+        if (_opts.AsyncExecution) _pendingPolls[transferId] = Math.Max(1, _opts.AsyncSettleAfterPolls);
         _byKey[request.IdempotencyKey] = record;
         lock (_logLock) _transferLog.Add((request.Source.ParkBankAccountId, record));
         _balances.AddOrUpdate(request.Source.ParkBankAccountId,
             _ => _opts.InitialBalance - request.Amount,
             (_, b) => b - request.Amount);
 
-        var result = new BankTransferResult(true, transferId, null, null);
+        // Asynchronous rail simulation (TBC-like): accepted now, executed after a few status polls.
+        var result = _opts.AsyncExecution
+            ? new BankTransferResult(true, transferId, null, null, IsRetryable: false, IsPending: true)
+            : new BankTransferResult(true, transferId, null, null);
         _seen[request.IdempotencyKey] = result;
 
         // Ambiguous response: the transfer went through but the caller sees an exception.
@@ -143,6 +150,20 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
     public Task<BankTransferStatus> GetTransferStatusAsync(
         BankAccountContext source, string transferId, CancellationToken ct = default)
     {
+        if (_pendingPolls.TryGetValue(transferId, out var left))
+        {
+            if (left <= 1)
+            {
+                _pendingPolls.TryRemove(transferId, out _);
+                _statuses[transferId] = BankTransferStatus.Completed;
+                _log.LogInformation("Mock bank: transfer {TransferId} now executed", transferId);
+            }
+            else
+            {
+                _pendingPolls[transferId] = left - 1;
+                _log.LogInformation("Mock bank: transfer {TransferId} still processing ({Left} polls left)", transferId, left - 1);
+            }
+        }
         var status = _statuses.TryGetValue(transferId, out var s) ? s : BankTransferStatus.Unknown;
         return Task.FromResult(status);
     }
@@ -205,4 +226,8 @@ public class MockBankPayoutOptions
 
     /// <summary>Starting mock balance per park account.</summary>
     public decimal InitialBalance { get; set; } = 25_000m;
+
+    /// <summary>Simulate an asynchronous rail (like TBC DBI): accept now, execute after N status polls.</summary>
+    public bool AsyncExecution { get; set; } = false;
+    public int AsyncSettleAfterPolls { get; set; } = 2;
 }

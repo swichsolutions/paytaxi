@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Adapters.Banks;
+using PayTaxi.Infrastructure.Adapters.Banks.Tbc;
 using PayTaxi.Infrastructure.Adapters.Yandex;
 using PayTaxi.Infrastructure.Data;
 using PayTaxi.Infrastructure.Services;
@@ -67,10 +68,15 @@ if (useMockBank)
 }
 else
 {
+    // Real rails. TBC (launch): SOAP Integration Service with the park's client certificate.
+    // Singleton because it caches one HttpClient per park credential set.
+    builder.Services.Configure<TbcDbiOptions>(builder.Configuration.GetSection(TbcDbiOptions.SectionName));
+    builder.Services.AddSingleton<TbcSoapClient>();
+    builder.Services.AddSingleton<TbcPayoutAdapter>();
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("TBC", (sp, _) => sp.GetRequiredService<TbcPayoutAdapter>());
+    builder.Services.AddKeyedSingleton<IBankPayoutAdapter>("tbc", (sp, _) => sp.GetRequiredService<TbcPayoutAdapter>());
     builder.Services.AddKeyedScoped<IBankPayoutAdapter, BogPayoutAdapter>("BOG");
-    builder.Services.AddKeyedScoped<IBankPayoutAdapter, TbcPayoutAdapter>("TBC");
     builder.Services.AddKeyedScoped<IBankPayoutAdapter, BogPayoutAdapter>("bog");
-    builder.Services.AddKeyedScoped<IBankPayoutAdapter, TbcPayoutAdapter>("tbc");
 }
 
 // ── Yandex Fleet integration ─────────────────────────────────────
@@ -105,7 +111,14 @@ if (yandexOpts.UseMock)
 }
 else
 {
-    builder.Services.AddScoped<YandexFleetClient>();
+    // Real HTTP client: one HttpClient (pooled) for the Fleet API; park credentials are read
+    // per call from the parks table. Rate limit / retry / audit stay in the resilient wrapper.
+    builder.Services.AddScoped<IYandexParkCredentialsProvider, DbYandexParkCredentialsProvider>();
+    builder.Services.AddHttpClient<YandexFleetClient>(c =>
+    {
+        c.BaseAddress = new Uri(yandexOpts.BaseUrl);
+        c.Timeout = TimeSpan.FromSeconds(Math.Max(5, yandexOpts.TimeoutSeconds));
+    });
     builder.Services.AddScoped<IYandexFleetClient>(sp =>
         new ResilientYandexFleetClient(
             inner:   sp.GetRequiredService<YandexFleetClient>(),
@@ -188,6 +201,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<PayTaxi.Api.Middleware.IntegrationErrorMiddleware>();
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();

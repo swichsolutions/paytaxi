@@ -128,3 +128,12 @@ fee_config:
 - [ ] Swich TBC account: confirm it's under Swich Solutions LLC exactly (goes into contract + settlement config).
 - [ ] TBC review risk at >200 tx/day per park — mitigations: per-park contracts (reviews are
       per park, not network-wide), BoG/Liberty quotes as leverage, NBG registration as long-term path.
+
+## 10. Correction (2026-09-17, from the bank's WSDL) — TBC Integration Service is SOAP, not REST
+- The park-side rail ("Business Integration Service" / DBI) is SOAP 1.1 over HTTPS at
+  `https://secdbi.tbconline.ge/dbi/dbiService` (test: `secdbitst.tbconline.ge`), WS-Security username/password +
+  the company's `.pfx` client certificate. `api.tbcbank.ge` / `test-api.tbcbank.ge` are TBC's PSD2/OpenID REST stack
+  and are NOT what the park account is enrolled in.
+- Imported payment orders execute asynchronously (status WC "awaiting certification" -> CERT -> F). Branch-visit
+  question: does the certificate package certify automatically, or does someone still approve in internet banking?
+- Full technical notes: `STATE.md` -> "Session 2026-09-17 (part 3)".

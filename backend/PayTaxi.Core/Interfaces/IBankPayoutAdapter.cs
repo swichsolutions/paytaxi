@@ -14,6 +14,8 @@ public interface IBankPayoutAdapter
     /// Must be idempotent on <see cref="BankTransferRequest.IdempotencyKey"/>.
     /// Never fire-and-forget: a thrown exception means "outcome unknown" and the
     /// caller will ask <see cref="FindTransferByIdempotencyKeyAsync"/> before retrying.
+    /// A rail that executes asynchronously returns <c>Success + IsPending</c>; the caller
+    /// then polls <see cref="GetTransferStatusAsync"/> until it settles.
     /// </summary>
     Task<BankTransferResult> SendPayoutAsync(BankTransferRequest request, CancellationToken ct = default);
 
@@ -58,6 +60,10 @@ public record BankTransferRecord(
     BankTransferStatus Status,
     DateTime SentAt);
 
+/// <param name="DestinationTaxCode">
+/// Beneficiary tax / personal number. Optional for intra-bank transfers; banks may require it
+/// for transfers to another bank (TBC validates it against the IBAN when supplied).
+/// </param>
 public record BankTransferRequest(
     string IdempotencyKey,
     BankAccountContext Source,
@@ -65,7 +71,8 @@ public record BankTransferRequest(
     string? DestinationName,
     decimal Amount,
     string Currency,
-    string Reference
+    string Reference,
+    string? DestinationTaxCode = null
 );
 
 /// <param name="IsRetryable">
@@ -73,12 +80,18 @@ public record BankTransferRequest(
 /// rather than "never" (invalid IBAN, closed account). Retryable failures park the
 /// cashout in the payout queue; non-retryable ones reverse the Yandex debit.
 /// </param>
+/// <param name="IsPending">
+/// With <c>Success = true</c>: the bank accepted the order but has not executed it yet
+/// (asynchronous rails). The caller must poll <see cref="IBankPayoutAdapter.GetTransferStatusAsync"/>
+/// before treating the money as moved.
+/// </param>
 public record BankTransferResult(
     bool Success,
     string? TransferId,
     string? ErrorCode,
     string? ErrorMessage,
-    bool IsRetryable = false
+    bool IsRetryable = false,
+    bool IsPending = false
 );
 
 public record BankTransferLookup(

@@ -74,8 +74,9 @@ public class PayoutQueueWorker : BackgroundService
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var now = DateTime.UtcNow;
             var rows = await db.Cashouts.AsNoTracking()
-                .Where(c => c.Status == CashoutStatus.Queued
-                         && (c.NextAttemptAt == null || c.NextAttemptAt <= now))
+                .Where(c => (c.Status == CashoutStatus.Queued && (c.NextAttemptAt == null || c.NextAttemptAt <= now))
+                         || (c.Status == CashoutStatus.Processing && c.BankTransferId != null
+                             && c.NextAttemptAt != null && c.NextAttemptAt <= now))
                 .OrderBy(c => c.CreatedAt)
                 .Take(_opts.MaxPerTick)
                 .Select(c => new { c.Id, c.ParkId })
@@ -109,7 +110,7 @@ public class PayoutQueueWorker : BackgroundService
 
                 // Stop hammering this park if its bank is still down — the rest of its
                 // queue would only burn attempts. They'll be picked up next tick.
-                if (result.Status == nameof(CashoutStatus.Queued) && _opts.StopParkOnFirstRequeue)
+                if (result.Status == nameof(CashoutStatus.Queued) && result.BankTransferId is null && _opts.StopParkOnFirstRequeue)
                 {
                     _log.LogInformation("Payout queue: park {Park} still failing — deferring its remaining {Left} cashout(s)",
                         parkId, cashoutIds.Count - cashoutIds.IndexOf(id) - 1);
