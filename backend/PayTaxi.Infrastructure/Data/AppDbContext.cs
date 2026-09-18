@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Park> Parks => Set<Park>();
     public DbSet<ParkBankAccount> ParkBankAccounts => Set<ParkBankAccount>();
     public DbSet<Settlement> Settlements => Set<Settlement>();
+    public DbSet<DriverSession> DriverSessions => Set<DriverSession>();
     public DbSet<Driver> Drivers => Set<Driver>();
     public DbSet<BankCard> BankCards => Set<BankCard>();
     public DbSet<Cashout> Cashouts => Set<Cashout>();
@@ -311,6 +312,17 @@ public class AppDbContext : DbContext
             e.Property(y => y.Balance).HasPrecision(18, 4);
             e.HasOne(y => y.Driver).WithOne(d => d.BalanceCache)
                 .HasForeignKey<YandexBalanceCache>(y => y.DriverId);
+        });
+
+        modelBuilder.Entity<DriverSession>(e =>
+        {
+            e.Property(s => s.TokenHash).HasMaxLength(64).IsRequired();
+            e.Property(s => s.DeviceLabel).HasMaxLength(200);
+            e.Property(s => s.RevokedReason).HasMaxLength(100);
+            e.HasIndex(s => s.TokenHash).IsUnique();
+            e.HasIndex(s => new { s.DriverId, s.ExpiresAt });
+            e.HasOne(s => s.Driver).WithMany().HasForeignKey(s => s.DriverId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<OtpCode>(e =>

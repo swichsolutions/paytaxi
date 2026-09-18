@@ -9,9 +9,14 @@ using PayTaxi.Infrastructure.Data;
 namespace PayTaxi.Api.Controllers;
 
 /// <summary>
-/// Driver phone+OTP authentication. Two endpoints:
+/// Driver phone+OTP authentication with trusted devices:
 ///   POST /api/driver/auth/request-otp  → generate + store a one-time code
-///   POST /api/driver/auth/verify-otp   → validate the code, return a JWT
+///   POST /api/driver/auth/verify-otp   → validate the code, return a short JWT + a 90-day refresh token
+///   POST /api/driver/auth/refresh      → rotate the refresh token, mint a new JWT (no SMS)
+///   POST /api/driver/auth/logout       → revoke the refresh token (this device only)
+///
+/// The SMS code is therefore needed only on a new device, after 90 days, after logout,
+/// or after a manager suspends the driver (refresh checks the driver is still Active).
 ///
 /// Dev behavior: the generated code is returned in the request-otp response
 /// (and logged) so testers can use it without an SMS gateway. Production
@@ -32,17 +37,20 @@ public class AuthController : ControllerBase
     private readonly IJwtTokenService _jwt;
     private readonly IWebHostEnvironment _env;
     private readonly ILogger<AuthController> _log;
+    private readonly int _trustedDeviceDays;
 
     public AuthController(
         AppDbContext db,
         IJwtTokenService jwt,
         IWebHostEnvironment env,
+        IConfiguration config,
         ILogger<AuthController> log)
     {
         _db = db;
         _jwt = jwt;
         _env = env;
         _log = log;
+        _trustedDeviceDays = config.GetValue("Auth:TrustedDeviceDays", 90);
     }
 
     [HttpPost("request-otp")]
@@ -129,12 +137,24 @@ public class AuthController : ControllerBase
         if (driver is null)
             return Unauthorized(new { error = "driver_not_found" });
 
+        if (driver.Status != Core.Enums.DriverStatus.Active)
+            return Unauthorized(new { error = "driver_inactive" });
+
+        // New trusted device: 90-day refresh token + short access token.
+        var (session, rawRefresh) = NewSession(driver.Id, driver.ParkId);
+        _db.DriverSessions.Add(session);
+        await _db.SaveChangesAsync(ct);
+
         var token = _jwt.IssueDriverToken(driver.Id, driver.ParkId, phoneHash);
+        _log.LogInformation("Driver {DriverId} signed in on a new device ({Device}); session {SessionId} valid until {Exp:u}",
+            driver.Id, session.DeviceLabel, session.Id, session.ExpiresAt);
 
         return Ok(new
         {
             token = token.Token,
             expiresAt = token.ExpiresAt,
+            refreshToken = rawRefresh,
+            refreshExpiresAt = session.ExpiresAt,
             driver = new
             {
                 id = driver.Id,
@@ -144,6 +164,126 @@ public class AuthController : ControllerBase
             },
         });
     }
+
+    /// <summary>
+    /// Exchange a refresh token for a new access token. Rotates the refresh token: the old one
+    /// is revoked and a successor returned. A revoked token being replayed means the token was
+    /// copied — every session of that driver is revoked and the driver must log in again.
+    /// </summary>
+    [HttpPost("refresh")]
+    public async Task<IActionResult> Refresh([FromBody] RefreshDto body, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(body?.RefreshToken))
+            return BadRequest(new { error = "refresh_token_required" });
+
+        var hash = Sha256Hex(body.RefreshToken.Trim());
+        var session = await _db.DriverSessions.FirstOrDefaultAsync(s => s.TokenHash == hash, ct);
+        if (session is null)
+            return Unauthorized(new { error = "invalid_refresh_token" });
+
+        if (session.RevokedAt is not null)
+        {
+            // Replay of a rotated/revoked token: assume compromise, kill everything for this driver.
+            var all = await _db.DriverSessions
+                .Where(s => s.DriverId == session.DriverId && s.RevokedAt == null)
+                .ToListAsync(ct);
+            foreach (var s in all) { s.RevokedAt = DateTime.UtcNow; s.RevokedReason = "refresh_reuse_detected"; }
+            await _db.SaveChangesAsync(ct);
+            _log.LogWarning("Refresh token reuse for driver {DriverId} — revoked {Count} session(s)", session.DriverId, all.Count);
+            return Unauthorized(new { error = "session_revoked", message = "Please sign in again." });
+        }
+
+        if (session.ExpiresAt <= DateTime.UtcNow)
+            return Unauthorized(new { error = "session_expired", message = "Please sign in again." });
+
+        var driver = await _db.Drivers.AsNoTracking().FirstOrDefaultAsync(d => d.Id == session.DriverId, ct);
+        if (driver is null || driver.Status != Core.Enums.DriverStatus.Active)
+        {
+            session.RevokedAt = DateTime.UtcNow;
+            session.RevokedReason = "driver_inactive";
+            await _db.SaveChangesAsync(ct);
+            return Unauthorized(new { error = "driver_inactive", message = "Your account is not active." });
+        }
+
+        // Rotate. The successor keeps the original expiry: 90 days from the SMS login, not forever.
+        var (next, rawNext) = NewSession(driver.Id, driver.ParkId);
+        next.ExpiresAt = session.ExpiresAt;
+        session.RevokedAt = DateTime.UtcNow;
+        session.RevokedReason = "rotated";
+        session.ReplacedBySessionId = next.Id;
+        session.LastUsedAt = DateTime.UtcNow;
+        _db.DriverSessions.Add(next);
+        await _db.SaveChangesAsync(ct);
+
+        var token = _jwt.IssueDriverToken(driver.Id, driver.ParkId, driver.PhoneHash);
+        return Ok(new
+        {
+            token = token.Token,
+            expiresAt = token.ExpiresAt,
+            refreshToken = rawNext,
+            refreshExpiresAt = next.ExpiresAt,
+            driver = new
+            {
+                id = driver.Id,
+                parkId = driver.ParkId,
+                name = driver.Name,
+                yandexProfileId = driver.YandexDriverProfileId,
+            },
+        });
+    }
+
+    /// <summary>Revoke this device's refresh token. Idempotent; unknown tokens are ignored.</summary>
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout([FromBody] RefreshDto body, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(body?.RefreshToken))
+        {
+            var hash = Sha256Hex(body.RefreshToken.Trim());
+            var session = await _db.DriverSessions.FirstOrDefaultAsync(s => s.TokenHash == hash && s.RevokedAt == null, ct);
+            if (session is not null)
+            {
+                session.RevokedAt = DateTime.UtcNow;
+                session.RevokedReason = "logout";
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+        return NoContent();
+    }
+
+    private (DriverSession session, string rawToken) NewSession(Guid driverId, Guid parkId)
+    {
+        var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        var session = new DriverSession
+        {
+            DriverId = driverId,
+            ParkId = parkId,
+            TokenHash = Sha256Hex(raw),
+            DeviceLabel = DeviceLabel(Request.Headers.UserAgent.ToString()),
+            ExpiresAt = DateTime.UtcNow.AddDays(_trustedDeviceDays),
+            LastUsedAt = DateTime.UtcNow,
+        };
+        return (session, raw);
+    }
+
+    /// <summary>"Android · Chrome"-style hint from the User-Agent; never the raw UA (PII hygiene).</summary>
+    private static string DeviceLabel(string ua)
+    {
+        if (string.IsNullOrWhiteSpace(ua)) return "Unknown device";
+        var os = ua.Contains("Android") ? "Android"
+               : ua.Contains("iPhone") || ua.Contains("iPad") ? "iOS"
+               : ua.Contains("Windows") ? "Windows"
+               : ua.Contains("Mac OS") ? "macOS"
+               : ua.Contains("Linux") ? "Linux" : "Other";
+        var browser = ua.Contains("Edg/") ? "Edge"
+                    : ua.Contains("Chrome/") ? "Chrome"
+                    : ua.Contains("Firefox/") ? "Firefox"
+                    : ua.Contains("Safari/") ? "Safari" : "Browser";
+        return $"{os} · {browser}";
+    }
+
+    private static string Sha256Hex(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     // ── Helpers ──────────────────────────────────────────────────────
 
@@ -175,4 +315,5 @@ public class AuthController : ControllerBase
 
     public record RequestOtpDto(string Phone);
     public record VerifyOtpDto(string Phone, string Code);
+    public record RefreshDto(string RefreshToken);
 }

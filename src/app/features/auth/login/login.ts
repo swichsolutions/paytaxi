@@ -1,5 +1,5 @@
 import { Component, inject, signal, computed, ViewChildren, QueryList, ElementRef, OnDestroy } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { MockDataService } from '../../../core/services/mock-data.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -25,6 +25,14 @@ export class LoginComponent implements OnDestroy {
   resendSecs = signal(0);
   submitting = signal(false);
   errorMessage = signal<string | null>(null);
+  private readonly route = inject(ActivatedRoute);
+
+  constructor() {
+    // Bounced here by the interceptor after the 90-day session ended / was revoked.
+    if (this.route.snapshot.queryParamMap.get('reason') === 'expired') {
+      this.errorMessage.set((this.svc.t as Record<string, string>)['sessionExpired']);
+    }
+  }
   devCode = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | null = null;
 

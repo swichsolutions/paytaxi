@@ -1,6 +1,8 @@
-import { HttpInterceptorFn } from '@angular/common/http';
+import { HttpErrorResponse, HttpInterceptorFn, HttpRequest } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { AuthService } from '../services/auth.service';
+import { Router } from '@angular/router';
+import { from, switchMap, throwError, catchError } from 'rxjs';
+import { AuthService, SKIP_AUTH } from '../services/auth.service';
 import { AdminAuthService } from '../../admin/services/admin-auth.service';
 import { environment } from '../../../environments/environment';
 
@@ -8,30 +10,55 @@ import { environment } from '../../../environments/environment';
  * Attaches the right Authorization header to outbound backend calls.
  *
  *   /api/admin/auth/*    → no token (login endpoint)
- *   /api/driver/auth/*   → no token (OTP request/verify)
+ *   /api/driver/auth/*   → no token (OTP request/verify/refresh/logout; marked SKIP_AUTH)
  *   /api/admin/*         → admin JWT
- *   /api/driver/*        → driver JWT
+ *   /api/driver/*        → driver JWT, refreshed from the trusted-device session when stale;
+ *                          one silent retry on 401, then back to the OTP screen
  *   other origins        → no token (third-party hosts)
  *
  * Strict per-scope: an admin tab can't accidentally invoke driver-scoped
- * endpoints with an admin token, and vice versa. Mismatches result in 401/403
- * from the backend, which is what we want.
+ * endpoints with an admin token, and vice versa.
  */
 export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const isBackend = req.url.startsWith(environment.apiBase) || req.url.startsWith('/api/');
-  if (!isBackend) return next(req);
+  if (!isBackend || req.context.get(SKIP_AUTH)) return next(req);
 
-  // Login endpoints never carry a token
   if (req.url.includes('/auth/login') ||
       req.url.includes('/auth/request-otp') ||
-      req.url.includes('/auth/verify-otp')) {
+      req.url.includes('/auth/verify-otp') ||
+      req.url.includes('/auth/refresh') ||
+      req.url.includes('/auth/logout')) {
     return next(req);
   }
 
-  const token = req.url.includes('/api/admin/')
-    ? inject(AdminAuthService).token()
-    : inject(AuthService).token();
+  // ── Admin scope: plain bearer, no refresh flow (yet) ─────────────
+  if (req.url.includes('/api/admin/')) {
+    const token = inject(AdminAuthService).token();
+    return next(token ? withBearer(req, token) : req);
+  }
 
-  if (!token) return next(req);
-  return next(req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }));
+  // ── Driver scope: refresh-before-send, retry-once-on-401 ─────────
+  const auth = inject(AuthService);
+  const router = inject(Router);
+
+  const send = (token: string | null) => next(token ? withBearer(req, token) : req);
+
+  return from(auth.ensureValidToken()).pipe(
+    switchMap(() => send(auth.token())),
+    catchError((err: unknown) => {
+      if (!(err instanceof HttpErrorResponse) || err.status !== 401) return throwError(() => err);
+      // Access token rejected (expired mid-flight, key rotated…): refresh once and retry.
+      return from(auth.refresh()).pipe(
+        switchMap(ok => {
+          if (ok) return send(auth.token());
+          router.navigate(['/login'], { queryParams: { reason: 'expired' } });
+          return throwError(() => err);
+        }),
+      );
+    }),
+  );
 };
+
+function withBearer(req: HttpRequest<unknown>, token: string) {
+  return req.clone({ setHeaders: { Authorization: `Bearer ${token}` } });
+}

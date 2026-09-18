@@ -7,6 +7,9 @@
         <p class="dash-header__name">{{ driver.name }}</p>
       </div>
       <div class="dash-header__actions">
+        <button class="dash-header__lang" (click)="cycleLang()" [attr.aria-label]="t.language" [title]="t.language">
+          {{ langLabel() }}
+        </button>
         <a routerLink="/notifications" class="dash-header__bell" aria-label="Notifications">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>

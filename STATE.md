@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-18 (TBC adapter, Yandex client, production plumbing — see the newest sections)
+**Last updated:** 2026-09-18 (TBC adapter, Yandex client, production plumbing, trusted-device login — see the newest sections)
 
 ---
 
@@ -11,6 +11,31 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-18 (part 3) — trusted-device login (90 days) + driver header language switch
+
+- **Decision (user)**: SMS only for signing in on a new device; no push notifications for now (Web Push / PWA
+  documented as the future channel; iPhone needs "add to home screen" for it).
+- `DriverSessions` table (migration `DriverSessions`): SHA-256 of a 32-byte refresh token, device label from the UA
+  ("Android · Chrome"), `ExpiresAt` = login + `Auth:TrustedDeviceDays` (90), `RevokedAt/RevokedReason`, `ReplacedBySessionId`.
+- `AuthController`: `verify-otp` now returns `refreshToken` + `refreshExpiresAt` besides the JWT; new
+  `POST /api/driver/auth/refresh {refreshToken}` (rotates; successor keeps the original 90-day expiry; checks the
+  driver is still Active) and `POST /api/driver/auth/logout {refreshToken}` (revokes that device). Replaying a
+  rotated/revoked token → `session_revoked` and **every** session of the driver is revoked (reuse = theft).
+- Driver access JWTs are now short: `Jwt:DriverAccessMinutes` (60). Admin tokens unchanged (`Jwt:ExpiryMinutes`).
+- Frontend `AuthService`: stores token/refresh + expiries in localStorage; `ensureValidToken()` refreshes when the
+  access token has < 60 s left; `refresh()` de-duplicates concurrent callers; `logout()` revokes server-side then
+  clears. `authInterceptor`: driver calls refresh-before-send and retry once on 401, then bounce to
+  `/login?reason=expired` (login page shows `sessionExpired`). Auth endpoints carry the `SKIP_AUTH` HttpContext token.
+  `isAuthenticated` = live refresh session, so the guard lets a returning driver straight in.
+- Login OTP step shows `trustedDeviceHint` (en/ka/ru).
+- Verified via API: rotation, reuse detection (both tokens dead), logout → 401, sessions table rows.
+- Also this session: language pill in the driver dashboard header (EN/ქა/RU, cycles on tap) and the language choice is
+  persisted in localStorage (`paytaxi.lang`).
+- Not done: "my devices" list / remote sign-out UI (data is there: `DriverSessions`), admin refresh flow (admins still
+  get 24 h tokens), Web Push.
 
 ---
 

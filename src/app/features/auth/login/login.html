@@ -86,6 +86,8 @@
         </button>
         @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
 
+        <p class="trusted-hint">{{ t.trustedDeviceHint }}</p>
+
         <div class="resend-row">
           @if (resendSecs() > 0) {
             <span class="resend-timer">{{ t.resendIn }} {{ resendSecs() }}s</span>

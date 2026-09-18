@@ -320,3 +320,11 @@
 
   .otp-digit { height: 48px; font-size: 1.5rem; }
 }
+
+.trusted-hint {
+  margin-top: var(--space-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--color-text-3);
+  text-align: center;
+}

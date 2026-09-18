@@ -79,5 +79,7 @@
   "errBankNotSupported": "Your park does not pay out to that bank yet. Supported:",
   "errIbanExists": "This account is already added.",
   "errCardHasPending": "Can't remove it while a cashout to this account is in progress.",
-  "errGeneric": "Something went wrong. Please try again."
+  "errGeneric": "Something went wrong. Please try again.",
+  "trustedDeviceHint": "This phone stays signed in for 90 days. You’ll only need a new code on another device or after signing out.",
+  "sessionExpired": "Your session ended. Please sign in again."
 }

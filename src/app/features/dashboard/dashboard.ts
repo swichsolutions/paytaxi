@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService } from '../../core/services/driver-session.service';
 import { DriverNotificationService } from '../../core/services/notification.service';
+import { Lang } from '../../core/mock/data';
 
 @Component({
   selector: 'app-dashboard',
@@ -16,6 +17,17 @@ export class DashboardComponent implements OnInit {
   private notifications = inject(DriverNotificationService);
 
   readonly unreadCount = computed(() => this.notifications.unreadCount());
+
+  // Language switcher in the header: taps cycle EN → ქა → RU. Same signal the profile page uses.
+  private static readonly LANGS: Lang[] = ['en', 'ka', 'ru'];
+  private static readonly LANG_LABELS: Record<Lang, string> = { en: 'EN', ka: 'ქა', ru: 'RU' };
+  readonly langLabel = computed(() => DashboardComponent.LANG_LABELS[this.svc.lang()]);
+
+  cycleLang() {
+    const order = DashboardComponent.LANGS;
+    const next = order[(order.indexOf(this.svc.lang()) + 1) % order.length];
+    this.svc.lang.set(next);
+  }
 
   async ngOnInit() {
     await this.session.ensureLoaded();

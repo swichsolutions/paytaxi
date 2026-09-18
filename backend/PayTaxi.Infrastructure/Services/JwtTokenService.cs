@@ -21,6 +21,7 @@ public class JwtTokenService : IJwtTokenService
     private readonly string _issuer;
     private readonly string _audience;
     private readonly int _expiryMinutes;
+    private readonly int _driverAccessMinutes;
 
     public JwtTokenService(IConfiguration config)
     {
@@ -29,6 +30,8 @@ public class JwtTokenService : IJwtTokenService
         _issuer = section["Issuer"] ?? throw new InvalidOperationException("Jwt:Issuer missing");
         _audience = section["Audience"] ?? throw new InvalidOperationException("Jwt:Audience missing");
         _expiryMinutes = section.GetValue("ExpiryMinutes", 1440);
+        // Drivers get short access tokens; the 90-day trusted-device session re-mints them.
+        _driverAccessMinutes = section.GetValue("DriverAccessMinutes", 60);
     }
 
     public DriverTokenResult IssueDriverToken(Guid driverId, Guid parkId, string phoneHash)
@@ -41,7 +44,7 @@ public class JwtTokenService : IJwtTokenService
             new(ClaimTypes.Role, "driver"),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
-        return BuildToken(claims);
+        return BuildToken(claims, _driverAccessMinutes);
     }
 
     public DriverTokenResult IssueAdminToken(Guid adminUserId, string email, string role, Guid? parkId)
@@ -56,12 +59,12 @@ public class JwtTokenService : IJwtTokenService
         };
         if (parkId is not null)
             claims.Add(new Claim("parkId", parkId.Value.ToString()));
-        return BuildToken(claims);
+        return BuildToken(claims, _expiryMinutes);
     }
 
-    private DriverTokenResult BuildToken(IEnumerable<Claim> claims)
+    private DriverTokenResult BuildToken(IEnumerable<Claim> claims, int minutes)
     {
-        var expires = DateTime.UtcNow.AddMinutes(_expiryMinutes);
+        var expires = DateTime.UtcNow.AddMinutes(minutes);
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_key)),
             SecurityAlgorithms.HmacSha256);
