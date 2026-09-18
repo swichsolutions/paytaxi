@@ -18,6 +18,36 @@ System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globaliz
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Utility: `dotnet run -- --new-encryption-key` prints a fresh AES-256 key and exits ──
+if (args.Contains("--new-encryption-key"))
+{
+    Console.WriteLine(PayTaxi.Infrastructure.Security.FieldEncryptor.NewKeyBase64());
+    return;
+}
+
+// ── Secrets: Azure Key Vault when KeyVault:Uri is set (managed identity / DefaultAzureCredential) ──
+var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+if (!string.IsNullOrWhiteSpace(keyVaultUri))
+{
+    builder.Configuration.AddAzureKeyVault(new Uri(keyVaultUri), new Azure.Identity.DefaultAzureCredential());
+}
+
+// ── Field encryption (PII / credentials at rest) ─────────────────
+PayTaxi.Infrastructure.Security.FieldEncryptor.Configure(builder.Configuration["Encryption:Key"]);
+
+// ── Production guard rails: refuse to start half-configured ──────
+if (builder.Environment.IsProduction())
+{
+    var problems = new List<string>();
+    var conn = builder.Configuration.GetConnectionString("DefaultConnection") ?? "";
+    if (conn.Contains("REPLACE_WITH", StringComparison.OrdinalIgnoreCase) || conn.Length < 20) problems.Add("ConnectionStrings:DefaultConnection");
+    var jwt = builder.Configuration["Jwt:Key"] ?? "";
+    if (jwt.Contains("REPLACE_WITH", StringComparison.OrdinalIgnoreCase) || jwt.Contains("dev-only") || jwt.Length < 32) problems.Add("Jwt:Key (>= 32 random chars)");
+    if (!PayTaxi.Infrastructure.Security.FieldEncryptor.Enabled) problems.Add("Encryption:Key (base64, 32 bytes)");
+    if (problems.Count > 0)
+        throw new InvalidOperationException("Refusing to start in Production — missing/placeholder settings: " + string.Join(", ", problems));
+}
+
 // ── Database ─────────────────────────────────────────────────────
 builder.Services.AddDbContext<AppDbContext>(opts =>
     opts.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -179,12 +209,23 @@ builder.Services.AddRateLimiter(opts =>
             }));
 });
 
-// ── CORS for Angular dev server ──────────────────────────────────
+// ── CORS: allowed frontend origins from configuration (Cors:AllowedOrigins) ──
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? new[] { "http://localhost:4200" };
 builder.Services.AddCors(opts =>
     opts.AddDefaultPolicy(p =>
-        p.WithOrigins("http://localhost:4200")
+        p.WithOrigins(allowedOrigins)
          .AllowAnyHeader()
          .AllowAnyMethod()));
+
+// Behind App Service / a reverse proxy: trust X-Forwarded-For / -Proto for scheme + client IP (rate limiter).
+builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                       | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+    o.KnownNetworks.Clear();
+    o.KnownProxies.Clear();
+});
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -201,6 +242,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseForwardedHeaders();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 app.UseMiddleware<PayTaxi.Api.Middleware.IntegrationErrorMiddleware>();
 app.UseCors();
 app.UseRateLimiter();

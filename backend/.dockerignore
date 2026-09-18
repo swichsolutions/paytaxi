@@ -1,0 +1,8 @@
+**/bin/
+**/obj/
+**/.vs/
+**/*.user
+PayTaxi.Tests/
+appsettings.Development.json
+*.pfx
+*.p12

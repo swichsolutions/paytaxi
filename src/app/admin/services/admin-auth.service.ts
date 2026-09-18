@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 const TOKEN_KEY = 'paytaxi.admin.token';
 const SESSION_KEY = 'paytaxi.admin.session';
@@ -14,7 +15,7 @@ const SESSION_KEY = 'paytaxi.admin.session';
 @Injectable({ providedIn: 'root' })
 export class AdminAuthService {
   private readonly http = inject(HttpClient);
-  private readonly base = 'http://localhost:5196/api/admin/auth';
+  private readonly base = `${environment.apiBase}/api/admin/auth`;
 
   readonly token = signal<string | null>(this.readToken());
   readonly admin = signal<AdminSession | null>(this.readSession());

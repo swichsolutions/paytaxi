@@ -52,3 +52,7 @@ backend/PayTaxi.Api/appsettings.Development.json
 # .NET secrets
 *.pfx
 *.p12
+
+# Docker compose / local secrets
+.env
+.env.*

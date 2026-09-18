@@ -738,6 +738,7 @@ public class AdminParksController : AdminControllerBase
             {
                 DriverId = driver.Id,
                 Iban = iban,
+                IbanHash = PayTaxi.Infrastructure.Security.FieldEncryptor.Hash(iban),
                 BankCode = bankCode,
                 BankType = GeorgianIban.BankLabel(bankCode),
                 MaskedPan = GeorgianIban.Mask(iban),
@@ -1339,37 +1340,6 @@ public class AdminParksController : AdminControllerBase
     {
         var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(phone));
         return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
-
-    [HttpGet("smoke-test")]
-    public async Task<IActionResult> SmokeTest(Guid parkId, CancellationToken ct)
-    {
-        if (!CanAccessPark(parkId)) return Forbid();
-
-        var startedAt = DateTime.UtcNow;
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-
-        // Fire 5 concurrent calls — the rate limiter should serialise them at 500ms intervals
-        var tasks = Enumerable.Range(0, 5)
-            .Select(async i =>
-            {
-                var t0 = sw.ElapsedMilliseconds;
-                var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
-                var t1 = sw.ElapsedMilliseconds;
-                return new { call = i + 1, startMs = t0, endMs = t1, durationMs = t1 - t0, profileCount = profiles.Count };
-            })
-            .ToList();
-
-        var results = await Task.WhenAll(tasks);
-
-        return Ok(new
-        {
-            parkId,
-            startedAt,
-            totalMs = sw.ElapsedMilliseconds,
-            calls = results,
-            note = "If rate limiter works, total time should be ~2000ms (4 × 500ms gaps for 5 calls)",
-        });
     }
 }
 

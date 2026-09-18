@@ -4,6 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService, SessionCard } from '../../core/services/driver-session.service';
+import { environment } from '../../../environments/environment';
 
 type Step = 1 | 2 | 3;
 
@@ -184,7 +185,7 @@ export class CashoutComponent implements OnInit {
     this.submitError.set(null);
     try {
       const result = await firstValueFrom(this.http.post<CashoutSagaResult>(
-        `http://localhost:5196/api/driver/cashouts`,
+        `${environment.apiBase}/api/driver/cashouts`,
         {
           cardId: card.id,
           amount: this.amount(),

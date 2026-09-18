@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Banking;
 using PayTaxi.Core.Entities;
 using PayTaxi.Infrastructure.Data;
+using PayTaxi.Infrastructure.Security;
 
 namespace PayTaxi.Api.Controllers;
 
@@ -38,8 +39,9 @@ public static class DestinationHelper
             });
         }
 
+        var ibanHash = FieldEncryptor.Hash(iban);
         var existing = await db.BankCards
-            .FirstOrDefaultAsync(b => b.DriverId == driver.Id && b.Iban == iban, ct);
+            .FirstOrDefaultAsync(b => b.DriverId == driver.Id && b.IbanHash == ibanHash, ct);
         if (existing is not null && existing.IsActive)
             return (Outcome.Conflict, "iban_already_added", null);
 
@@ -67,6 +69,7 @@ public static class DestinationHelper
             {
                 DriverId = driver.Id,
                 Iban = iban,
+                IbanHash = ibanHash,
                 BankCode = bankCode,
                 BankType = GeorgianIban.BankLabel(bankCode),
                 MaskedPan = GeorgianIban.Mask(iban),

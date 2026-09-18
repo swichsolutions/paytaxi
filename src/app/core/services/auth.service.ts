@@ -1,6 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 const TOKEN_KEY = 'paytaxi.driver.token';
 const SESSION_KEY = 'paytaxi.driver.session';
@@ -16,7 +17,7 @@ const SESSION_KEY = 'paytaxi.driver.session';
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
-  private readonly base = 'http://localhost:5196/api/driver/auth';
+  private readonly base = `${environment.apiBase}/api/driver/auth`;
 
   readonly token = signal<string | null>(this.readToken());
   readonly session = signal<DriverSessionClaims | null>(this.readSession());

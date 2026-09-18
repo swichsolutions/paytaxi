@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService } from '../../core/services/driver-session.service';
 import { Ride } from '../../core/mock/data';
+import { environment } from '../../../environments/environment';
 
 type Filter = 'all' | 'cashouts' | 'rides';
 
@@ -50,7 +51,7 @@ export class HistoryComponent implements OnInit {
     await this.session.ensureLoaded();
     try {
       const resp = await firstValueFrom(this.http.get<ApiCashoutsResponse>(
-        `http://localhost:5196/api/driver/me/cashouts?take=50`));
+        `${environment.apiBase}/api/driver/me/cashouts?take=50`));
       this.cashouts.set(resp.cashouts);
     } catch (err: any) {
       this.loadError.set(`Could not load cashouts: ${err?.message ?? err}`);

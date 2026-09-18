@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 /**
  * Driver in-app notification client. Polls /api/driver/me/notifications
@@ -15,7 +16,7 @@ import { AuthService } from './auth.service';
 export class DriverNotificationService {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
-  private readonly base = 'http://localhost:5196/api/driver/me/notifications';
+  private readonly base = `${environment.apiBase}/api/driver/me/notifications`;
   private readonly pollIntervalMs = 25_000;
 
   readonly notifications = signal<DriverNotification[]>([]);

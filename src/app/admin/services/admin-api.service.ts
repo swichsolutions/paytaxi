@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import { environment } from '../../../environments/environment';
 
 /**
  * Typed HTTP client for the .NET backend admin endpoints.
@@ -11,7 +12,7 @@ import { firstValueFrom } from 'rxjs';
 @Injectable({ providedIn: 'root' })
 export class AdminApiService {
   private readonly http = inject(HttpClient);
-  private readonly base = 'http://localhost:5196/api/admin';
+  private readonly base = `${environment.apiBase}/api/admin`;
 
   listParks(): Promise<ApiPark[]> {
     return firstValueFrom(this.http.get<ApiPark[]>(`${this.base}/parks`));

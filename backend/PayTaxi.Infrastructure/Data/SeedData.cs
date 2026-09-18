@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using PayTaxi.Core.Banking;
 using PayTaxi.Core.Entities;
 using PayTaxi.Core.Enums;
+using PayTaxi.Infrastructure.Security;
 
 namespace PayTaxi.Infrastructure.Data;
 
@@ -41,6 +42,7 @@ public static class SeedData
             await EnsureAdminUsersSeededAsync(db, log);
             await EnsureOperatorSeededAsync(db, log);
             await EnsureSettlementConfigSeededAsync(db, log);
+            await EncryptionMigrator.EnsureEncryptedAsync(db, log);
             return;
         }
 
@@ -118,6 +120,7 @@ public static class SeedData
         await EnsureAdminUsersSeededAsync(db, log);
         await EnsureOperatorSeededAsync(db, log);
         await EnsureSettlementConfigSeededAsync(db, log);
+        await EncryptionMigrator.EnsureEncryptedAsync(db, log);
     }
 
     /// <summary>
@@ -276,11 +279,12 @@ public static class SeedData
         var rng = new Random(42); // deterministic across reseeds
 
         // 1. Legacy rows: token-only cards from before the IBAN column existed.
-        var legacy = await db.BankCards.Where(b => b.Iban == "" || b.BankCode == "").ToListAsync();
+        var legacy = await db.BankCards.Where(b => b.BankCode == "").ToListAsync(); // Iban is encrypted: never filter on it
         foreach (var b in legacy)
         {
             var code = string.Equals(b.BankType, "TBC", StringComparison.OrdinalIgnoreCase) ? "TB" : "BG";
             b.Iban = GeorgianIban.Build(code, RandomDigits(rng, 16));
+            b.IbanHash = FieldEncryptor.Hash(b.Iban);
             b.BankCode = code;
             b.BankType = GeorgianIban.BankLabel(code);
             b.MaskedPan = GeorgianIban.Mask(b.Iban);
@@ -395,6 +399,7 @@ public static class SeedData
         {
             DriverId = driverId,
             Iban = iban,
+            IbanHash = FieldEncryptor.Hash(iban),
             BankCode = bankCode,
             BankType = GeorgianIban.BankLabel(bankCode),
             MaskedPan = GeorgianIban.Mask(iban),

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PayTaxi.Core.Entities;
 using PayTaxi.Core.Enums;
+using PayTaxi.Infrastructure.Security;
 
 namespace PayTaxi.Infrastructure.Data;
 
@@ -45,6 +46,15 @@ public class AppDbContext : DbContext
     private static readonly ValueConverter<SettlementStatus, string> SettlementStatusConverter = new(
         v => Converters.ToText(v),
         v => Converters.ToSettlementStatus(v));
+
+    /// <summary>
+    /// AES-GCM at rest for PII / credential columns. Legacy plaintext is read transparently and
+    /// re-encrypted by <see cref="EncryptionMigrator"/> at startup. Never filter these columns by
+    /// equality — use the *Hash companions (PhoneHash, IbanHash).
+    /// </summary>
+    private static readonly ValueConverter<string, string> Encrypted = new(
+        v => FieldEncryptor.Encrypt(v),
+        v => FieldEncryptor.Decrypt(v));
 
     private static class Converters
     {
@@ -133,6 +143,11 @@ public class AppDbContext : DbContext
             e.Property(p => p.BankProvider).HasMaxLength(40).IsRequired();
             e.Property(p => p.BankAccountIban).HasMaxLength(34);
 
+            // Encrypted at rest
+            e.Property(p => p.YandexClientIdEncrypted).HasConversion(Encrypted);
+            e.Property(p => p.YandexApiKeyEncrypted).HasConversion(Encrypted);
+            e.Property(p => p.BankCredentialsEncrypted).HasConversion(Encrypted);
+
             // Per-park fee & limits (PAYTAXI-CONTEXT.md §2/§5)
             e.Property(p => p.CashoutFee).HasPrecision(18, 2).HasDefaultValue(0.50m);
             e.Property(p => p.MinCashoutAmount).HasPrecision(18, 2).HasDefaultValue(5m);
@@ -212,7 +227,7 @@ public class AppDbContext : DbContext
             e.Property(a => a.Iban).HasMaxLength(34).IsRequired();
             e.Property(a => a.HolderName).HasMaxLength(200);
             e.Property(a => a.Label).HasMaxLength(100);
-            e.Property(a => a.CredentialsEncrypted).IsRequired();
+            e.Property(a => a.CredentialsEncrypted).IsRequired().HasConversion(Encrypted);
             e.HasIndex(a => new { a.ParkId, a.BankCode });
             e.HasIndex(a => new { a.ParkId, a.IsPrimary })
                 .IsUnique()
@@ -223,15 +238,18 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<BankCard>(e =>
         {
-            e.Property(b => b.Iban).HasMaxLength(34).IsRequired();
+            // IBAN is encrypted (ciphertext is longer than 34 chars) — duplicate checks go through IbanHash.
+            e.Property(b => b.Iban).IsRequired().HasConversion(Encrypted);
+            e.Property(b => b.IbanHash).HasMaxLength(64).IsRequired().HasDefaultValue("");
             e.Property(b => b.BankCode).HasMaxLength(2).IsRequired();
             e.Property(b => b.HolderName).HasMaxLength(200);
-            e.Property(b => b.TokenReferenceEncrypted).HasDefaultValue("");
-            e.HasIndex(b => new { b.DriverId, b.Iban });
+            e.Property(b => b.TokenReferenceEncrypted).HasDefaultValue("").HasConversion(Encrypted);
+            e.HasIndex(b => new { b.DriverId, b.IbanHash });
         });
 
         modelBuilder.Entity<Driver>(e =>
         {
+            e.Property(d => d.PhoneEncrypted).HasConversion(Encrypted);
             e.HasIndex(d => d.PhoneHash).IsUnique();
             e.HasIndex(d => new { d.ParkId, d.YandexDriverProfileId });
             e.Property(d => d.PhoneHash).HasMaxLength(64).IsRequired();

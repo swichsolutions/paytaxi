@@ -18,8 +18,11 @@ public class BankCard : BaseEntity
     /// <summary>Human-readable bank label: "TBC" | "BOG" | "LIBERTY" | … Derived from <see cref="BankCode"/>.</summary>
     public string BankType { get; set; } = default!;
 
-    /// <summary>Driver's account IBAN — the transfer destination.</summary>
+    /// <summary>Driver's account IBAN — the transfer destination. Encrypted at rest.</summary>
     public string Iban { get; set; } = default!;
+
+    /// <summary>SHA-256 of the IBAN — the equality-lookup companion of the encrypted column (duplicate detection).</summary>
+    public string IbanHash { get; set; } = "";
 
     /// <summary>Two-letter bank code parsed from the IBAN ("TB", "BG", …). Drives payout routing.</summary>
     public string BankCode { get; set; } = default!;

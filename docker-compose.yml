@@ -1,0 +1,45 @@
+# Local/staging stack: API + Postgres. Secrets come from a `.env` file next to this
+# compose file (never committed) — see docs/DEPLOY.md for the variable list.
+#
+#   docker compose up --build
+#   API on http://localhost:8080, Postgres on localhost:5433
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: paytaxi
+      POSTGRES_USER: paytaxi
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paytaxi -d paytaxi"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__DefaultConnection: "Host=db;Database=paytaxi;Username=paytaxi;Password=${DB_PASSWORD}"
+      Jwt__Key: ${JWT_KEY:?set JWT_KEY in .env (>=32 chars)}
+      Encryption__Key: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env (base64, 32 bytes)}
+      Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:4200}
+      YandexFleet__UseMock: ${YANDEX_USE_MOCK:-true}
+      YandexFleet__ReadOnlyMode: ${YANDEX_READ_ONLY:-true}
+      BankPayout__UseMock: ${BANK_USE_MOCK:-true}
+      Settlement__SwichIban: ${SWICH_IBAN:-}
+      Invoice__OperatingEntityName: ${OPERATING_ENTITY_NAME:-Swich Solutions LLC}
+      Invoice__OperatingEntityTaxId: ${OPERATING_ENTITY_TAX_ID:-}
+    restart: unless-stopped
+
+volumes:
+  pgdata:

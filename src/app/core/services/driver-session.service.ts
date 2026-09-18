@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AuthService } from './auth.service';
+import { environment } from '../../../environments/environment';
 
 /**
  * Holds the "currently logged-in driver" context for the driver app.
@@ -18,7 +19,7 @@ import { AuthService } from './auth.service';
 export class DriverSessionService {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
-  private readonly base = 'http://localhost:5196/api/driver';
+  private readonly base = `${environment.apiBase}/api/driver`;
 
   // Reactive session state
   readonly driver = signal<SessionDriver | null>(null);

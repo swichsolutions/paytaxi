@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-18 (TBC adapter + Yandex client both built; see the two newest sections)
+**Last updated:** 2026-09-18 (TBC adapter, Yandex client, production plumbing — see the newest sections)
 
 ---
 
@@ -11,6 +11,35 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-18 (part 2) — production plumbing
+
+- **Frontend environments**: `src/environments/environment.ts` (dev, `apiBase: http://localhost:5196`) and
+  `environment.prod.ts` (`apiBase: https://api.paytaxi.ge` — set the real origin before a prod build); angular.json
+  production `fileReplacements`. The 8 hardcoded URLs now use `environment.apiBase`; the auth interceptor keys off it.
+  Production build works (style budgets raised to 12/24 kB per component, initial 800 kB/1.5 MB; the admin pages'
+  scss files are 15–17 kB and still warn — cosmetic).
+- **Encryption at rest** (`Infrastructure/Security/FieldEncryptor`): AES-256-GCM, wire format `enc:v1:` + base64(nonce|tag|ct),
+  applied by an EF value converter to `Drivers.PhoneEncrypted`, `Parks.YandexClientIdEncrypted / YandexApiKeyEncrypted /
+  BankCredentialsEncrypted`, `ParkBankAccounts.CredentialsEncrypted`, `BankCards.Iban / TokenReferenceEncrypted`.
+  Legacy plaintext reads transparently; `EncryptionMigrator` re-encrypts old rows at startup (idempotent) and back-fills
+  `BankCards.IbanHash` (SHA-256) which replaces IBAN equality lookups (index `(DriverId, IbanHash)`). Key =
+  `Encryption:Key` (base64 32 bytes); dev key is in the gitignored appsettings.Development.json; no key → plaintext
+  passthrough with a loud warning (dev only). Empty strings stay empty so `!= ''` SQL checks keep working.
+  **Never filter an encrypted column by equality** — use PhoneHash / IbanHash. `dotnet run -- --new-encryption-key`
+  prints a fresh key. Migration `EncryptedFieldsAndIbanHash` (IbanHash column, Iban → text, index swap).
+- **Config / hardening** (`Program.cs`): `Cors:AllowedOrigins` array (default localhost:4200); forwarded headers;
+  HSTS + HTTPS redirect outside Development; Azure Key Vault loaded when `KeyVault:Uri` is set (DefaultAzureCredential;
+  packages `Azure.Extensions.AspNetCore.Configuration.Secrets`, `Azure.Identity`); **Production refuses to start** with a
+  placeholder/short JWT key, no encryption key or a placeholder connection string. `appsettings.Production.json`
+  holds non-secret prod defaults (mocks off, ReadOnlyMode on until the pilot). Dev-only `smoke-test` endpoint removed.
+- **Containers**: `backend/Dockerfile` (multi-stage, non-root, Noto fonts for Georgian PDFs, port 8080),
+  `backend/.dockerignore`, `docker-compose.yml` (api + postgres 17, secrets from `.env`).
+- **Runbook**: `docs/DEPLOY.md` — secrets table, Key Vault naming, hosting recommendation (Azure App Service/Container
+  Apps + Postgres Flexible Server), single-instance note for the in-process workers, go-live checklist, key rotation.
+- Tests: `FieldEncryptorTests` (7) → 47 total.
 
 ---
 
@@ -452,9 +481,16 @@ Since the file is gitignored, anyone cloning fresh needs to create it with this 
   "Invoice": {
     "OperatingEntityName": "Swich Solutions LLC",
     "OperatingEntityTaxId": "405848882"
-  }
+  },
+  "Cors": { "AllowedOrigins": [ "http://localhost:4200" ] },
+  "Encryption": { "Key": "<base64 32 bytes — `dotnet run --project backend/PayTaxi.Api -- --new-encryption-key`; KEEP the one already in your local file or existing encrypted rows become unreadable>" },
+  "Cashout": { "MaxPayoutAttempts": 30, "MaxQueueAgeHours": 12, "PendingPollSeconds": 20, "BackoffSeconds": [10, 20, 30, 60, 120] },
+  "PayoutQueue": { "Enabled": true, "PollIntervalSeconds": 10 },
+  "Settlement": { "Enabled": true, "SwichIban": "GE12TB7100000000000001", "TimeZoneId": "Georgian Standard Time", "RunAtLocalTime": "00:30" }
 }
 ```
+(`BankPayout:Mock:{AmbiguousFailureRate, InitialBalance, OutageUntilUtc, AsyncExecution, AsyncSettleAfterPolls}`,
+`BankPayout:Tbc:*` and `YandexFleet:{BaseUrl, CashoutCategoryId, ...}` have working defaults in code.)
 
 ---
 
