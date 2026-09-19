@@ -11,9 +11,8 @@ namespace PayTaxi.Api.Controllers;
 /// Admin endpoints scoped to a park. Validates the full Yandex integration
 /// stack: DB park resolution → resilient client (rate-limit, retry, audit) → mock.
 ///
-/// Requires admin role. Super-admins see any park; park-admins can hit any
-/// park id today (no per-park gate enforced server-side yet — TODO when more
-/// than one park admin exists in production).
+/// Requires admin role. Every action calls <see cref="AdminControllerBase.CanAccessPark"/>:
+/// super-admins and operators reach any park, park-admins only their own.
 /// </summary>
 [ApiController]
 [Authorize(Roles = "admin")]
@@ -919,7 +918,7 @@ public class AdminParksController : AdminControllerBase
         if (body.Status is not null)
         {
             if (!Enum.TryParse<Core.Enums.DriverStatus>(body.Status, ignoreCase: true, out var parsed))
-                return BadRequest(new { error = "invalid_status", allowed = new[] { "Active", "Inactive", "Suspended" } });
+                return BadRequest(new { error = "invalid_status", allowed = Enum.GetNames<Core.Enums.DriverStatus>() });
             driver.Status = parsed;
         }
 
@@ -1012,9 +1011,10 @@ public class AdminParksController : AdminControllerBase
         if (!string.IsNullOrWhiteSpace(body.YandexApiKey))
             park.YandexApiKeyEncrypted = body.YandexApiKey.Trim();
 
-        // ── Fee & limits ─────────────────────────────────────────────
+        // ── Fee (Swich only — contractually fixed per park) & limits ─
         if (body.CashoutFee is { } fee)
         {
+            if (!IsSuperAdmin) return Forbid();
             if (fee < 0 || fee > 50) return BadRequest(new { error = "invalid_fee" });
             park.CashoutFee = Math.Round(fee, 2);
         }
@@ -1307,6 +1307,8 @@ public class AdminParksController : AdminControllerBase
     public async Task<IActionResult> RemoveDriverCard(Guid parkId, Guid driverId, Guid cardId, CancellationToken ct)
     {
         if (!CanAccessPark(parkId)) return Forbid();
+        var inPark = await _db.Drivers.AsNoTracking().AnyAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
+        if (!inPark) return NotFound(new { error = "driver_not_found" });
         var ok = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
         return ok ? NoContent() : NotFound(new { error = "card_not_found" });
     }
@@ -1324,23 +1326,9 @@ public class AdminParksController : AdminControllerBase
         return trimmed.Length == 0 ? null : trimmed;
     }
 
-    private static string? NormalizePhone(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        var trimmed = raw.Trim();
-        var hasPlus = trimmed.StartsWith('+');
-        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
-        if (digits.Length < 9) return null;
-        if (!hasPlus && !digits.StartsWith("995") && digits.Length <= 10)
-            digits = "995" + digits;
-        return "+" + digits;
-    }
-
-    private static string HashPhone(string phone)
-    {
-        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(phone));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
+    // One normaliser for every phone that ever becomes a PhoneHash (login uses the same).
+    private static string? NormalizePhone(string? raw) => Core.Identity.GeorgianPhone.Normalize(raw);
+    private static string HashPhone(string phone) => Core.Identity.GeorgianPhone.Hash(phone);
 }
 
 public record CreateDriverRequest(

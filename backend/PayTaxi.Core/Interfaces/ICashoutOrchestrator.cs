@@ -20,6 +20,12 @@ public interface ICashoutOrchestrator
     /// Queued with a later <c>NextAttemptAt</c>, or abandons it (Failed / ReviewRequired).
     /// </summary>
     Task<CashoutSagaResult> ProcessQueuedAsync(Guid cashoutId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Flag cashouts whose saga was interrupted (Processing, no bank id, no next attempt,
+    /// untouched for <paramref name="olderThan"/>) as ReviewRequired. Returns the count.
+    /// </summary>
+    Task<int> SweepStaleProcessingAsync(TimeSpan olderThan, CancellationToken ct = default);
 }
 
 public record CashoutSagaRequest(

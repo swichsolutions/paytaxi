@@ -128,7 +128,7 @@ public class InvoiceGenerator : IInvoiceGenerator
             col.Item().PaddingTop(8);
             col.Item().Element(c => KvRow(c, "მძღოლი / კურიერი:", m.DriverName));
             col.Item().PaddingTop(4);
-            col.Item().Element(c => KvRow(c, "მართვის მოწმობის N:", m.DriverLicenseOrProfile));
+            col.Item().Element(c => KvRow(c, "Yandex პროფილის ID:", m.DriverLicenseOrProfile));
             col.Item().PaddingTop(4);
             col.Item().Element(c => KvRow(c, "ტელეფონი:", m.DriverPhone));
         });
@@ -210,9 +210,11 @@ public class InvoiceGenerator : IInvoiceGenerator
             $"PayTaxi:{c.InvoiceNumber} გამოშუშავებული თანხის ჩარიცხვა " +
             $"({c.Driver.Name}) პარკი: {c.Park.Name}";
 
+        // Model A: the park pays from its own account; Swich only operates the platform.
         var note =
             $"მოთხოვნა დაგენერირებულია მოთხოვნის გამცემის მიერ, პლატფორმა PayTaxi-ზე. " +
-            $"გადახდას, დამკვეთის სახელით, ახორციელებს კომერციული შუამავალი " +
+            $"გადახდას ახორციელებს {c.Park.LegalEntityName ?? c.Park.Name} (ს/კ: {c.Park.TaxId ?? "—"}) " +
+            $"საკუთარი საბანკო ანგარიშიდან. პლატფორმის ოპერატორი: " +
             $"{_opts.OperatingEntityName} (ს/კ: {_opts.OperatingEntityTaxId})";
 
         return new InvoiceModel(
@@ -251,7 +253,7 @@ public class InvoiceOptions
 {
     public const string SectionName = "Invoice";
 
-    /// <summary>The legal entity executing payments under commercial agent authority.</summary>
+    /// <summary>The platform operator named on invoices (not the payer — the park pays from its own account).</summary>
     public string OperatingEntityName { get; set; } = "Swich Solutions LLC";
 
     /// <summary>Georgian tax-payer ID (s/k) of the operating entity.</summary>

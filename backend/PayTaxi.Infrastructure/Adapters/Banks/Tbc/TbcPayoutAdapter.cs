@@ -42,7 +42,7 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
     public async Task<BankTransferResult> SendPayoutAsync(BankTransferRequest request, CancellationToken ct = default)
     {
         TbcCredentials creds;
-        try { creds = TbcCredentials.Parse(request.Source.CredentialsJson); }
+        try { creds = TbcCredentials.Parse(request.Source.CredentialsJson, request.Source.ParkId); }
         catch (TbcConfigurationException ex)
         {
             // Ops problem: keep the cashout queued rather than reversing the driver's balance.
@@ -95,7 +95,7 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
 
     public async Task<BankTransferStatus> GetTransferStatusAsync(BankAccountContext source, string transferId, CancellationToken ct = default)
     {
-        var creds = TbcCredentials.Parse(source.CredentialsJson);
+        var creds = TbcCredentials.Parse(source.CredentialsJson, source.ParkId);
         if (!long.TryParse(transferId, out var pid)) return BankTransferStatus.Unknown;
         var s = await _soap.GetPaymentOrderStatusAsync(creds, pid, ct);
         return MapStatus(s.Code);
@@ -103,7 +103,7 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
 
     public async Task<BankTransferLookup?> FindTransferByIdempotencyKeyAsync(BankAccountContext source, string idempotencyKey, CancellationToken ct = default)
     {
-        var creds = TbcCredentials.Parse(source.CredentialsJson);
+        var creds = TbcCredentials.Parse(source.CredentialsJson, source.ParkId);
         var requestId = TbcSoapClient.RequestIdFromKey(idempotencyKey);
         var pid = await _soap.GetSinglePaymentIdAsync(creds, requestId, ct);
         if (pid is null) return null;
@@ -113,7 +113,7 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
 
     public async Task<IReadOnlyList<BankTransferRecord>> ListTransfersAsync(BankAccountContext source, DateTime from, DateTime to, CancellationToken ct = default)
     {
-        var creds = TbcCredentials.Parse(source.CredentialsJson);
+        var creds = TbcCredentials.Parse(source.CredentialsJson, source.ParkId);
         var movements = await _soap.GetAccountMovementsAsync(creds, source.SourceIban, creds.DebitCurrency, from, to, ct);
         return movements
             .Where(m => m.IsDebit)
@@ -129,7 +129,7 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
 
     public async Task<decimal?> GetBalanceAsync(BankAccountContext source, CancellationToken ct = default)
     {
-        var creds = TbcCredentials.Parse(source.CredentialsJson);
+        var creds = TbcCredentials.Parse(source.CredentialsJson, source.ParkId);
         var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(4)); // Georgia local date
         var st = await _soap.GetAccountStatementAsync(creds, source.SourceIban, creds.DebitCurrency, today, today, ct);
         return st.ClosingBalance;

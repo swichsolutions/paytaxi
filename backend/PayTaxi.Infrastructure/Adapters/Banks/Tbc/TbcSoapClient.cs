@@ -8,6 +8,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Xml.Linq;
+using PayTaxi.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -39,15 +40,36 @@ public class TbcSoapClient
     private readonly Func<HttpMessageHandler>? _handlerFactory; // tests inject a fake transport
     private readonly ConcurrentDictionary<string, HttpClient> _clients = new();
 
-    public TbcSoapClient(IOptions<TbcDbiOptions> opts, ILogger<TbcSoapClient> log)
-        : this(opts.Value, log, null) { }
+    private readonly IApiAuditLogger? _audit;
+
+    public TbcSoapClient(IOptions<TbcDbiOptions> opts, ILogger<TbcSoapClient> log, IApiAuditLogger? audit = null)
+        : this(opts.Value, log, null, audit) { }
 
     /// <summary>Test seam: supply a handler factory to bypass the network.</summary>
-    public TbcSoapClient(TbcDbiOptions opts, ILogger log, Func<HttpMessageHandler>? handlerFactory)
+    public TbcSoapClient(TbcDbiOptions opts, ILogger log, Func<HttpMessageHandler>? handlerFactory, IApiAuditLogger? audit = null)
     {
         _opts = opts;
         _log = log;
         _handlerFactory = handlerFactory;
+        _audit = audit;
+    }
+
+    /// <summary>Every bank call is audit-logged (Yandex rule 3.7 style; CLAUDE.md "audit everything money-related").</summary>
+    private void Audit(TbcCredentials creds, string operation, int responseCode, bool success, long ms, string? correlationId)
+    {
+        if (_audit is null) return;
+        _ = _audit.LogAsync(new ApiCallRecord(
+            ApiProvider: "TBC",
+            Endpoint: operation,
+            Method: "SOAP",
+            ParkId: creds.ParkId,
+            ActorId: null,
+            ActorType: "System",
+            RequestParamsHash: null,
+            ResponseCode: responseCode,
+            Success: success,
+            DurationMs: ms,
+            CorrelationId: correlationId), CancellationToken.None);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -245,14 +267,27 @@ public class TbcSoapClient
         req.Headers.TryAddWithoutValidation("SOAPAction", $"\"{Ns}/{operation}\"");
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        using var res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-        var text = await res.Content.ReadAsStringAsync(ct);
+        HttpResponseMessage res;
+        string text;
+        try
+        {
+            res = await client.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            text = await res.Content.ReadAsStringAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            sw.Stop();
+            Audit(creds, operation, 0, false, sw.ElapsedMilliseconds, ex.GetType().Name);
+            throw;
+        }
         sw.Stop();
+        using var _ = res;
 
         XDocument doc;
         try { doc = XDocument.Parse(text); }
         catch (Exception ex)
         {
+            Audit(creds, operation, (int)res.StatusCode, false, sw.ElapsedMilliseconds, "non-xml");
             _log.LogError("TBC {Op} → HTTP {Status} with non-XML body ({Len} chars)", operation, (int)res.StatusCode, text.Length);
             throw new TbcProtocolException($"TBC returned HTTP {(int)res.StatusCode} with a non-XML body: {ex.Message}");
         }
@@ -265,15 +300,18 @@ public class TbcSoapClient
             // Fault codes may arrive prefixed (e.g. "soap:Server" / "ns2:VALIDATION_ERROR").
             code = code.Contains(':') ? code[(code.LastIndexOf(':') + 1)..] : code;
             _log.LogWarning("TBC {Op} → SOAP fault {Code}: {Msg} ({Ms} ms)", operation, code, msg, sw.ElapsedMilliseconds);
+            Audit(creds, operation, (int)res.StatusCode, false, sw.ElapsedMilliseconds, code);
             throw new TbcFaultException(code, msg);
         }
 
         if (!res.IsSuccessStatusCode)
         {
+            Audit(creds, operation, (int)res.StatusCode, false, sw.ElapsedMilliseconds, "http");
             _log.LogError("TBC {Op} → HTTP {Status} without SOAP fault", operation, (int)res.StatusCode);
             throw new TbcProtocolException($"TBC returned HTTP {(int)res.StatusCode}");
         }
 
+        Audit(creds, operation, (int)res.StatusCode, true, sw.ElapsedMilliseconds, null);
         _log.LogInformation("TBC {Op} ok ({Ms} ms)", operation, sw.ElapsedMilliseconds);
         return doc.Root!;
     }

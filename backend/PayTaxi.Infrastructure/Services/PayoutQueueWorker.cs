@@ -72,6 +72,14 @@ public class PayoutQueueWorker : BackgroundService
         using (var scope = _scopeFactory.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // Sagas interrupted mid-flight (crash/deploy) would otherwise sit in Processing forever.
+            if (_opts.StaleProcessingMinutes > 0)
+            {
+                var saga = scope.ServiceProvider.GetRequiredService<ICashoutOrchestrator>();
+                var swept = await saga.SweepStaleProcessingAsync(TimeSpan.FromMinutes(_opts.StaleProcessingMinutes), ct);
+                if (swept > 0) _log.LogWarning("Payout queue: {Count} interrupted cashout(s) flagged for review", swept);
+            }
             var now = DateTime.UtcNow;
             var rows = await db.Cashouts.AsNoTracking()
                 .Where(c => (c.Status == CashoutStatus.Queued && (c.NextAttemptAt == null || c.NextAttemptAt <= now))
@@ -145,4 +153,10 @@ public class PayoutQueueOptions
 
     /// <summary>If the first cashout of a park re-queues (bank still down), skip the rest of that park this tick.</summary>
     public bool StopParkOnFirstRequeue { get; set; } = true;
+
+    /// <summary>
+    /// A cashout Processing with no bank id and no next attempt for this long is treated as an
+    /// interrupted saga and flagged ReviewRequired. Must comfortably exceed the Yandex retry budget. 0 disables.
+    /// </summary>
+    public int StaleProcessingMinutes { get; set; } = 10;
 }

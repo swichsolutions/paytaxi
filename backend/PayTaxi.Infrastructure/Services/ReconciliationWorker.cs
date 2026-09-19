@@ -139,11 +139,13 @@ public class ReconciliationWorker : BackgroundService
         try
         {
             // ── Side A: our DB ────────────────────────────────────────
+            // Window on the moment money moved (CompletedAt), falling back to creation for
+            // anything not completed — the bank side is windowed on its execution time.
             var cashouts = await db.Cashouts
                 .AsNoTracking()
                 .Where(c => c.ParkId == parkId
-                         && c.CreatedAt >= windowFrom
-                         && c.CreatedAt < windowTo)
+                         && (c.CompletedAt ?? c.CreatedAt) >= windowFrom
+                         && (c.CompletedAt ?? c.CreatedAt) < windowTo)
                 .Select(c => new CashoutSlim(
                     c.Id, c.Status, c.Amount, c.Fee, c.BankTransferId,
                     c.YandexTransactionId, c.YandexReversalTransactionId, c.CreatedAt))
@@ -286,7 +288,14 @@ public class ReconciliationWorker : BackgroundService
                 }
             }
 
-            // Orphans: external rows we didn't match
+            // Orphans: external rows we didn't match. The nightly park → Swich settlement
+            // transfers leave the same account and are expected — never orphans.
+            var settlementTransferIds = await db.Settlements.AsNoTracking()
+                .Where(s => s.ParkId == parkId && s.BankTransferId != null)
+                .Select(s => s.BankTransferId!)
+                .ToListAsync(ct);
+            foreach (var id in settlementTransferIds) seenBank.Add(id);
+
             foreach (var br in bankTransfers.Where(t => !seenBank.Contains(t.TransferId)))
             {
                 discrepancies.Add(new ReconciliationDiscrepancy

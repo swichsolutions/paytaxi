@@ -5,7 +5,9 @@ using Microsoft.Extensions.Options;
 using PayTaxi.Core.Entities;
 using PayTaxi.Core.Enums;
 using PayTaxi.Core.Interfaces;
+using PayTaxi.Infrastructure.Adapters.Yandex;
 using PayTaxi.Infrastructure.Data;
+using static PayTaxi.Core.Interfaces.CashoutRejectionCodes;
 
 namespace PayTaxi.Infrastructure.Services;
 
@@ -43,6 +45,7 @@ public class CashoutOrchestrator : ICashoutOrchestrator
     private readonly IYandexFleetClient _yandex;
     private readonly INotificationService _notifier;
     private readonly CashoutOptions _opts;
+    private readonly YandexFleetOptions _yandexOpts;
     private readonly ILogger<CashoutOrchestrator> _log;
 
     public CashoutOrchestrator(
@@ -51,6 +54,7 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         IYandexFleetClient yandex,
         INotificationService notifier,
         IOptions<CashoutOptions> opts,
+        IOptions<YandexFleetOptions> yandexOpts,
         ILogger<CashoutOrchestrator> log)
     {
         _db = db;
@@ -58,8 +62,17 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         _yandex = yandex;
         _notifier = notifier;
         _opts = opts.Value;
+        _yandexOpts = yandexOpts.Value;
         _log = log;
     }
+
+    /// <summary>
+    /// Bank error codes after which we genuinely don't know whether money left the account
+    /// (the call threw AND the follow-up lookup failed). Exhausting retries on one of these
+    /// must end in ReviewRequired, never in a Yandex reversal.
+    /// </summary>
+    private static bool IsAmbiguous(string code) =>
+        code is "BANK_EXCEPTION" || code.EndsWith("_UNRESOLVED", StringComparison.Ordinal) || code.EndsWith("_UNKNOWN", StringComparison.Ordinal);
 
     // ═══════════════════════════════════════════════════════════════════
     //  New cashout
@@ -72,10 +85,8 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         if (req.Amount <= 0)
             throw new ArgumentException("Amount must be positive", nameof(req));
 
-        // ── Idempotency check ─────────────────────────────────────────
-        var existing = await _db.Cashouts
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.IdempotencyKey == req.IdempotencyKey, ct);
+        // ── Idempotency check (scoped: a key only ever belongs to one driver in one park) ──
+        var existing = await FindByKeyAsync(req, ct);
         if (existing is not null)
         {
             _log.LogInformation(
@@ -95,70 +106,128 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             ?? throw new InvalidOperationException($"Payout destination {req.BankCardId} not found for driver {req.DriverId}");
 
         if (park.Status != ParkStatus.Active)
-            throw new InvalidOperationException($"Park {req.ParkId} is not active (status={park.Status})");
+            throw CashoutRejectedException.Of(ParkInactive, $"Park is not active (status={park.Status})", ("status", park.Status.ToString()));
         if (driver.Status != DriverStatus.Active)
-            throw new InvalidOperationException($"Driver {req.DriverId} is not active (status={driver.Status})");
+            throw CashoutRejectedException.Of(DriverInactive, $"Driver is not active (status={driver.Status})", ("status", driver.Status.ToString()));
         if (driver.YandexDriverProfileId is null)
-            throw new InvalidOperationException($"Driver {req.DriverId} is not linked to a Yandex profile");
+            throw CashoutRejectedException.Of(DriverNotLinked, "Driver is not linked to a Yandex profile");
         if (!card.IsActive)
-            throw new InvalidOperationException("Payout destination has been removed");
+            throw CashoutRejectedException.Of(DestinationRemoved, "Payout destination has been removed");
         if (string.IsNullOrWhiteSpace(card.Iban))
-            throw new InvalidOperationException("Payout destination has no IBAN — add a bank account first");
+            throw CashoutRejectedException.Of(DestinationNoIban, "Payout destination has no IBAN — add a bank account first");
+        if (_yandexOpts.ReadOnlyMode)
+            throw CashoutRejectedException.Of(YandexReadOnly, "Cashouts are temporarily paused (Yandex writes disabled)");
 
         // ── Fee & limits (per-park config) ────────────────────────────
         var fee = Math.Round(park.CashoutFee, 2, MidpointRounding.AwayFromZero);
         var amount = Math.Round(req.Amount, 2, MidpointRounding.AwayFromZero);
 
         if (amount < park.MinCashoutAmount)
-            throw new InvalidOperationException($"Minimum cashout is {park.MinCashoutAmount:F2} GEL");
+            throw CashoutRejectedException.Of(BelowMinimum, $"Minimum cashout is {park.MinCashoutAmount:F2} GEL", ("min", park.MinCashoutAmount));
         if (park.MaxCashoutAmount is { } max && amount > max)
-            throw new InvalidOperationException($"Maximum cashout is {max:F2} GEL");
+            throw CashoutRejectedException.Of(AboveMaximum, $"Maximum cashout is {max:F2} GEL", ("max", max));
         if (amount <= fee)
-            throw new InvalidOperationException($"Amount must exceed the {fee:F2} GEL fee");
-
-        if (park.DailyCashoutLimitPerDriver is { } dailyLimit)
-        {
-            var dayStart = DateTime.UtcNow.Date;
-            var todaySoFar = await _db.Cashouts
-                .Where(c => c.DriverId == driver.Id
-                         && c.CreatedAt >= dayStart
-                         && c.Status != CashoutStatus.Failed)
-                .SumAsync(c => (decimal?)c.Amount, ct) ?? 0m;
-            if (todaySoFar + amount > dailyLimit)
-                throw new InvalidOperationException(
-                    $"Daily cashout limit of {dailyLimit:F2} GEL reached ({todaySoFar:F2} already today)");
-        }
+            throw CashoutRejectedException.Of(AmountNotAboveFee, $"Amount must exceed the {fee:F2} GEL fee", ("fee", fee));
 
         // ── Route to the park account at the driver's bank ────────────
         var account = RouteAccount(park, card.BankCode)
-            ?? throw new InvalidOperationException(
-                $"bank_not_supported: the park has no payout account at bank '{card.BankCode}'. " +
-                $"Supported: {string.Join(", ", park.BankAccounts.Select(a => a.BankCode).Distinct())}");
+            ?? throw CashoutRejectedException.Of(BankNotSupported,
+                $"The park has no payout account at bank '{card.BankCode}'",
+                ("bankCode", card.BankCode),
+                ("supported", park.BankAccounts.Select(a => a.BankCode).Distinct().ToArray()));
 
-        // ── Reserve (Processing) ──────────────────────────────────────
-        var cashout = new Cashout
+        // ── Yandex balance: never debit more than the driver has ───────
+        // Yandex Fleet accepts transactions that push a balance negative; only our check
+        // stands between a driver and the park's money.
+        decimal balance;
+        try
         {
-            DriverId = driver.Id,
-            ParkId = park.Id,
-            BankCardId = card.Id,
-            ParkBankAccountId = account.Id,
-            Amount = amount,
-            Fee = fee,
-            Status = CashoutStatus.Processing,
-            IdempotencyKey = req.IdempotencyKey,
-            InitiatedBy = req.InitiatedBy ?? "system",
-        };
-        _db.Cashouts.Add(cashout);
-        _db.LedgerEntries.Add(new LedgerEntry
+            balance = await _yandex.GetDriverBalanceAsync(park.Id, driver.YandexDriverProfileId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            CashoutId = cashout.Id,
-            ParkId = park.Id,
-            EntryType = LedgerEntryType.CashoutReserved,
-            Amount = amount,
-            Reference = req.IdempotencyKey,
-            Notes = $"Reserved by {cashout.InitiatedBy}; route {card.BankCode}→{account.BankCode}/{account.Provider}",
-        });
-        await _db.SaveChangesAsync(ct);
+            _log.LogWarning(ex, "Balance read failed for driver {Driver}; refusing cashout", driver.Id);
+            throw CashoutRejectedException.Of(BalanceUnavailable, "Could not read the Yandex balance right now — try again in a minute");
+        }
+        if (amount > balance)
+            throw CashoutRejectedException.Of(InsufficientBalance,
+                $"Amount {amount:F2} GEL exceeds the available balance {balance:F2} GEL", ("balance", balance));
+
+        // ── Reserve (Processing) under a per-driver lock ──────────────
+        // The advisory lock serialises concurrent requests for the same driver (double tap,
+        // two devices) so the in-flight and daily-limit checks can't both pass.
+        Cashout cashout;
+        await using (var tx = await _db.Database.BeginTransactionAsync(ct))
+        {
+            await _db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({LockKey(driver.Id)})", ct);
+
+            // Someone else may have won the race with the same key while we waited.
+            var raced = await FindByKeyAsync(req, ct);
+            if (raced is not null)
+            {
+                await tx.RollbackAsync(ct);
+                return ToResult(raced, wasDeduped: true);
+            }
+
+            var inFlight = await _db.Cashouts.AsNoTracking()
+                .AnyAsync(c => c.DriverId == driver.Id
+                            && (c.Status == CashoutStatus.Processing || c.Status == CashoutStatus.Queued), ct);
+            if (inFlight)
+                throw CashoutRejectedException.Of(CashoutInFlight, "A previous cashout is still being processed — wait for it to finish");
+
+            if (park.DailyCashoutLimitPerDriver is { } dailyLimit)
+            {
+                var dayStart = LocalDayStartUtc();
+                var todaySoFar = await _db.Cashouts
+                    .Where(c => c.DriverId == driver.Id
+                             && c.CreatedAt >= dayStart
+                             && c.Status != CashoutStatus.Failed)
+                    .SumAsync(c => (decimal?)c.Amount, ct) ?? 0m;
+                if (todaySoFar + amount > dailyLimit)
+                    throw CashoutRejectedException.Of(DailyLimitReached,
+                        $"Daily cashout limit of {dailyLimit:F2} GEL reached ({todaySoFar:F2} already today)",
+                        ("limit", dailyLimit), ("usedToday", todaySoFar));
+            }
+
+            cashout = new Cashout
+            {
+                DriverId = driver.Id,
+                ParkId = park.Id,
+                BankCardId = card.Id,
+                ParkBankAccountId = account.Id,
+                Amount = amount,
+                Fee = fee,
+                Status = CashoutStatus.Processing,
+                IdempotencyKey = req.IdempotencyKey,
+                InitiatedBy = req.InitiatedBy ?? "system",
+            };
+            _db.Cashouts.Add(cashout);
+            _db.LedgerEntries.Add(new LedgerEntry
+            {
+                CashoutId = cashout.Id,
+                ParkId = park.Id,
+                EntryType = LedgerEntryType.CashoutReserved,
+                Amount = amount,
+                Reference = req.IdempotencyKey,
+                Notes = $"Reserved by {cashout.InitiatedBy}; route {card.BankCode}→{account.BankCode}/{account.Provider}",
+            });
+            try
+            {
+                await _db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+            }
+            catch (DbUpdateException ex) when (IsUniqueViolation(ex))
+            {
+                // Same key already used by ANOTHER driver/park (ours would have been found above).
+                _log.LogWarning("Idempotency key {Key} collides with a cashout of a different driver", req.IdempotencyKey);
+                throw CashoutRejectedException.Of(IdempotencyKeyConflict, "This request id was already used for a different cashout");
+            }
+        }
+
+        // From here on money is in motion. A client that disconnects must not be able to
+        // abort the saga halfway (Yandex debited, bank never asked), so the request token
+        // is deliberately dropped: the saga runs to a terminal or queued state regardless.
+        ct = CancellationToken.None;
 
         // ── Step 1: Yandex debit (gross) ──────────────────────────────
         YandexTransactionResult yandexResult;
@@ -170,6 +239,12 @@ public class CashoutOrchestrator : ICashoutOrchestrator
                 amount: amount,
                 idempotencyKey: req.IdempotencyKey,
                 ct: ct);
+        }
+        catch (YandexReadOnlyModeException)
+        {
+            // Kill switch flipped between our pre-check and the post. Nothing moved.
+            await FailAsync(cashout, "YANDEX_READ_ONLY", "Cashouts are paused (Yandex writes disabled)", ct);
+            return ToResult(cashout);
         }
         catch (Exception ex)
         {
@@ -237,6 +312,9 @@ public class CashoutOrchestrator : ICashoutOrchestrator
                 cashoutId, cashout.Status, cashout.NextAttemptAt);
             return ToResult(cashout);
         }
+
+        // Claimed: finish the step even if the host is shutting down (see RunAsync).
+        ct = CancellationToken.None;
 
         var park = await _db.Parks
             .Include(p => p.BankAccounts.Where(a => a.IsActive))
@@ -380,9 +458,11 @@ public class CashoutOrchestrator : ICashoutOrchestrator
 
             if (lookup is not null && lookup.Status is BankTransferStatus.Completed or BankTransferStatus.Pending)
             {
-                _log.LogInformation("Bank confirms transfer {TransferId} for cashout {Id} despite the lost response",
-                    lookup.TransferId, cashout.Id);
-                result = new BankTransferResult(true, lookup.TransferId, null, null);
+                _log.LogInformation("Bank confirms transfer {TransferId} ({Status}) for cashout {Id} despite the lost response",
+                    lookup.TransferId, lookup.Status, cashout.Id);
+                // Pending stays pending: the poll loop decides when it is really Completed.
+                result = new BankTransferResult(true, lookup.TransferId, null, null,
+                    IsPending: lookup.Status == BankTransferStatus.Pending);
             }
             else if (lookup is not null && lookup.Status == BankTransferStatus.Failed)
             {
@@ -473,8 +553,15 @@ public class CashoutOrchestrator : ICashoutOrchestrator
 
         if (exhausted)
         {
-            await AbandonAsync(cashout, park, driver, code,
-                $"{message} (gave up after {cashout.AttemptCount} attempts over {age.TotalMinutes:F0} min)", ct);
+            var detail = $"{message} (gave up after {cashout.AttemptCount} attempts over {age.TotalMinutes:F0} min)";
+            if (IsAmbiguous(code))
+            {
+                // The last attempts threw AND the lookups failed: the money may have left.
+                // Reversing Yandex here could pay the driver twice. A human decides.
+                await FlagForReviewAsync(cashout, code, $"Payout outcome unknown — {detail}", ct);
+                return;
+            }
+            await AbandonAsync(cashout, park, driver, code, detail, ct);
             return;
         }
 
@@ -573,7 +660,7 @@ public class CashoutOrchestrator : ICashoutOrchestrator
         {
             CashoutId = cashout.Id,
             ParkId = cashout.ParkId,
-            EntryType = LedgerEntryType.CashoutReserved,
+            EntryType = LedgerEntryType.ReviewFlagged,
             Amount = cashout.Amount,
             Reference = code,
             Notes = $"REVIEW REQUIRED — {message}",
@@ -582,6 +669,59 @@ public class CashoutOrchestrator : ICashoutOrchestrator
 
         _log.LogError("Cashout {Id} flagged ReviewRequired — {Code}: {Message}", cashout.Id, code, message);
         await _notifier.NotifyCashoutReviewRequiredAsync(cashout.DriverId, cashout.Amount, ct);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Stale-row sweeper (called by PayoutQueueWorker)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// A cashout that is Processing with no bank id and no next attempt is one whose saga
+    /// was interrupted (process crash, deploy) between the reserve and a decision. Nothing
+    /// will ever pick it up, and its Yandex debit may or may not have landed — so after a
+    /// grace period it goes to ReviewRequired for reconciliation to sort out. Never retried
+    /// automatically: we can't tell whether the bank was already asked.
+    /// </summary>
+    public async Task<int> SweepStaleProcessingAsync(TimeSpan olderThan, CancellationToken ct = default)
+    {
+        var cutoff = DateTime.UtcNow - olderThan;
+        var stale = await _db.Cashouts
+            .Where(c => c.Status == CashoutStatus.Processing
+                     && c.BankTransferId == null
+                     && c.NextAttemptAt == null
+                     && c.UpdatedAt < cutoff)
+            .ToListAsync(ct);
+
+        foreach (var cashout in stale)
+        {
+            _log.LogError("Cashout {Id} stuck in Processing since {Since:u} — flagging for review", cashout.Id, cashout.UpdatedAt);
+            await FlagForReviewAsync(cashout, "SAGA_INTERRUPTED",
+                $"Processing since {cashout.UpdatedAt:u} with no bank transfer; yandex_tx={cashout.YandexTransactionId ?? "none"}. " +
+                "Check Yandex for the debit and the bank for a payout before resolving.", CancellationToken.None);
+        }
+        return stale.Count;
+    }
+
+    // ── Request helpers ──────────────────────────────────────────────
+
+    private Task<Cashout?> FindByKeyAsync(CashoutSagaRequest req, CancellationToken ct) =>
+        _db.Cashouts.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.IdempotencyKey == req.IdempotencyKey
+                                   && c.DriverId == req.DriverId
+                                   && c.ParkId == req.ParkId, ct);
+
+    /// <summary>Stable 64-bit key for pg_advisory_xact_lock, derived from the driver id.</summary>
+    private static long LockKey(Guid driverId) => BitConverter.ToInt64(driverId.ToByteArray(), 0);
+
+    private static bool IsUniqueViolation(DbUpdateException ex) =>
+        ex.InnerException is Npgsql.PostgresException { SqlState: "23505" };
+
+    /// <summary>Start of the current day in the park's time zone (Tbilisi), in UTC — the daily limit resets at local midnight.</summary>
+    private static DateTime LocalDayStartUtc()
+    {
+        var tz = SettlementService.ResolveTimeZone(null);
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz).Date;
+        return TimeZoneInfo.ConvertTimeToUtc(local, tz);
     }
 
     // ── Routing / infra helpers ──────────────────────────────────────

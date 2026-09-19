@@ -17,6 +17,13 @@ public class Notification : BaseEntity
     /// <summary>Optional in-app deep link (e.g. <c>/history</c>).</summary>
     public string? Link { get; set; }
 
+    /// <summary>
+    /// Structured payload as JSON (<c>{"amount":199.5,"destination":"TBC **** 4521","reason":"…"}</c>)
+    /// so the client can render the notification in the driver's language. Title/Body stay
+    /// as an English fallback for old rows and other channels.
+    /// </summary>
+    public string? Data { get; set; }
+
     public bool IsRead { get; set; }
     public DateTime? ReadAt { get; set; }
 

@@ -29,7 +29,7 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
 {
     private readonly MockBankPayoutOptions _opts;
     private readonly ILogger<MockBankPayoutProvider> _log;
-    private readonly Random _rng = new();
+    private static Random _rng => Random.Shared;
 
     // idempotency_key → previously returned result. Keeps mock retries safe.
     private readonly ConcurrentDictionary<string, BankTransferResult> _seen = new();

@@ -44,6 +44,8 @@ if (builder.Environment.IsProduction())
     var jwt = builder.Configuration["Jwt:Key"] ?? "";
     if (jwt.Contains("REPLACE_WITH", StringComparison.OrdinalIgnoreCase) || jwt.Contains("dev-only") || jwt.Length < 32) problems.Add("Jwt:Key (>= 32 random chars)");
     if (!PayTaxi.Infrastructure.Security.FieldEncryptor.Enabled) problems.Add("Encryption:Key (base64, 32 bytes)");
+    var swichIban = builder.Configuration["Settlement:SwichIban"] ?? "";
+    if (swichIban.Length < 22 || swichIban.StartsWith("GE12TB7100000000000001")) problems.Add("Settlement:SwichIban (real Swich IBAN)");
     if (problems.Count > 0)
         throw new InvalidOperationException("Refusing to start in Production — missing/placeholder settings: " + string.Join(", ", problems));
 }
@@ -218,14 +220,20 @@ builder.Services.AddCors(opts =>
          .AllowAnyHeader()
          .AllowAnyMethod()));
 
-// Behind App Service / a reverse proxy: trust X-Forwarded-For / -Proto for scheme + client IP (rate limiter).
-builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
+// Behind App Service / a reverse proxy: trust X-Forwarded-For / -Proto for scheme + client IP
+// (the rate limiter keys on it). Only when Proxy:TrustForwardedHeaders=true — with it on and no
+// proxy in front, any client could spoof its IP and dodge the auth rate limit.
+var trustProxy = builder.Configuration.GetValue<bool>("Proxy:TrustForwardedHeaders");
+if (trustProxy)
 {
-    o.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
-                       | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
-    o.KnownNetworks.Clear();
-    o.KnownProxies.Clear();
-});
+    builder.Services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(o =>
+    {
+        o.ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+                           | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto;
+        o.KnownNetworks.Clear();
+        o.KnownProxies.Clear();
+    });
+}
 
 builder.Services.AddMemoryCache();
 builder.Services.AddControllers();
@@ -234,8 +242,14 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// ── Seed the database on startup (no-op if already seeded) ───────
-await SeedData.EnsureSeededAsync(app.Services);
+// ── Database bootstrap ───────────────────────────────────────────
+// Development: migrations + 3 demo parks + dev logins (no-op once seeded).
+// Anything else: migrations + encryption backfill only; first super-admin from Bootstrap:* config.
+if (app.Environment.IsDevelopment())
+    await SeedData.EnsureSeededAsync(app.Services);
+else
+    await SeedData.EnsureProductionReadyAsync(app.Services,
+        app.Configuration["Bootstrap:SuperAdminEmail"], app.Configuration["Bootstrap:SuperAdminPassword"]);
 
 if (app.Environment.IsDevelopment())
 {
@@ -243,7 +257,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseForwardedHeaders();
+if (trustProxy) app.UseForwardedHeaders();
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();

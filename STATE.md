@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-19 (driver rides + dashboard cashouts wired to real data — see the newest section)
+**Last updated:** 2026-09-19 (platform review + block A backend hardening — see the newest section)
 
 ---
 
@@ -11,6 +11,84 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-19 (part 2) — platform review, block A (backend money/safety) fixed
+
+Three read-only review passes (driver app, admin console, backend) produced `docs/REVIEW-2026-09-19.md`
+(~90 items, checkbox tracker, grouped A–E). Block A (backend, "must fix before real money") is done and
+verified end to end against the local Postgres with mock bank + mock Yandex. Blocks B–E (frontend) are
+still open in that document; two subagents started on them were cut off by the account session limit
+before editing anything, so nothing under `src/` changed in this block.
+
+### Saga (`CashoutOrchestrator`)
+- **Balance check before the Yandex debit** (`GetDriverBalanceAsync`); `amount > balance` → `insufficient_balance`.
+  Balance read failing → `balance_unavailable` (refuse, don't guess). Real Yandex accepts negative balances — this
+  check is the only guard.
+- **Per-driver serialisation**: `pg_advisory_xact_lock(<driver id as int64>)` around in-flight check + daily-limit
+  check + reserve insert. A second concurrent request gets `cashout_in_flight` (one Processing/Queued cashout per
+  driver at a time). Daily limit now resets at Tbilisi midnight (`SettlementService.ResolveTimeZone`).
+- **Idempotency scoped to (park, driver, key)**; a key reused by another driver → `idempotency_key_conflict`
+  (unique-index violation 23505 caught). Same driver + same key → deduped result as before.
+- **Typed rejections**: `CashoutRejectedException { Code, Params }` (Core) → API `400 { error:"cashout_rejected",
+  code, message, params }`. Codes listed in `CashoutRejectionCodes`. Legacy `InvalidOperationException` → `code:"rejected"`.
+- **Cancellation-safe**: after the reserve insert (and after the worker's claim) the request token is dropped
+  (`ct = CancellationToken.None`); a client disconnect can no longer strand a debited cashout.
+- **Stale sweeper**: `SweepStaleProcessingAsync` (interface method) flags Processing rows with no bank id / no next
+  attempt older than `PayoutQueue:StaleProcessingMinutes` (10) as ReviewRequired `SAGA_INTERRUPTED`. Runs each
+  queue tick. Never auto-retries (bank may already have been asked).
+- **Lost-response lookup**: bank status `Pending` now maps to `IsPending: true` (was treated as paid) — both in the
+  saga and `BankSendHelper`.
+- **Ambiguous exhaustion → ReviewRequired**, not reversal: `BANK_EXCEPTION`, `*_UNRESOLVED`, `*_UNKNOWN` (`IsAmbiguous`).
+- `YandexFleet:ReadOnlyMode` → clean `yandex_read_only` rejection before insert (plus `YANDEX_READ_ONLY` Failed if
+  flipped mid-flight). Review flag ledger rows use the new `LedgerEntryType.ReviewFlagged` (no more double `CashoutReserved`).
+
+### Settlement (`SettlementService`)
+- Every step of `RunDueAsync` is try/caught per settlement/park; one park failing no longer aborts the night.
+- Interrupted runs (Processing, no bank id, LastAttemptAt > 10 min ago): `ResolveInterruptedAsync` looks the document
+  up by idempotency key → adopt Completed/Pending, else `SAGA_INTERRUPTED` Failed → normal retry path. `RetryAsync`
+  uses the same path instead of throwing "currently processing" forever.
+
+### Auth / tenancy / config
+- `GeorgianPhone` (Core.Identity): the ONE normaliser + hash. "599123456", "+995 599 123 456", "995599123456",
+  "0599123456" all → `+995599123456`. Used by AuthController, AdminParksController, SeedData.
+- OTP: per-phone cap 3 per 10 min (429 `too_many_requests` + Retry-After) on top of the per-IP limiter; the
+  "Dev OTP … code" log line is Development-only (prod logs the phone hash prefix only).
+- Seeding: `EnsureSeededAsync` (demo parks + dev logins) runs ONLY in Development. Other environments run
+  `EnsureProductionReadyAsync`: migrate + encryption backfill + first super_admin from `Bootstrap:SuperAdminEmail`
+  / `Bootstrap:SuperAdminPassword` (≥12 chars) when AdminUsers is empty.
+- Forwarded headers honoured only when `Proxy:TrustForwardedHeaders=true` (set in appsettings.Production.json).
+- Production guard also requires a real `Settlement:SwichIban` (rejects the dev placeholder).
+- `CashoutFee` PATCH is super_admin only (403 otherwise; limits stay park-editable). `RemoveDriverCard` checks the
+  driver belongs to the park. `AdminControllerBase.ActorLabel` (`admin:{email}` from the token) replaces the
+  client-supplied `initiatedBy` and the always-null `User.Identity.Name` in cashouts/settlements/reconciliation.
+- Driver statuses `allowed` = `Enum.GetNames<DriverStatus>()` (Active/Suspended/Pending — there is no Inactive).
+
+### Reads / integrations
+- `GET /api/driver/me` serves the balance from `YandexBalanceCaches` when < 120 s old, else live (and writes the
+  cache); `?fresh=true` forces live. Yandex outage → last known value with `balanceStale:true` + `balanceError`,
+  never a 500 and never `0`. New fields: `balanceAsOf`, `balanceStale`, `balanceError`.
+- Reconciliation: cashouts windowed on `CompletedAt ?? CreatedAt`; settlement transfer ids are excluded from
+  `orphaned_bank_send`.
+- TBC: every SOAP call audit-logged (`ApiProvider:"TBC"`, op name, park id via `TbcCredentials.ParkId`);
+  HttpClient cache key includes the certificate thumbprint (rotation-safe). Yandex audit writes use
+  `CancellationToken.None`. Mock bank uses `Random.Shared`.
+- Invoice: Model A wording (park pays from its own account; Swich named as platform operator); "მართვის მოწმობის N"
+  → "Yandex პროფილის ID".
+- Notifications: new `Notifications.Data` column (migration `NotificationData`) with JSON
+  `{amount, destination?, reason?}` and `data` in the API, so the app can render them in the driver's language.
+
+### Verified (scripts in scratchpad `verify_a.py`, `verify_notif.py`)
+insufficient_balance / below_minimum typed 400s; two concurrent cashouts → one Completed + one `cashout_in_flight`;
+same key twice → deduped; other driver same key → `idempotency_key_conflict`; three phone spellings log in;
+4th OTP in 10 min → 429; `/me` cached vs `?fresh=true`; operator PATCH fee → 403, limits → 200, super_admin fee → 200;
+notification `data` populated. 47/47 unit tests pass.
+
+### Next
+Blocks B–E of `docs/REVIEW-2026-09-19.md` (driver app + admin console). Frontend must consume the new contract:
+`code`/`params` rejections, `/me` balance fields + `?fresh=true`, notification `data`, fee input super_admin-only.
+`ng serve` was stopped by the system for low memory — restart it before checking the UI.
 
 ---
 
@@ -246,7 +324,7 @@ The driver dashboard and the History tab were the last driver screens reading `M
    - adapter threw → `FindTransferByIdempotencyKeyAsync` before ever re-sending (never blind re-fire)
    - hard failure or queue exhausted (`Cashout:MaxPayoutAttempts` / `MaxQueueAgeHours`) → **Yandex reversal**
      (`PostReversalTransactionAsync`, +gross, `YandexReversed` ledger) → `Failed`; reversal failed → `ReviewRequired`
-4. `PayoutQueueWorker` (new `BackgroundService`, `PayoutQueue:*` config) drains `Queued` rows per park sequentially;
+4. `PayoutQueueWorker` (new `BackgroundService`, `PayoutQueue:*` (incl. `StaleProcessingMinutes`) config) drains `Queued` rows per park sequentially;
    claim is an atomic `Queued→Processing` UPDATE inside `ProcessQueuedAsync`.
 - `Cashout` gained `ParkBankAccountId`, `InitiatedBy`, `AttemptCount`, `NextAttemptAt`, `LastAttemptAt`,
   `YandexReversalTransactionId`. `LedgerEntryType.YandexReversed` added.

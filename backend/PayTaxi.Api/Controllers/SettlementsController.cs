@@ -200,7 +200,7 @@ public class SettlementsController : AdminControllerBase
         if (!IsSuperAdmin) return Forbid();
         try
         {
-            var s = await _settlements.RetryAsync(id, $"admin:{User.Identity?.Name ?? "super_admin"}", ct);
+            var s = await _settlements.RetryAsync(id, ActorLabel, ct);
             return s.Status == SettlementStatus.Completed
                 ? Ok(ToDto(s))
                 : UnprocessableEntity(ToDto(s));
@@ -221,7 +221,7 @@ public class SettlementsController : AdminControllerBase
         if (!IsSuperAdmin) return Forbid();
         var tz = SettlementService.ResolveTimeZone(null);
         var day = date ?? DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
-        var by = $"admin:{User.Identity?.Name ?? "super_admin"}";
+        var by = ActorLabel;
 
         if (parkId is { } pid)
         {

@@ -100,14 +100,19 @@ public class CashoutsController : AdminControllerBase
                 BankCardId: body.CardId,
                 Amount: body.Amount,
                 IdempotencyKey: body.IdempotencyKey,
-                InitiatedBy: body.InitiatedBy ?? "admin"), ct);
+                InitiatedBy: ActorLabel), ct);
 
             return SagaResponse(result);
+        }
+        catch (CashoutRejectedException ex)
+        {
+            _log.LogWarning("Cashout rejected ({Code}) for park={ParkId} driver={DriverId}: {Message}", ex.Code, parkId, body.DriverId, ex.Message);
+            return BadRequest(new { error = "cashout_rejected", code = ex.Code, message = ex.Message, @params = ex.Params });
         }
         catch (InvalidOperationException ex)
         {
             _log.LogWarning(ex, "Cashout rejected for park={ParkId} driver={DriverId}", parkId, body.DriverId);
-            return BadRequest(new { error = "cashout_rejected", message = ex.Message });
+            return BadRequest(new { error = "cashout_rejected", code = "rejected", message = ex.Message });
         }
     }
 
@@ -171,7 +176,7 @@ public class CashoutsController : AdminControllerBase
                 BankCardId: source.BankCardId,
                 Amount: source.Amount,
                 IdempotencyKey: newKey,
-                InitiatedBy: $"admin-retry:{source.Id}"), ct);
+                InitiatedBy: $"{ActorLabel} retry:{source.Id}"), ct);
 
             _log.LogInformation(
                 "Retried cashout {SourceId} → new cashout {NewId} status={Status}",

@@ -31,7 +31,8 @@ public class NotificationService : INotificationService
             title: "Cashout sent",
             body: $"₾ {netAmount:F2} sent to {destinationLabel}.",
             link: "/history",
-            ct);
+            data: new { amount = netAmount, destination = destinationLabel },
+            ct: ct);
 
     public Task NotifyCashoutQueuedAsync(
         Guid driverId, decimal netAmount, CancellationToken ct = default) =>
@@ -39,7 +40,8 @@ public class NotificationService : INotificationService
             title: "Cashout processing",
             body: $"₾ {netAmount:F2} is on its way — the bank is taking a little longer than usual. No action needed.",
             link: "/history",
-            ct);
+            data: new { amount = netAmount },
+            ct: ct);
 
     public Task NotifyCashoutFailedAsync(
         Guid driverId, decimal amount, string reason, CancellationToken ct = default) =>
@@ -47,7 +49,8 @@ public class NotificationService : INotificationService
             title: "Cashout failed",
             body: $"₾ {amount:F2} could not be sent: {reason}",
             link: "/history",
-            ct);
+            data: new { amount, reason },
+            ct: ct);
 
     public Task NotifyCashoutReviewRequiredAsync(
         Guid driverId, decimal amount, CancellationToken ct = default) =>
@@ -55,10 +58,11 @@ public class NotificationService : INotificationService
             title: "Cashout under review",
             body: $"Your ₾ {amount:F2} cashout needs manual review. We'll follow up shortly.",
             link: "/history",
-            ct);
+            data: new { amount },
+            ct: ct);
 
     private async Task InsertAsync(
-        Guid driverId, string type, string title, string body, string? link, CancellationToken ct)
+        Guid driverId, string type, string title, string body, string? link, object? data, CancellationToken ct)
     {
         try
         {
@@ -71,6 +75,7 @@ public class NotificationService : INotificationService
                 Title = title,
                 Body = body,
                 Link = link,
+                Data = data is null ? null : System.Text.Json.JsonSerializer.Serialize(data),
             });
             await db.SaveChangesAsync(ct);
         }

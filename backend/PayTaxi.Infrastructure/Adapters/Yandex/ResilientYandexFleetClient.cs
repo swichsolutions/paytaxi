@@ -122,7 +122,7 @@ public class ResilientYandexFleetClient : IYandexFleetClient
                     ResponseCode: 200,
                     Success: true,
                     DurationMs: sw.ElapsedMilliseconds,
-                    CorrelationId: correlationId), ct);
+                    CorrelationId: correlationId), CancellationToken.None);
 
                 return result;
             }
@@ -132,7 +132,7 @@ public class ResilientYandexFleetClient : IYandexFleetClient
                 sw.Stop();
                 _ = _audit.LogAsync(new ApiCallRecord(
                     "YandexFleet", endpoint, "POST", parkId, null, "System",
-                    paramsHash, 403, false, sw.ElapsedMilliseconds, correlationId), ct);
+                    paramsHash, 403, false, sw.ElapsedMilliseconds, correlationId), CancellationToken.None);
                 throw;
             }
             catch (YandexTransientException ex) when (attempt < maxAttempts)
@@ -145,7 +145,7 @@ public class ResilientYandexFleetClient : IYandexFleetClient
 
                 _ = _audit.LogAsync(new ApiCallRecord(
                     "YandexFleet", endpoint, "POST", parkId, null, "System",
-                    paramsHash, 503, false, sw.ElapsedMilliseconds, correlationId), ct);
+                    paramsHash, 503, false, sw.ElapsedMilliseconds, correlationId), CancellationToken.None);
 
                 await Task.Delay(delay, ct);
             }
@@ -155,7 +155,7 @@ public class ResilientYandexFleetClient : IYandexFleetClient
                 _log.LogError(ex, "{Endpoint} failed after {Attempt} attempt(s)", endpoint, attempt);
                 _ = _audit.LogAsync(new ApiCallRecord(
                     "YandexFleet", endpoint, "POST", parkId, null, "System",
-                    paramsHash, 500, false, sw.ElapsedMilliseconds, correlationId), ct);
+                    paramsHash, 500, false, sw.ElapsedMilliseconds, correlationId), CancellationToken.None);
                 throw;
             }
         }

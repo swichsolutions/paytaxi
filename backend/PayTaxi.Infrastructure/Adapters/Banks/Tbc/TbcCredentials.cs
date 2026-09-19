@@ -35,6 +35,9 @@ public sealed class TbcCredentials
     [JsonPropertyName("nonce")] public string? Nonce { get; set; }
     [JsonPropertyName("debitCurrency")] public string DebitCurrency { get; set; } = "GEL";
 
+    /// <summary>Set by the adapter from the account context; used for audit logging only (not part of the stored JSON).</summary>
+    [JsonIgnore] public Guid? ParkId { get; set; }
+
     public bool IsProduction => string.Equals(Environment, "production", StringComparison.OrdinalIgnoreCase)
                              || string.Equals(Environment, "prod", StringComparison.OrdinalIgnoreCase);
 
@@ -48,7 +51,7 @@ public sealed class TbcCredentials
         AllowTrailingCommas = true,
     };
 
-    public static TbcCredentials Parse(string? json)
+    public static TbcCredentials Parse(string? json, Guid? parkId = null)
     {
         if (string.IsNullOrWhiteSpace(json) || json.Trim() == "{}")
             throw new TbcConfigurationException("TBC credentials are not configured on this park account");
@@ -59,6 +62,7 @@ public sealed class TbcCredentials
 
         if (c is null || string.IsNullOrWhiteSpace(c.Username) || string.IsNullOrWhiteSpace(c.Password))
             throw new TbcConfigurationException("TBC credentials must include username and password");
+        c.ParkId = parkId;
         return c;
     }
 
@@ -82,7 +86,12 @@ public sealed class TbcCredentials
     /// <summary>Stable fingerprint of the credential set — used to key the per-account HttpClient cache.</summary>
     public string CacheKey()
     {
-        var raw = $"{Username}|{Environment}|{CertificatePath}|{CertificatePfxBase64?.Length}|{CertificatePassword?.Length}";
+        // The certificate bytes are part of the key so a rotated .pfx (same path or same
+        // length) gets a fresh HttpClient instead of the old client certificate.
+        string certFingerprint;
+        try { certFingerprint = LoadCertificate()?.Thumbprint ?? "none"; }
+        catch { certFingerprint = "unloadable"; }
+        var raw = $"{Username}|{Environment}|{CertificatePath}|{certFingerprint}|{CertificatePassword?.Length}";
         var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(hash)[..16];
     }

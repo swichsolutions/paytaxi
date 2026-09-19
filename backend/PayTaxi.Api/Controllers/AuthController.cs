@@ -32,6 +32,8 @@ public class AuthController : ControllerBase
 {
     private const int CodeExpiryMinutes = 5;
     private const int MaxAttemptsPerCode = 5;
+    private const int OtpWindowMinutes = 10;
+    private const int MaxOtpPerWindow = 3;
 
     private readonly AppDbContext _db;
     private readonly IJwtTokenService _jwt;
@@ -63,6 +65,18 @@ public class AuthController : ControllerBase
         var driver = await _db.Drivers.AsNoTracking()
             .FirstOrDefaultAsync(d => d.PhoneHash == phoneHash, ct);
 
+        // Per-phone cap, independent of the per-IP limiter (which a rotating X-Forwarded-For
+        // could dodge): at most MaxOtpPerWindow codes per phone per window. Every code costs
+        // an SMS once the gateway is wired.
+        var windowStart = DateTime.UtcNow.AddMinutes(-OtpWindowMinutes);
+        var recent = await _db.OtpCodes.CountAsync(o => o.PhoneHash == phoneHash && o.CreatedAt >= windowStart, ct);
+        if (recent >= MaxOtpPerWindow)
+        {
+            _log.LogWarning("OTP rate cap hit for phone hash {Hash}", phoneHash[..8]);
+            Response.Headers.RetryAfter = (OtpWindowMinutes * 60).ToString();
+            return StatusCode(429, new { error = "too_many_requests", retryAfterSeconds = OtpWindowMinutes * 60 });
+        }
+
         // We DON'T reveal whether the phone exists — same response either way.
         // The OTP just goes nowhere if there's no driver behind the phone.
         var code = GenerateCode();
@@ -75,8 +89,11 @@ public class AuthController : ControllerBase
                 ExpiresAt = DateTime.UtcNow.AddMinutes(CodeExpiryMinutes),
             });
             await _db.SaveChangesAsync(ct);
-            _log.LogInformation("Dev OTP for {Phone}: {Code} (expires {Expires:HH:mm:ss})",
-                phone, code, DateTime.UtcNow.AddMinutes(CodeExpiryMinutes));
+            if (_env.IsDevelopment())
+                _log.LogInformation("Dev OTP for {Phone}: {Code} (expires {Expires:HH:mm:ss})",
+                    phone, code, DateTime.UtcNow.AddMinutes(CodeExpiryMinutes));
+            else
+                _log.LogInformation("OTP issued for phone hash {Hash}", phoneHash[..8]);
         }
         else
         {
@@ -287,22 +304,10 @@ public class AuthController : ControllerBase
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    /// <summary>Strip everything except digits and a leading +.</summary>
-    private static string? NormalizePhone(string? raw)
-    {
-        if (string.IsNullOrWhiteSpace(raw)) return null;
-        var trimmed = raw.Trim();
-        var hasPlus = trimmed.StartsWith('+');
-        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
-        if (digits.Length < 9) return null;
-        return hasPlus ? "+" + digits : digits;
-    }
-
-    private static string HashPhone(string phone)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(phone));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
-    }
+    // Same normaliser as admin onboarding / import / seed, so "599123456", "+995 599 123 456"
+    // and "995599123456" all hash to the same driver.
+    private static string? NormalizePhone(string? raw) => PayTaxi.Core.Identity.GeorgianPhone.Normalize(raw);
+    private static string HashPhone(string phone) => PayTaxi.Core.Identity.GeorgianPhone.Hash(phone);
 
     private static string HashCode(string code) => HashPhone(code); // same primitive
 

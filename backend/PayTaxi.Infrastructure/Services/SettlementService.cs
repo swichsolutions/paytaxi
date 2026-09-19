@@ -50,7 +50,31 @@ public class SettlementService : ISettlementService
     {
         int created = 0, completed = 0, failed = 0, retried = 0, skipped = 0;
 
-        // 0. Transfers the bank accepted asynchronously last time: ask how they ended.
+        // Every step below is isolated per settlement/park: one bad row must not stop the
+        // other parks from being settled tonight.
+
+        // 0a. Sagas interrupted mid-transfer (Processing, no bank id, untouched for a while):
+        //     ask the bank by our document id before deciding anything.
+        var interrupted = await _db.Settlements
+            .Where(s => s.Status == SettlementStatus.Processing && s.BankTransferId == null
+                     && s.LastAttemptAt != null && s.LastAttemptAt < DateTime.UtcNow.AddMinutes(-StaleProcessingMinutes))
+            .Select(s => s.Id)
+            .ToListAsync(ct);
+        foreach (var id in interrupted)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var s = await _db.Settlements.FirstAsync(x => x.Id == id, ct);
+                await ResolveInterruptedAsync(s, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogError(ex, "Settlement {Id}: recovering interrupted transfer threw", id);
+            }
+        }
+
+        // 0b. Transfers the bank accepted asynchronously last time: ask how they ended.
         var pending = await _db.Settlements
             .Where(s => s.Status == SettlementStatus.Processing && s.BankTransferId != null)
             .Select(s => s.Id)
@@ -58,8 +82,15 @@ public class SettlementService : ISettlementService
         foreach (var id in pending)
         {
             ct.ThrowIfCancellationRequested();
-            var s = await _db.Settlements.FirstAsync(x => x.Id == id, ct);
-            await ResolvePendingAsync(s, ct);
+            try
+            {
+                var s = await _db.Settlements.FirstAsync(x => x.Id == id, ct);
+                await ResolvePendingAsync(s, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogError(ex, "Settlement {Id}: resolving pending transfer threw", id);
+            }
         }
 
         // 1. Earlier failures first — "roll into next day".
@@ -70,9 +101,17 @@ public class SettlementService : ISettlementService
         foreach (var id in stale)
         {
             ct.ThrowIfCancellationRequested();
-            var s = await RetryAsync(id, initiatedBy, ct);
-            retried++;
-            if (s.Status == SettlementStatus.Completed) completed++; else failed++;
+            try
+            {
+                var s = await RetryAsync(id, initiatedBy, ct);
+                retried++;
+                if (s.Status == SettlementStatus.Completed) completed++; else failed++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                _log.LogError(ex, "Settlement {Id}: retry threw", id);
+            }
         }
 
         // 2. The day's settlement per park.
@@ -84,11 +123,19 @@ public class SettlementService : ISettlementService
         foreach (var parkId in parks)
         {
             ct.ThrowIfCancellationRequested();
-            var s = await RunForParkAsync(parkId, settlementDate, initiatedBy, ct);
-            if (s is null) { skipped++; continue; }
-            created++;
-            if (s.Status == SettlementStatus.Completed) completed++;
-            else if (s.Status == SettlementStatus.Failed) failed++;
+            try
+            {
+                var s = await RunForParkAsync(parkId, settlementDate, initiatedBy, ct);
+                if (s is null) { skipped++; continue; }
+                created++;
+                if (s.Status == SettlementStatus.Completed) completed++;
+                else if (s.Status == SettlementStatus.Failed) failed++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failed++;
+                _log.LogError(ex, "Settlement {Date} for park {Park} threw — continuing with the other parks", settlementDate, parkId);
+            }
         }
 
         var summary = new SettlementRunSummary(settlementDate, parks.Count, created, completed, failed, retried, skipped);
@@ -177,8 +224,70 @@ public class SettlementService : ISettlementService
         if (s.Status == SettlementStatus.Processing && s.BankTransferId is not null)
             return await ResolvePendingAsync(s, ct);
         if (s.Status == SettlementStatus.Processing)
-            throw new InvalidOperationException("Settlement is currently processing");
+        {
+            var stuckFor = DateTime.UtcNow - (s.LastAttemptAt ?? s.UpdatedAt);
+            if (stuckFor < TimeSpan.FromMinutes(StaleProcessingMinutes))
+                throw new InvalidOperationException("Settlement is currently processing");
+            return await ResolveInterruptedAsync(s, ct);
+        }
         return await ExecuteAsync(s, initiatedBy, ct);
+    }
+
+    /// <summary>A Processing settlement with no bank id, untouched for a while, is treated as retryable this long after its last attempt.</summary>
+    private const int StaleProcessingMinutes = 10;
+
+    /// <summary>
+    /// The process died between "Processing" and storing the bank's answer. The bank may or
+    /// may not hold our document: look it up by idempotency key. Found → adopt its state;
+    /// not found → mark Failed so the normal retry path sends it (same key, so a late
+    /// duplicate is impossible).
+    /// </summary>
+    private async Task<Settlement> ResolveInterruptedAsync(Settlement s, CancellationToken ct)
+    {
+        var park = await _db.Parks.Include(p => p.BankAccounts).FirstAsync(p => p.Id == s.ParkId, ct);
+        var account = park.BankAccounts.FirstOrDefault(a => a.Id == s.ParkBankAccountId)
+                   ?? park.BankAccounts.FirstOrDefault(a => a.IsPrimary);
+        var bank = account is null ? null : (_services.GetKeyedService<IBankPayoutAdapter>(account.Provider)
+            ?? _services.GetKeyedService<IBankPayoutAdapter>(account.Provider.ToUpperInvariant())
+            ?? _services.GetKeyedService<IBankPayoutAdapter>("MOCK"));
+
+        BankTransferLookup? lookup = null;
+        if (bank is not null && account is not null)
+        {
+            var source = new BankAccountContext(park.Id, account.Id, account.Provider, account.BankCode, account.Iban,
+                account.HolderName ?? park.LegalEntityName ?? park.Name, account.CredentialsEncrypted);
+            try { lookup = await bank.FindTransferByIdempotencyKeyAsync(source, s.IdempotencyKey, ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogWarning(ex, "Settlement {Id}: lookup by document id failed; leaving it for the next run", s.Id);
+                return s;
+            }
+        }
+
+        if (lookup is not null && lookup.Status == BankTransferStatus.Completed)
+        {
+            s.Status = SettlementStatus.Completed;
+            s.CompletedAt = DateTime.UtcNow;
+            s.BankTransferId = lookup.TransferId;
+            s.FailureReason = null;
+            _db.LedgerEntries.Add(Entry(s, LedgerEntryType.SettlementSent, s.SwichShare, lookup.TransferId,
+                $"{s.Description} · recovered after interrupted run (bank confirms completed)"));
+            await _db.SaveChangesAsync(ct);
+            _log.LogWarning("Settlement {Id}: interrupted run recovered — bank shows transfer {Tx} completed", s.Id, lookup.TransferId);
+            return s;
+        }
+        if (lookup is not null && lookup.Status == BankTransferStatus.Pending)
+        {
+            s.BankTransferId = lookup.TransferId;
+            await _db.SaveChangesAsync(ct);
+            _log.LogWarning("Settlement {Id}: interrupted run recovered — bank holds transfer {Tx}, still pending", s.Id, lookup.TransferId);
+            return s;
+        }
+
+        await FailAsync(s, "SAGA_INTERRUPTED",
+            lookup is null ? "Run was interrupted before the bank answered; no document found at the bank — will retry"
+                           : $"Run was interrupted; bank reports transfer {lookup.TransferId} failed — will retry", ct);
+        return s;
     }
 
     /// <summary>Poll a bank-accepted settlement transfer until it is final.</summary>

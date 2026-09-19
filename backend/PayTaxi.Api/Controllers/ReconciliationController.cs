@@ -111,7 +111,7 @@ public class ReconciliationController : AdminControllerBase
 
         discrepancy.IsResolved = true;
         discrepancy.ResolvedAt = DateTime.UtcNow;
-        discrepancy.ResolvedBy = User.Identity?.Name ?? User.FindFirst("email")?.Value ?? "admin";
+        discrepancy.ResolvedBy = ActorLabel;
         discrepancy.ResolutionNotes = body?.Notes;
         await _db.SaveChangesAsync(ct);
 

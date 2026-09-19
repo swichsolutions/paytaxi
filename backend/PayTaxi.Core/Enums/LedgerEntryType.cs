@@ -17,4 +17,7 @@ public enum LedgerEntryType
 
     /// <summary>Nightly park → Swich transfer refused/failed; will be retried.</summary>
     SettlementFailed,
+
+    /// <summary>Cashout parked for a human (outcome of an external step unknown). Amount = gross, informational.</summary>
+    ReviewFlagged,
 }

@@ -37,7 +37,8 @@ public static class BankSendHelper
             {
                 log.LogInformation("Bank confirms transfer {TransferId} for document {Key} despite the lost response",
                     lookup.TransferId, request.IdempotencyKey);
-                return new BankTransferResult(true, lookup.TransferId, null, null);
+                return new BankTransferResult(true, lookup.TransferId, null, null,
+                    IsPending: lookup.Status == BankTransferStatus.Pending);
             }
             if (lookup is not null && lookup.Status == BankTransferStatus.Failed)
                 return new BankTransferResult(false, lookup.TransferId, "BANK_REPORTED_FAILED",

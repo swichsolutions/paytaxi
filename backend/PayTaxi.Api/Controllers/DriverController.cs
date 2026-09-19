@@ -43,7 +43,7 @@ public class DriverController : ControllerBase
 
     /// <summary>Profile + park config + balance + payout destinations for the authenticated driver.</summary>
     [HttpGet("me")]
-    public async Task<IActionResult> Me(CancellationToken ct)
+    public async Task<IActionResult> Me([FromQuery] bool fresh = false, CancellationToken ct = default)
     {
         if (!TryGetClaims(out var driverId, out var parkId, out var error))
             return Unauthorized(new { error });
@@ -58,14 +58,56 @@ public class DriverController : ControllerBase
             .FirstOrDefaultAsync(p => p.Id == parkId, ct);
         if (park is null) return NotFound(new { error = "park_not_found" });
 
+        // Balance: serve the sync worker's cache when it is fresh; go live only when it is
+        // stale or the caller asked to refresh. A Yandex outage degrades to the last known
+        // value (flagged stale) instead of a 500 — the app must never show "0.00" for "unknown".
         decimal? balance = null;
+        DateTime? balanceAsOf = null;
+        bool balanceStale = false;
+        string? balanceError = null;
         string? carPlate = null;
         if (driver.YandexDriverProfileId is not null)
         {
-            var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
-            var match = profiles.FirstOrDefault(p => p.DriverProfileId == driver.YandexDriverProfileId);
-            balance = match?.Balance;
-            carPlate = match?.CarPlate;
+            var now = DateTime.UtcNow;
+            var cached = await _db.YandexBalanceCaches.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.DriverId == driverId, ct);
+            var isFresh = cached is not null && now - cached.UpdatedAt < TimeSpan.FromSeconds(BalanceFreshSeconds);
+
+            if (isFresh && !fresh)
+            {
+                balance = cached!.Balance;
+                balanceAsOf = cached.UpdatedAt;
+            }
+            else
+            {
+                try
+                {
+                    var profiles = await _yandex.GetDriverProfilesAsync(parkId, ct);
+                    var match = profiles.FirstOrDefault(p => p.DriverProfileId == driver.YandexDriverProfileId);
+                    if (match is not null)
+                    {
+                        balance = match.Balance;
+                        balanceAsOf = now;
+                        carPlate = match.CarPlate;
+                        await UpsertBalanceCacheAsync(driverId, parkId, match.Balance, match.Currency, now, ct);
+                    }
+                    else
+                    {
+                        balanceError = "profile_not_found";
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _log.LogWarning(ex, "Yandex balance read failed for driver {DriverId}", driverId);
+                    balanceError = "yandex_unavailable";
+                    if (cached is not null)
+                    {
+                        balance = cached.Balance;
+                        balanceAsOf = cached.UpdatedAt;
+                        balanceStale = true;
+                    }
+                }
+            }
         }
 
         var supportedBanks = park.BankAccounts
@@ -85,6 +127,9 @@ public class DriverController : ControllerBase
                 status = driver.Status.ToString(),
                 carPlate,
                 balance,
+                balanceAsOf,
+                balanceStale,
+                balanceError,
             },
             park = new
             {
@@ -281,10 +326,15 @@ public class DriverController : ControllerBase
                 _                => Ok(result),
             };
         }
+        catch (CashoutRejectedException ex)
+        {
+            _log.LogWarning("Driver cashout rejected ({Code}) for {DriverId}: {Message}", ex.Code, driverId, ex.Message);
+            return BadRequest(new { error = "cashout_rejected", code = ex.Code, message = ex.Message, @params = ex.Params });
+        }
         catch (InvalidOperationException ex)
         {
             _log.LogWarning(ex, "Driver cashout rejected for {DriverId}", driverId);
-            return BadRequest(new { error = "cashout_rejected", message = ex.Message });
+            return BadRequest(new { error = "cashout_rejected", code = "rejected", message = ex.Message });
         }
     }
 
@@ -314,6 +364,7 @@ public class DriverController : ControllerBase
                 title = n.Title,
                 body = n.Body,
                 link = n.Link,
+                data = n.Data,
                 isRead = n.IsRead,
                 createdAt = n.CreatedAt,
             })
@@ -379,6 +430,33 @@ public class DriverController : ControllerBase
         }
         return true;
     }
+
+    /// <summary>How old the sync worker's cached balance may be before /me goes live to Yandex.</summary>
+    private const int BalanceFreshSeconds = 120;
+
+    private async Task UpsertBalanceCacheAsync(Guid driverId, Guid parkId, decimal balance, string currency, DateTime now, CancellationToken ct)
+    {
+        try
+        {
+            var row = await _db.YandexBalanceCaches.FirstOrDefaultAsync(c => c.DriverId == driverId, ct);
+            if (row is null)
+                _db.YandexBalanceCaches.Add(new Core.Entities.YandexBalanceCache
+                {
+                    DriverId = driverId, ParkId = parkId, Balance = balance, Currency = currency ?? "GEL", UpdatedAt = now,
+                });
+            else
+            {
+                row.Balance = balance;
+                row.UpdatedAt = now;
+            }
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogDebug(ex, "Balance cache upsert skipped for driver {DriverId}", driverId);
+        }
+    }
+
 }
 
 public record CreateMyCashoutRequest(Guid CardId, decimal Amount, string IdempotencyKey);

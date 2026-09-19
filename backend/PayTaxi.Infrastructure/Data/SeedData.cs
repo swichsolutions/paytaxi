@@ -429,9 +429,42 @@ public static class SeedData
         return hyphenated.Trim('-');
     }
 
-    private static string HashPhone(string phone)
+    private static string HashPhone(string phone) =>
+        Core.Identity.GeorgianPhone.Hash(Core.Identity.GeorgianPhone.Normalize(phone) ?? phone);
+
+    /// <summary>
+    /// Production path: migrations + encryption backfill only — no demo parks, no dev logins.
+    /// The very first super-admin is created from configuration
+    /// (<c>Bootstrap:SuperAdminEmail</c> / <c>Bootstrap:SuperAdminPassword</c>) when the
+    /// AdminUsers table is empty; after that the settings can be removed.
+    /// </summary>
+    public static async Task EnsureProductionReadyAsync(IServiceProvider services, string? bootstrapEmail, string? bootstrapPassword)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(phone));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var log = scope.ServiceProvider.GetRequiredService<ILogger<AppDbContext>>();
+
+        await db.Database.MigrateAsync();
+        await EncryptionMigrator.EnsureEncryptedAsync(db, log);
+
+        if (await db.AdminUsers.AnyAsync()) return;
+
+        if (string.IsNullOrWhiteSpace(bootstrapEmail) || string.IsNullOrWhiteSpace(bootstrapPassword) || bootstrapPassword.Length < 12)
+        {
+            log.LogWarning("No admin users exist and Bootstrap:SuperAdminEmail/Password (>= 12 chars) are not set — nobody can log in to the admin console");
+            return;
+        }
+
+        db.AdminUsers.Add(new AdminUser
+        {
+            Email = bootstrapEmail.Trim().ToLowerInvariant(),
+            Name = "Swich Admin",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(bootstrapPassword),
+            Role = "super_admin",
+            ParkId = null,
+            IsActive = true,
+        });
+        await db.SaveChangesAsync();
+        log.LogWarning("Bootstrap super-admin {Email} created — remove Bootstrap:* settings now", bootstrapEmail);
     }
 }

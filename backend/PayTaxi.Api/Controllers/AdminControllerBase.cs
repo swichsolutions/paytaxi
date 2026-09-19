@@ -8,7 +8,8 @@ namespace PayTaxi.Api.Controllers;
 /// same rule applies everywhere a park-routed endpoint exists.
 ///
 /// Scopes:
-///   - <c>super_admin</c>: PayTaxi/Swich operators. See every park.
+///   - <c>super_admin</c>: PayTaxi/Swich operators. See every park, own the fee/split config.
+///   - <c>operator</c>:    the exclusive operator's staff. See every park, no Swich-only controls.
 ///   - <c>park_admin</c>:  the taxi-park's own manager. Only their own park's data.
 /// </summary>
 public abstract class AdminControllerBase : ControllerBase
@@ -27,6 +28,24 @@ public abstract class AdminControllerBase : ControllerBase
 
     /// <summary>True when the caller sees every park (Swich or operator).</summary>
     protected bool SeesAllParks => IsSuperAdmin || IsOperator;
+
+    /// <summary>
+    /// "admin:{email}" for audit fields (InitiatedBy / ResolvedBy). Read from the token, never
+    /// from the request body, so the trail can't be forged. The JWT handler maps the "email"
+    /// claim to ClaimTypes.Email by default; both spellings are tried.
+    /// </summary>
+    protected string ActorLabel
+    {
+        get
+        {
+            var email = User.FindFirst(ClaimTypes.Email)?.Value
+                     ?? User.FindFirst("email")?.Value
+                     ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                     ?? User.FindFirst("sub")?.Value
+                     ?? "unknown";
+            return $"admin:{email}";
+        }
+    }
 
     /// <summary>The park id the caller is scoped to, or null when they see all parks.</summary>
     protected Guid? ScopedParkId
