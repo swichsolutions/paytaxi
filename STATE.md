@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-18 (TBC adapter, Yandex client, production plumbing, trusted-device login — see the newest sections)
+**Last updated:** 2026-09-19 (driver rides + dashboard cashouts wired to real data — see the newest section)
 
 ---
 
@@ -11,6 +11,19 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-19 — last two mock screens wired to real data (rides + dashboard cashouts)
+
+The driver dashboard and the History tab were the last driver screens reading `MockDataService` lists. Both now read the backend.
+
+- **Backend `GET /api/driver/me/rides?days=N`** (`DriverController.MyRides`): pulls the driver's Yandex orders via `IYandexFleetClient.GetOrdersAsync` for the last N days (clamped 1–30), newest first, as `RideDto {orderId, amount, from, to, createdAt}`. Cached 60 s per (driver, days) in `IMemoryCache` (`AddMemoryCache()` in Program.cs) so tab switching doesn't burn the park's Yandex rate budget. Unlinked driver (no `YandexDriverProfileId`) → empty list with `note: driver_not_linked_to_yandex`, not an error.
+- **Frontend `DriverActivityService`** (`core/services/driver-activity.service.ts`): `listCashouts(take)` → `/me/cashouts`, `listRides(days)` → `/me/rides`, both normalised (`ActivityCashout` with lowercase status + `card {bankType, maskedPan}`, `ActivityRide` with `from/to` falling back to `—`).
+- **History** (`features/history/history.ts`): 50 cashouts + 14 days of rides via `Promise.allSettled`; rides are best-effort so a Yandex outage still shows cashout history. Cashout row title is now `TBC **** 8298` (the destination account).
+- **Dashboard** (`features/dashboard/dashboard.ts`): 3 most recent cashouts + top 3 rides of the last 7 days. Template unchanged.
+- Verified: dev driver `+995599123456` → rides 200 (74 mock rides / 14 days, second call served from cache), cashouts 200 (real Completed rows with fee 0.50), `/dashboard` and `/history` serve 200.
+- With the real Yandex client, `from`/`to` come from the order's `address_from` / `destinations` fields — the mock generator fills Tbilisi district names. Order history is Yandex-side, so nothing appears until the park's real credentials are in; the page shows an empty rides list rather than an error.
 
 ---
 
@@ -308,7 +321,7 @@ watch it sit in Queued, then complete when the outage passes.
 - Settlement engine (nightly park → Swich transfer, phase/rate config, settlement records, operator + Swich views).
 - Real `TbcPayoutAdapter` / `YandexFleetClient` HTTP implementations against public docs.
 - Production plumbing: `environment.ts` for the 8 hardcoded `localhost:5196` URLs, hosting, secrets, PII encryption.
-- Driver dashboard "recent cashouts" still renders mock data (history page is real).
+- ~~Driver dashboard "recent cashouts" still renders mock data~~ — done 2026-09-19 (see that session).
 
 ---
 

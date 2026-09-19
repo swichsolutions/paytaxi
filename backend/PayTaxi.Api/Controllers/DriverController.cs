@@ -3,6 +3,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using PayTaxi.Core.Banking;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
@@ -23,17 +24,20 @@ public class DriverController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IYandexFleetClient _yandex;
     private readonly ICashoutOrchestrator _orchestrator;
+    private readonly IMemoryCache _cache;
     private readonly ILogger<DriverController> _log;
 
     public DriverController(
         AppDbContext db,
         IYandexFleetClient yandex,
         ICashoutOrchestrator orchestrator,
+        IMemoryCache cache,
         ILogger<DriverController> log)
     {
         _db = db;
         _yandex = yandex;
         _orchestrator = orchestrator;
+        _cache = cache;
         _log = log;
     }
 
@@ -156,6 +160,45 @@ public class DriverController : ControllerBase
             return Unauthorized(new { error });
         var ok = await DestinationHelper.SetDefaultAsync(_db, driverId, cardId, ct);
         return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+    }
+
+    // ── Rides (Yandex orders) ────────────────────────────────────────
+
+    /// <summary>
+    /// The driver's completed rides from Yandex Fleet for the last <paramref name="days"/> days
+    /// (max 30). Cached for 60 s per driver so tab switches don't spend the park's Yandex
+    /// rate budget; the resilient client below still rate-limits, retries and audit-logs.
+    /// </summary>
+    [HttpGet("me/rides")]
+    public async Task<IActionResult> MyRides([FromQuery] int days = 14, CancellationToken ct = default)
+    {
+        if (!TryGetClaims(out var driverId, out var parkId, out var error))
+            return Unauthorized(new { error });
+        days = Math.Clamp(days, 1, 30);
+
+        var driver = await _db.Drivers.AsNoTracking()
+            .Where(d => d.Id == driverId && d.ParkId == parkId)
+            .Select(d => new { d.YandexDriverProfileId })
+            .FirstOrDefaultAsync(ct);
+        if (driver is null) return NotFound(new { error = "driver_not_found" });
+        if (driver.YandexDriverProfileId is null)
+            return Ok(new { days, count = 0, rides = Array.Empty<object>(), note = "driver_not_linked_to_yandex" });
+
+        var to = DateTime.UtcNow;
+        var from = to.AddDays(-days);
+        var cacheKey = $"rides:{driverId}:{days}";
+
+        var rides = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60);
+            var orders = await _yandex.GetOrdersAsync(parkId, driver.YandexDriverProfileId, from, to, ct);
+            return orders
+                .OrderByDescending(o => o.CreatedAt)
+                .Select(o => new RideDto(o.OrderId, o.Amount, o.From, o.To, o.CreatedAt))
+                .ToList();
+        }) ?? new List<RideDto>();
+
+        return Ok(new { days, count = rides.Count, rides });
     }
 
     // ── Cashouts ─────────────────────────────────────────────────────
@@ -339,4 +382,5 @@ public class DriverController : ControllerBase
 }
 
 public record CreateMyCashoutRequest(Guid CardId, decimal Amount, string IdempotencyKey);
+public record RideDto(string OrderId, decimal Amount, string? From, string? To, DateTime CreatedAt);
 public record AddMyCardRequest(string Iban, string? HolderName, bool? MakeDefault);

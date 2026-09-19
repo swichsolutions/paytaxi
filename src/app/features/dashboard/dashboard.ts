@@ -1,8 +1,9 @@
-import { Component, OnInit, computed, inject } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService } from '../../core/services/driver-session.service';
 import { DriverNotificationService } from '../../core/services/notification.service';
+import { ActivityCashout, ActivityRide, DriverActivityService } from '../../core/services/driver-activity.service';
 import { Lang } from '../../core/mock/data';
 
 @Component({
@@ -12,11 +13,16 @@ import { Lang } from '../../core/mock/data';
   styleUrl: './dashboard.scss',
 })
 export class DashboardComponent implements OnInit {
-  readonly svc = inject(MockDataService); // i18n + recent rides/cashouts mock for now
+  readonly svc = inject(MockDataService); // i18n + formatters
   readonly session = inject(DriverSessionService);
   private notifications = inject(DriverNotificationService);
+  private activity = inject(DriverActivityService);
 
   readonly unreadCount = computed(() => this.notifications.unreadCount());
+
+  // Real data: our own cashouts + the driver's recent Yandex rides (last 7 days, 3 shown).
+  private cashouts = signal<ActivityCashout[]>([]);
+  private rides = signal<ActivityRide[]>([]);
 
   // Language switcher in the header: taps cycle EN → ქა → RU. Same signal the profile page uses.
   private static readonly LANGS: Lang[] = ['en', 'ka', 'ru'];
@@ -31,13 +37,19 @@ export class DashboardComponent implements OnInit {
 
   async ngOnInit() {
     await this.session.ensureLoaded();
+    const [cashouts, rides] = await Promise.allSettled([
+      this.activity.listCashouts(3),
+      this.activity.listRides(7),
+    ]);
+    if (cashouts.status === 'fulfilled') this.cashouts.set(cashouts.value);
+    if (rides.status === 'fulfilled') this.rides.set(rides.value.slice(0, 3));
   }
 
   get t() { return this.svc.t; }
-  get recentCashouts() { return this.svc.cashouts().slice(0, 3); }
-  get recentRides() { return this.svc.rides().slice(0, 3); }
+  get recentCashouts() { return this.cashouts(); }
+  get recentRides() { return this.rides(); }
 
-  // Real driver context from the backend session; falls back to mock while loading.
+  // Real driver context from the backend session; falls back to placeholders while loading.
   // Getter (not computed signal) because the template uses `driver.field`, not `driver().field`.
   get driver() {
     const d = this.session.driver();

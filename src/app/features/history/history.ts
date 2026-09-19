@@ -1,10 +1,7 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService } from '../../core/services/driver-session.service';
-import { Ride } from '../../core/mock/data';
-import { environment } from '../../../environments/environment';
+import { ActivityCashout, ActivityRide, DriverActivityService } from '../../core/services/driver-activity.service';
 
 type Filter = 'all' | 'cashouts' | 'rides';
 
@@ -18,19 +15,8 @@ interface TxItem {
   status?: string;
 }
 
-interface ApiCashout {
-  id: string;
-  driverId: string;
-  amount: number;
-  fee: number;
-  status: string;
-  bankTransferId: string | null;
-  createdAt: string;
-}
-
-interface ApiCashoutsResponse {
-  cashouts: ApiCashout[];
-}
+/** Rides come from Yandex; keep the window short so the park's API budget isn't spent on history scrolling. */
+const RIDE_DAYS = 14;
 
 @Component({
   selector: 'app-history',
@@ -38,48 +24,43 @@ interface ApiCashoutsResponse {
   styleUrl: './history.scss',
 })
 export class HistoryComponent implements OnInit {
-  readonly svc = inject(MockDataService); // i18n + rides mock; no rides endpoint yet
+  readonly svc = inject(MockDataService); // i18n + formatters
   readonly session = inject(DriverSessionService);
-  private http = inject(HttpClient);
+  private activity = inject(DriverActivityService);
 
   filter = signal<Filter>('all');
-  cashouts = signal<ApiCashout[]>([]);
+  cashouts = signal<ActivityCashout[]>([]);
+  rides = signal<ActivityRide[]>([]);
   loading = signal(true);
   loadError = signal<string | null>(null);
 
   async ngOnInit() {
     await this.session.ensureLoaded();
-    try {
-      const resp = await firstValueFrom(this.http.get<ApiCashoutsResponse>(
-        `${environment.apiBase}/api/driver/me/cashouts?take=50`));
-      this.cashouts.set(resp.cashouts);
-    } catch (err: any) {
-      this.loadError.set(`Could not load cashouts: ${err?.message ?? err}`);
-    } finally {
-      this.loading.set(false);
-    }
+    const [cashouts, rides] = await Promise.allSettled([
+      this.activity.listCashouts(50),
+      this.activity.listRides(RIDE_DAYS),
+    ]);
+    if (cashouts.status === 'fulfilled') this.cashouts.set(cashouts.value);
+    else this.loadError.set(`Could not load cashouts: ${cashouts.reason?.message ?? cashouts.reason}`);
+    // Rides are best-effort: if Yandex is unreachable the cashout history still shows.
+    if (rides.status === 'fulfilled') this.rides.set(rides.value);
+    this.loading.set(false);
   }
 
   get t() { return this.svc.t; }
 
   private allItems = computed<TxItem[]>(() => {
-    const driverId = this.session.driver()?.id;
-    const cashoutItems: TxItem[] = this.cashouts()
-      .filter(c => !driverId || c.driverId === driverId)
-      .map(c => {
-        const created = new Date(c.createdAt);
-        return {
-          id: c.id,
-          type: 'cashout' as const,
-          title: `Cashout · ${c.bankTransferId ?? '—'}`,
-          subtitle: this.svc.formatDateTime(created),
-          amount: c.amount,
-          date: created,
-          status: c.status.toLowerCase(),
-        };
-      });
+    const cashoutItems: TxItem[] = this.cashouts().map(c => ({
+      id: c.id,
+      type: 'cashout' as const,
+      title: `${c.card.bankType} ${c.card.maskedPan}`,
+      subtitle: this.svc.formatDateTime(c.createdAt),
+      amount: c.amount,
+      date: c.createdAt,
+      status: c.status,
+    }));
 
-    const rideItems: TxItem[] = this.svc.rides().map((r: Ride) => ({
+    const rideItems: TxItem[] = this.rides().map(r => ({
       id: r.id,
       type: 'ride' as const,
       title: `${r.from} → ${r.to}`,
