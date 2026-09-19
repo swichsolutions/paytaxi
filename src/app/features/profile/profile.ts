@@ -5,9 +5,11 @@ import { AuthService } from '../../core/services/auth.service';
 import { DriverNotificationService } from '../../core/services/notification.service';
 import { DriverSessionService, SessionCard } from '../../core/services/driver-session.service';
 import { Lang } from '../../core/mock/data';
+import { IbanHelpComponent } from '../../shared/components/iban-help/iban-help';
 
 @Component({
   selector: 'app-profile',
+  imports: [IbanHelpComponent],
   templateUrl: './profile.html',
   styleUrl: './profile.scss',
 })
@@ -17,7 +19,6 @@ export class ProfileComponent implements OnInit {
   readonly session = inject(DriverSessionService);
   private auth = inject(AuthService);
   private notifications = inject(DriverNotificationService);
-  notificationsOn = signal(true);
 
   // ── Add bank account ─────────────────────────────────────────────
   adding = signal(false);
@@ -43,6 +44,7 @@ export class ProfileComponent implements OnInit {
 
   readonly supportedBanksLabel = computed(() =>
     this.session.supportedBanks().map(b => b.bankLabel).join(', '));
+  readonly supportedBankLabels = computed(() => this.session.supportedBanks().map(b => b.bankLabel));
 
   setLang(l: Lang) { this.svc.lang.set(l); }
 

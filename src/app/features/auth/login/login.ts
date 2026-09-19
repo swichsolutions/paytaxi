@@ -28,6 +28,12 @@ export class LoginComponent implements OnDestroy {
   private readonly route = inject(ActivatedRoute);
 
   constructor() {
+    // Already signed in on this device (90-day trusted session) → skip the OTP screen.
+    if (this.auth.isAuthenticated()) {
+      const next = this.route.snapshot.queryParamMap.get('next');
+      this.router.navigateByUrl(next && next.startsWith('/') ? next : '/dashboard');
+      return;
+    }
     // Bounced here by the interceptor after the 90-day session ended / was revoked.
     if (this.route.snapshot.queryParamMap.get('reason') === 'expired') {
       this.errorMessage.set((this.svc.t as Record<string, string>)['sessionExpired']);

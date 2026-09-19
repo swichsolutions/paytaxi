@@ -17,6 +17,11 @@ export class AdminLoginComponent {
 
   get t() { return this.i18n.t; }
 
+  constructor() {
+    // Already signed in (token in localStorage) → skip the login form. No-op during SSR.
+    if (this.auth.isAuthenticated()) this.router.navigate(['/admin/overview']);
+  }
+
   email = signal('');
   password = signal('');
   submitting = signal(false);

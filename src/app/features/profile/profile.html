@@ -62,6 +62,7 @@
               [placeholder]="t.ibanPlaceholder"
             />
           </label>
+          <app-iban-help [banks]="supportedBankLabels()" />
           <label class="prof-field">
             <span class="prof-field__label">{{ t.holderName }}</span>
             <input
@@ -84,29 +85,6 @@
       @if (cardError()) {
         <p class="prof-error">{{ cardError() }}</p>
       }
-    </div>
-  </section>
-
-  <!-- Notifications -->
-  <section class="prof-section">
-    <div class="prof-section__label section-label">{{ t.notifications }}</div>
-    <div class="prof-card">
-      <div class="prof-row">
-        <div class="prof-row__info">
-          <span class="prof-row__title">{{ t.smsAlerts }}</span>
-          <span class="prof-row__sub">{{ t.smsAlertsDesc }}</span>
-        </div>
-        <button
-          class="toggle"
-          [class.toggle--on]="notificationsOn()"
-          (click)="notificationsOn.update(v => !v)"
-          [attr.aria-checked]="notificationsOn()"
-          role="switch"
-          aria-label="{{ t.notifications }}"
-        >
-          <span class="toggle__thumb"></span>
-        </button>
-      </div>
     </div>
   </section>
 

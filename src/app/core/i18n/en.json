@@ -50,8 +50,6 @@
   "toCard": "To account",
   "cashoutSubmitted": "Cashout Submitted",
   "willArriveShortly": "will arrive shortly",
-  "smsAlerts": "SMS Alerts",
-  "smsAlertsDesc": "Cashout completions & failures",
   "noCardsAdded": "No bank account yet — add your IBAN to withdraw",
   "markAllRead": "Mark all read",
   "unread": "Unread",
@@ -81,5 +79,10 @@
   "errCardHasPending": "Can't remove it while a cashout to this account is in progress.",
   "errGeneric": "Something went wrong. Please try again.",
   "trustedDeviceHint": "This phone stays signed in for 90 days. You’ll only need a new code on another device or after signing out.",
-  "sessionExpired": "Your session ended. Please sign in again."
+  "sessionExpired": "Your session ended. Please sign in again.",
+  "ibanHelpToggle": "Where do I find my IBAN?",
+  "ibanHelpIntro": "Open your bank app and go to Accounts (not Cards). Tap your GEL account and look for the account number — most apps have a copy button next to it.",
+  "ibanHelpTbc": "TBC app → Accounts → your GEL account → account details. It’s the number starting with GE…TB.",
+  "ibanHelpBog": "BoG mBank app → Accounts → your GEL account → details. It starts with GE…BG.",
+  "ibanHelpFormat": "An IBAN is 22 characters and always starts with GE. Spaces don’t matter — paste it as it is."
 }

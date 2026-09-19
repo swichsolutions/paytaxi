@@ -1,0 +1,40 @@
+<div class="iban-help" [class.iban-help--open]="open()">
+  <button type="button" class="iban-help__toggle" (click)="toggle()" [attr.aria-expanded]="open()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    <span>{{ t['ibanHelpToggle'] }}</span>
+    <svg class="iban-help__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  </button>
+
+  @if (open()) {
+    <div class="iban-help__body">
+      <p class="iban-help__intro">{{ t['ibanHelpIntro'] }}</p>
+
+      @for (bank of ['TBC', 'BOG']; track bank) {
+        @if (has(bank)) {
+          <section class="iban-help__bank">
+            <h4 class="iban-help__bank-title">{{ bank === 'BOG' ? 'Bank of Georgia' : bank }}</h4>
+            <!-- Real app screenshot, shown only once it actually loads; hidden if the file is missing. -->
+            <img
+              class="iban-help__shot"
+              [class.iban-help__shot--hidden]="!imageOk(bank)"
+              [src]="imageSrc(bank)"
+              [alt]="bank + ' app – account details with IBAN'"
+              loading="lazy"
+              (load)="onImageLoad(bank)"
+              (error)="onImageError(bank)"
+            />
+            <p class="iban-help__step">{{ bank === 'BOG' ? t['ibanHelpBog'] : t['ibanHelpTbc'] }}</p>
+          </section>
+        }
+      }
+
+      <p class="iban-help__format">{{ t['ibanHelpFormat'] }}</p>
+    </div>
+  }
+</div>

@@ -136,6 +136,7 @@
                   [placeholder]="t.ibanPlaceholder"
                 />
               </label>
+              <app-iban-help [banks]="supportedBankLabels()" />
               <label class="acct-field">
                 <span class="acct-field__label">{{ t.holderName }}</span>
                 <input

@@ -4,6 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { DriverSessionService, SessionCard } from '../../core/services/driver-session.service';
+import { IbanHelpComponent } from '../../shared/components/iban-help/iban-help';
 import { environment } from '../../../environments/environment';
 
 type Step = 1 | 2 | 3;
@@ -24,6 +25,7 @@ interface CashoutSagaResult {
 
 @Component({
   selector: 'app-cashout',
+  imports: [IbanHelpComponent],
   templateUrl: './cashout.html',
   styleUrl: './cashout.scss',
 })
@@ -91,6 +93,7 @@ export class CashoutComponent implements OnInit {
 
   supportedBanksLabel = computed(() =>
     this.session.supportedBanks().map(b => b.bankLabel).join(', '));
+  supportedBankLabels = computed(() => this.session.supportedBanks().map(b => b.bankLabel));
 
   keypad = [
     ['1','2','3'],
