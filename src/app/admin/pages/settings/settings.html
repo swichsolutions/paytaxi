@@ -40,6 +40,7 @@
         <span class="set-row__value">{{ roleLabel(admin()?.role) }}</span>
       </div>
     </div>
+    <p class="set-note set-note--card">{{ t.settingsProfileNote }}</p>
   </section>
 
   <!-- ── Taxi park ───────────────────────────────────────────────── -->
@@ -57,6 +58,7 @@
           }
         </div>
       </header>
+      <p class="set-note set-note--card">{{ t.settingsContactNote }}</p>
 
       <!-- Read-only view -->
       @if (!editing()) {
@@ -368,5 +370,4 @@
     </section>
   }
 
-  <p class="set-note">{{ t.settingsContactNote }}</p>
 </div>

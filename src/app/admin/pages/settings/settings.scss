@@ -236,6 +236,10 @@
   line-height: 1.5;
 }
 
+.set-note--card {
+  margin-top: var(--space-3);
+}
+
 @media (max-width: 540px) {
   .set-row {
     flex-direction: column;

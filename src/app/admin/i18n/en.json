@@ -332,6 +332,7 @@
   "authLimitLabel": "Authorization limit",
   "notSet": "Not set",
   "settingsContactNote": "These details appear on cashout invoices. Keep them up to date.",
+  "settingsProfileNote": "Your name and email are used to sign in and are recorded in the audit log against every manual cashout, retry and settings change you make. They never appear on invoices.",
   "editParkDetails": "Edit park details",
   "parkErrInvalidTaxId": "Identification code must be 9–11 digits.",
   "parkErrInvalidPhone": "Phone format looks wrong.",
