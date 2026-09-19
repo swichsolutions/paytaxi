@@ -22,7 +22,10 @@ export class DriverNotificationService {
   readonly notifications = signal<DriverNotification[]>([]);
   readonly unreadCount = signal(0);
   readonly loading = signal(false);
-  readonly lastError = signal<string | null>(null);
+  /** True until the first successful fetch of this session. */
+  readonly loadedOnce = signal(false);
+  /** The most recent fetch failed (translate in the UI; no server text here). */
+  readonly loadFailed = signal(false);
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -46,12 +49,15 @@ export class DriverNotificationService {
       const resp = await firstValueFrom(this.http.get<ApiNotificationsResponse>(`${this.base}?take=30`));
       this.notifications.set(resp.notifications.map(n => ({
         ...n,
+        data: n.data ?? null,
+        payload: parsePayload(n.data),
         createdAt: new Date(n.createdAt),
       })));
       this.unreadCount.set(resp.unreadCount);
-      this.lastError.set(null);
-    } catch (err: any) {
-      this.lastError.set(err?.message ?? 'Failed to load notifications');
+      this.loadFailed.set(false);
+      this.loadedOnce.set(true);
+    } catch {
+      this.loadFailed.set(true);
     } finally {
       this.loading.set(false);
     }
@@ -83,17 +89,47 @@ export class DriverNotificationService {
   clear(): void {
     this.notifications.set([]);
     this.unreadCount.set(0);
+    this.loadedOnce.set(false);
+    this.loadFailed.set(false);
   }
+}
+
+/** Parse the server's `data` JSON once; null for old rows / malformed payloads. */
+function parsePayload(raw: string | null | undefined): NotificationPayload | null {
+  if (!raw) return null;
+  try {
+    const obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return null;
+    return {
+      amount: typeof obj.amount === 'number' ? obj.amount : null,
+      destination: typeof obj.destination === 'string' ? obj.destination : null,
+      reason: typeof obj.reason === 'string' && obj.reason.trim() !== '' ? obj.reason.trim() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Structured fields behind a notification (amount is net for completed/queued, gross for failed/review). */
+export interface NotificationPayload {
+  amount: number | null;
+  destination: string | null;
+  reason: string | null;
 }
 
 export interface DriverNotification {
   id: string;
+  /** cashout_completed | cashout_queued | cashout_failed | cashout_review | … */
   type: string;
+  /** Server-rendered English fallbacks — used only when `payload` is null (old rows). */
   title: string;
   body: string;
   link: string | null;
   isRead: boolean;
   createdAt: Date;
+  /** Raw JSON string from the server, kept for debugging; `payload` is the parsed form. */
+  data: string | null;
+  payload: NotificationPayload | null;
 }
 
 interface ApiNotificationsResponse {
@@ -107,5 +143,6 @@ interface ApiNotificationsResponse {
     link: string | null;
     isRead: boolean;
     createdAt: string;
+    data?: string | null;
   }>;
 }

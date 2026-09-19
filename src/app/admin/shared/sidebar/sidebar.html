@@ -13,7 +13,7 @@
   <!-- Park indicator -->
   <div class="sidebar__park">
     <span class="sidebar__park-label">{{ t.operatingPark }}</span>
-    <span class="sidebar__park-name">Tbilisi Auto Park #3</span>
+    <span class="sidebar__park-name">{{ parkName() }}</span>
   </div>
 
   <!-- Primary nav -->
@@ -129,19 +129,4 @@
       </a>
     }
   </nav>
-
-  <!-- Float status (quick glance) -->
-  <div class="sidebar__float">
-    <div class="sidebar__float-head">
-      <span class="sidebar__float-dot"></span>
-      <span class="sidebar__float-label">{{ t.floatStatus }}</span>
-    </div>
-    <div class="sidebar__float-amount gel">₾ 84,500</div>
-    <div class="sidebar__float-meter">
-      <div class="sidebar__float-bar" style="width: 68%"></div>
-    </div>
-    <div class="sidebar__float-meta">
-      <span>{{ t.floatTargetNote }}</span>
-    </div>
-  </div>
 </aside>

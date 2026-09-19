@@ -48,6 +48,23 @@
     .status-pill__dot { background: var(--color-brand); box-shadow: 0 0 0 2px rgba(255,184,0,0.22); animation: pulse 1.6s infinite; }
   }
 
+  // Queued: Yandex already debited, bank transfer waiting on the payout worker.
+  &[data-status='queued'] {
+    color: var(--color-brand-dark);
+    background: var(--color-warning-bg);
+    border-color: rgba(255, 184, 0, 0.3);
+    .status-pill__dot { background: var(--color-brand); box-shadow: 0 0 0 2px rgba(255,184,0,0.22); animation: pulse 2s infinite; }
+  }
+
+  // ReviewRequired: bank and Yandex disagree — needs a human in Reconciliation.
+  &[data-status='review'],
+  &[data-status='reviewrequired'] {
+    color: #9A3412;
+    background: rgba(249, 115, 22, 0.12);
+    border-color: rgba(249, 115, 22, 0.3);
+    .status-pill__dot { background: #F97316; box-shadow: 0 0 0 2px rgba(249,115,22,0.2); }
+  }
+
   &[data-status='processing'] {
     color: var(--color-info);
     background: var(--color-info-bg);

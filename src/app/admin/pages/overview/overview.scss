@@ -783,3 +783,30 @@
   &__amount { font-size: 13px; font-weight: 800; color: #fff; text-align: right; }
   &__meta { grid-column: 1 / -1; font-size: 11px; color: rgba(255,255,255,0.5); }
 }
+
+// ── Review-required rows (bank ↔ Yandex disagree — no retry) ──────
+.action-row--review {
+  .action-row__pill {
+    color: #9A3412;
+    background: rgba(249, 115, 22, 0.12);
+    border-left-color: #F97316;
+    text-transform: uppercase;
+  }
+  .action-row__msg { color: #9A3412; }
+}
+
+.action-row__pill { text-transform: uppercase; }
+
+.action-row__retry {
+  text-decoration: none;
+  &:disabled { opacity: 0.6; cursor: default; }
+}
+
+.action-row .confirm-inline { margin-top: var(--space-2); }
+
+.activity-empty {
+  padding: var(--space-6) var(--space-5);
+  font-size: 13px;
+  color: var(--color-text-2);
+  text-align: center;
+}

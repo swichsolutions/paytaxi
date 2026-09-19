@@ -27,6 +27,11 @@ export class ProfileComponent implements OnInit {
   busy = signal(false);
   cardError = signal<string | null>(null);
 
+  // ── Remove bank account (inline confirm) ─────────────────────────
+  /** Card whose row currently shows the "Remove this account?" confirm. */
+  confirmingRemoveId = signal<string | null>(null);
+  removingId = signal<string | null>(null);
+
   async ngOnInit() {
     await this.session.ensureLoaded();
     this.newHolder.set(this.session.driver()?.name ?? '');
@@ -38,7 +43,7 @@ export class ProfileComponent implements OnInit {
   readonly driver = computed(() => {
     const d = this.session.driver();
     return d
-      ? { name: d.name, phone: d.phone }
+      ? { name: d.name || this.t.unnamedDriver, phone: d.phone }
       : { name: '…', phone: '' };
   });
 
@@ -75,15 +80,31 @@ export class ProfileComponent implements OnInit {
     }
   }
 
+  /** Step 1 of removal: show the inline confirm on that row. */
+  askRemove(id: string) {
+    if (this.busy()) return;
+    this.cardError.set(null);
+    this.confirmingRemoveId.set(id);
+  }
+
+  cancelRemove() {
+    this.confirmingRemoveId.set(null);
+  }
+
+  /** Step 2: the driver confirmed. */
   async removeCard(id: string) {
     if (this.busy()) return;
     this.busy.set(true);
+    this.removingId.set(id);
     this.cardError.set(null);
     try {
       await this.session.removeCard(id);
+      this.confirmingRemoveId.set(null);
     } catch (err: any) {
       this.cardError.set(this.mapError(err));
+      this.confirmingRemoveId.set(null);
     } finally {
+      this.removingId.set(null);
       this.busy.set(false);
     }
   }
@@ -102,16 +123,16 @@ export class ProfileComponent implements OnInit {
 
   private mapError(err: any): string {
     const code = err?.error?.error;
-    const t = this.t as Record<string, string>;
+    const t = this.t;
     if (code === 'invalid_iban_format' || code === 'invalid_iban_checksum' || code === 'iban_required')
-      return t['errInvalidIban'];
+      return t.errInvalidIban;
     if (code === 'bank_not_supported') {
       const supported = (err?.error?.supported ?? []).map((b: any) => b.bankLabel).join(', ');
-      return `${t['errBankNotSupported']} ${supported || this.supportedBanksLabel()}`;
+      return `${t.errBankNotSupported} ${supported || this.supportedBanksLabel()}`;
     }
-    if (code === 'iban_already_added') return t['errIbanExists'];
-    if (code === 'card_has_pending_cashout') return t['errCardHasPending'];
-    return err?.error?.message ?? t['errGeneric'];
+    if (code === 'iban_already_added') return t.errIbanExists;
+    if (code === 'card_has_pending_cashout') return t.errCardHasPending;
+    return t.errGeneric;
   }
 
   logout() {

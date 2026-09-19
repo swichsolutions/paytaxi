@@ -1,32 +1,39 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminApiService, ApiDriver, ApiCashout, UpdateDriverBody } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
+import { downloadCsv, isoDateLocal } from '../../shared/csv';
 
-type StatusFilter = 'all' | 'active' | 'inactive' | 'suspended';
+/** Backend enum: Active | Suspended | Pending. */
+type DriverStatus = 'active' | 'pending' | 'suspended';
+type StatusFilter = 'all' | DriverStatus;
 type SortKey = 'name' | 'balance' | 'lastSeen' | 'cashedOut';
 
-/** Display shape adapted from ApiDriver to satisfy the existing template. */
+/** Display shape adapted from ApiDriver. */
 interface DisplayDriver {
   id: string;
   name: string;
+  hasName: boolean;
   phone: string;
   yandexProfileId: string;
-  status: StatusFilter;
+  status: DriverStatus;
   balance: number;
-  totalCashedOutMonth: number;
-  cashoutCountMonth: number;
-  lastSeenAt: Date;
-  joinedAt: Date;
-  parkId: string;
+  /** Cashed out in the last 30 days — derived from the park's most recent 200 cashouts. */
+  totalCashedOut30d: number;
+  cashoutCount30d: number;
+  /** Most recent cashout, or null when the driver has never cashed out. */
+  lastSeenAt: Date | null;
   carPlate: string;
 }
 
+const WINDOW_MS = 30 * 24 * 3600 * 1000;
+
 @Component({
   selector: 'app-admin-drivers',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   templateUrl: './drivers.html',
   styleUrl: './drivers.scss',
 })
@@ -35,6 +42,7 @@ export class DriversComponent {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   private i18n = inject(AdminI18nService);
+  private router = inject(Router);
 
   get t() { return this.i18n.t; }
 
@@ -49,12 +57,19 @@ export class DriversComponent {
   raw = signal<ApiDriver[]>([]);
   private driverCashouts = signal<ApiCashout[]>([]);
 
+  readonly firstLoad = computed(() => this.loading() && this.raw().length === 0 && this.loadError() === null);
+
   constructor() {
     this.parkCtx.ensureLoaded();
     effect(() => {
       const parkId = this.parkCtx.currentParkId();
       if (parkId) this.fetchFor(parkId);
     });
+  }
+
+  refresh() {
+    const parkId = this.parkCtx.currentParkId();
+    if (parkId && !this.loading()) void this.fetchFor(parkId);
   }
 
   private async fetchFor(parkId: string) {
@@ -69,30 +84,36 @@ export class DriversComponent {
       this.raw.set(driversResp.drivers);
       this.driverCashouts.set(cashoutsResp.cashouts);
     } catch (err: any) {
-      this.loadError.set(`Could not load drivers: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadDrivers);
     } finally {
       this.loading.set(false);
     }
   }
 
+  private toStatus(s: string | undefined): DriverStatus {
+    const lower = (s ?? '').toLowerCase();
+    return lower === 'suspended' ? 'suspended' : lower === 'pending' ? 'pending' : 'active';
+  }
+
   drivers = computed<DisplayDriver[]>(() => {
     const cashouts = this.driverCashouts();
-    const monthAgo = Date.now() - 30 * 24 * 3600 * 1000;
+    const since = Date.now() - WINDOW_MS;
     return this.raw().map(d => {
-      const mine = cashouts.filter(c => c.driverId === d.id);
-      const recent = mine.filter(c => new Date(c.createdAt).getTime() >= monthAgo);
+      const mine = cashouts
+        .filter(c => c.driverId === d.id)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const recent = mine.filter(c => new Date(c.createdAt).getTime() >= since);
       return {
         id: d.id,
-        name: d.name ?? '(unnamed)',
+        name: d.name ?? this.t.unnamed,
+        hasName: !!d.name,
         phone: d.phone ?? '—',
         yandexProfileId: d.yandexProfileId ?? '—',
-        status: (d.status?.toLowerCase() as StatusFilter) ?? 'active',
+        status: this.toStatus(d.status),
         balance: d.yandex?.balance ?? 0,
-        totalCashedOutMonth: recent.reduce((s, c) => s + c.amount, 0),
-        cashoutCountMonth: recent.length,
-        lastSeenAt: mine[0] ? new Date(mine[0].createdAt) : new Date(0),
-        joinedAt: new Date(0),
-        parkId: this.parkCtx.currentParkId() ?? '',
+        totalCashedOut30d: recent.reduce((s, c) => s + c.amount, 0),
+        cashoutCount30d: recent.length,
+        lastSeenAt: mine[0] ? new Date(mine[0].createdAt) : null,
         carPlate: d.yandex?.carPlate ?? '—',
       };
     });
@@ -116,8 +137,8 @@ export class DriversComponent {
       switch (key) {
         case 'name':       return a.name.localeCompare(b.name) * dir;
         case 'balance':    return (a.balance - b.balance) * dir;
-        case 'cashedOut':  return (a.totalCashedOutMonth - b.totalCashedOutMonth) * dir;
-        case 'lastSeen':   return (a.lastSeenAt.getTime() - b.lastSeenAt.getTime()) * dir;
+        case 'cashedOut':  return (a.totalCashedOut30d - b.totalCashedOut30d) * dir;
+        case 'lastSeen':   return ((a.lastSeenAt?.getTime() ?? 0) - (b.lastSeenAt?.getTime() ?? 0)) * dir;
       }
     });
     return list;
@@ -128,7 +149,7 @@ export class DriversComponent {
     return {
       all:       all.length,
       active:    all.filter(d => d.status === 'active').length,
-      inactive:  all.filter(d => d.status === 'inactive').length,
+      pending:   all.filter(d => d.status === 'pending').length,
       suspended: all.filter(d => d.status === 'suspended').length,
     };
   });
@@ -150,15 +171,34 @@ export class DriversComponent {
         amount: c.amount,
         fee: c.fee,
         net: c.amount - c.fee,
-        status: c.status.toLowerCase(),
+        status: c.status.toLowerCase(),       // queued | processing | completed | failed | reviewrequired
         bankType: c.bankType,
         maskedPan: c.maskedPan,
         createdAt: new Date(c.createdAt),
       }));
   });
 
+  cashoutStatusLabel(s: string): string {
+    switch (s) {
+      case 'queued':         return this.t.queued;
+      case 'processing':     return this.t.processing;
+      case 'completed':      return this.t.completed;
+      case 'failed':         return this.t.failed;
+      case 'reviewrequired': return this.t.reviewrequired;
+      default:               return s;
+    }
+  }
+
+  statusLabel(s: DriverStatus): string {
+    switch (s) {
+      case 'active':    return this.t.active;
+      case 'pending':   return this.t.pending;
+      case 'suspended': return this.t.suspended;
+    }
+  }
+
   sumThisMonth = computed(() =>
-    this.filtered().reduce((s, d) => s + d.totalCashedOutMonth, 0)
+    this.filtered().reduce((s, d) => s + d.totalCashedOut30d, 0)
   );
 
   setSort(key: SortKey) {
@@ -176,22 +216,48 @@ export class DriversComponent {
     this.selectedId.set(id);
     this.editing.set(false);
     this.editError.set(null);
+    this.confirmSuspend.set(false);
   }
-  closeDetail()      { this.selectedId.set(null); this.editing.set(false); }
+  closeDetail()      { this.selectedId.set(null); this.editing.set(false); this.confirmSuspend.set(false); }
+
+  // ── Export ────────────────────────────────────────────────────────
+  exportCsv() {
+    const rows = this.filtered();
+    if (rows.length === 0) return;
+    const park = this.parkCtx.currentPark();
+    downloadCsv(
+      `paytaxi-drivers-${park?.slug ?? 'park'}-${isoDateLocal()}`,
+      [this.t.fullName, this.t.phone, this.t.carPlate, this.t.yandexProfileId, this.t.status, this.t.colBalance,
+       this.t.cashedOutThisMonth, this.t.cashoutCount, this.t.lastSeen],
+      rows.map(d => [
+        d.hasName ? d.name : '', d.phone, d.carPlate, d.yandexProfileId, this.statusLabel(d.status),
+        d.balance.toFixed(2), d.totalCashedOut30d.toFixed(2), d.cashoutCount30d,
+        d.lastSeenAt ? d.lastSeenAt.toISOString() : '',
+      ]),
+    );
+  }
+
+  /** "New cashout for {driver}" → Cashouts page opens the manual-cashout modal preselected. */
+  newCashoutFor(driverId: string) {
+    void this.router.navigate(['/admin/cashouts'], { queryParams: { driverId } });
+  }
 
   // ── Edit + suspend/activate ──────────────────────────────────────
   editing = signal(false);
   saving = signal(false);
   editError = signal<string | null>(null);
   statusUpdating = signal(false);
+  confirmSuspend = signal(false);
 
-  editForm = signal({ name: '', phone: '', yandexProfileId: '', status: 'active' });
+  editForm = signal<{ name: string; phone: string; yandexProfileId: string; status: DriverStatus }>({
+    name: '', phone: '', yandexProfileId: '', status: 'active',
+  });
 
   startEdit() {
     const d = this.selected();
     if (!d) return;
     this.editForm.set({
-      name: d.name === '(unnamed)' ? '' : d.name,
+      name: d.hasName ? d.name : '',
       phone: d.phone === '—' ? '' : d.phone,
       yandexProfileId: d.yandexProfileId === '—' ? '' : d.yandexProfileId,
       status: d.status,
@@ -231,26 +297,39 @@ export class DriversComponent {
     } catch (err: any) {
       const code = err?.error?.error;
       const msg =
-        code === 'phone_already_registered'      ? this.t['drvErrPhoneDup']
-      : code === 'yandex_profile_already_linked' ? this.t['drvErrYandexDup']
-      : code === 'invalid_phone'                  ? this.t['drvErrInvalidPhone']
-      : err?.error?.message ?? err?.message ?? this.t['drvErrSave'];
+        code === 'phone_already_registered'      ? this.t.drvErrPhoneDup
+      : code === 'yandex_profile_already_linked' ? this.t.drvErrYandexDup
+      : code === 'invalid_phone'                  ? this.t.drvErrInvalidPhone
+      : err?.error?.message ?? this.t.drvErrSave;
       this.editError.set(msg);
     } finally {
       this.saving.set(false);
     }
   }
 
-  async setDriverStatus(target: 'active' | 'inactive' | 'suspended') {
+  askSuspend() {
+    if (this.statusUpdating()) return;
+    this.confirmSuspend.set(true);
+  }
+
+  cancelSuspend() {
+    this.confirmSuspend.set(false);
+  }
+
+  async setDriverStatus(target: DriverStatus) {
     const parkId = this.parkCtx.currentParkId();
     const d = this.selected();
     if (!parkId || !d || this.statusUpdating()) return;
+    this.confirmSuspend.set(false);
     this.statusUpdating.set(true);
+    this.editError.set(null);
     try {
       await this.api.updateDriver(parkId, d.id, { status: this.statusPascal(target) });
+      const keep = d.id;
       await this.fetchFor(parkId);
+      this.selectedId.set(keep); // keep the drawer open on the same driver
     } catch (err: any) {
-      this.editError.set(err?.error?.message ?? err?.message ?? this.t['drvErrStatus']);
+      this.editError.set(err?.error?.message ?? this.t.drvErrStatus);
     } finally {
       this.statusUpdating.set(false);
     }
@@ -262,6 +341,6 @@ export class DriversComponent {
   }
 
   formatGel(n: number, d = 2) { return this.svc.formatGel(n, d); }
-  formatRel(d: Date)          { return this.svc.formatRelTime(d); }
+  formatRel(d: Date | null)   { return d ? this.svc.formatRelTime(d) : '—'; }
   initials(n: string)         { return this.svc.initials(n); }
 }

@@ -348,8 +348,11 @@ public class AdminParksController : AdminControllerBase
         var park = await _db.Parks.AsNoTracking().FirstOrDefaultAsync(p => p.Id == parkId, ct);
         if (park is null) return NotFound(new { error = "park_not_found" });
 
+        // "Today" is the park's local day (Tbilisi), the same boundary the driver daily limit
+        // and the nightly settlement use — not the UTC day (which rolls over at 04:00 local).
         var now = DateTime.UtcNow;
-        var dayStart = new DateTime(now.Year, now.Month, now.Day, 0, 0, 0, DateTimeKind.Utc);
+        var tz = PayTaxi.Infrastructure.Services.SettlementService.ResolveTimeZone(null);
+        var dayStart = TimeZoneInfo.ConvertTimeToUtc(TimeZoneInfo.ConvertTimeFromUtc(now, tz).Date, tz);
 
         // All park cashouts grouped by date bucket in one query.
         var todayCashouts = await _db.Cashouts

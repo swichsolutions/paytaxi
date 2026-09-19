@@ -6,6 +6,8 @@ import { DriverNotificationService } from '../../core/services/notification.serv
 import { ActivityCashout, ActivityRide, DriverActivityService } from '../../core/services/driver-activity.service';
 import { Lang } from '../../core/mock/data';
 
+type BalanceState = 'loading' | 'ok' | 'unavailable';
+
 @Component({
   selector: 'app-dashboard',
   imports: [RouterLink],
@@ -23,6 +25,9 @@ export class DashboardComponent implements OnInit {
   // Real data: our own cashouts + the driver's recent Yandex rides (last 7 days, 3 shown).
   private cashouts = signal<ActivityCashout[]>([]);
   private rides = signal<ActivityRide[]>([]);
+  readonly activityLoading = signal(true);
+  readonly cashoutsFailed = signal(false);
+  readonly ridesFailed = signal(false);
 
   // Language switcher in the header: taps cycle EN → ქა → RU. Same signal the profile page uses.
   private static readonly LANGS: Lang[] = ['en', 'ka', 'ru'];
@@ -42,7 +47,10 @@ export class DashboardComponent implements OnInit {
       this.activity.listRides(7),
     ]);
     if (cashouts.status === 'fulfilled') this.cashouts.set(cashouts.value);
+    else this.cashoutsFailed.set(true);
     if (rides.status === 'fulfilled') this.rides.set(rides.value.slice(0, 3));
+    else this.ridesFailed.set(true);
+    this.activityLoading.set(false);
   }
 
   get t() { return this.svc.t; }
@@ -54,8 +62,47 @@ export class DashboardComponent implements OnInit {
   get driver() {
     const d = this.session.driver();
     return d
-      ? { name: d.name, parkName: this.session.parkName() ?? '', balance: d.balance }
-      : { name: '…', parkName: '', balance: 0 };
+      ? { name: d.name || this.t.unnamedDriver, parkName: this.session.parkName() ?? '' }
+      : { name: '…', parkName: '' };
+  }
+
+  // ── Balance ──────────────────────────────────────────────────────
+  // null = unknown. Never rendered as ₾ 0.00.
+  readonly balance = computed<number | null>(() => this.session.driver()?.balance ?? null);
+
+  readonly balanceState = computed<BalanceState>(() => {
+    const d = this.session.driver();
+    if (!d) return this.session.loading() ? 'loading' : 'unavailable';
+    return d.balance === null ? 'unavailable' : 'ok';
+  });
+
+  readonly balanceStale = computed(() => this.session.driver()?.balanceStale === true);
+
+  /** "as of 14:32" (today) or "as of 18 Sep, 14:32" (older). */
+  readonly asOfLabel = computed(() => {
+    const at = this.session.driver()?.balanceAsOf;
+    if (!at) return '';
+    const sameDay = at.toDateString() === new Date().toDateString();
+    return this.svc.tr('balanceAsOf', { time: sameDay ? this.svc.formatTime(at) : this.svc.formatDateTime(at) });
+  });
+
+  /** Why the balance is unknown, in the driver's language. */
+  readonly unavailableHint = computed(() => {
+    const d = this.session.driver();
+    if (!d) return this.t.sessionLoadError;
+    if (d.balanceError === 'profile_not_found') return this.t.balanceProfileNotFound;
+    return this.t.balanceUnavailableHint;
+  });
+
+  /** Font step-downs so ₾ 1234.50 / ₾ 123456.50 still fit the card at 360px. */
+  readonly balanceDigits = computed(() => {
+    const b = this.balance();
+    return b === null ? 0 : Math.trunc(Math.abs(b)).toString().length;
+  });
+
+  async refreshBalance() {
+    if (this.session.refreshing()) return;
+    await this.session.refresh(true);
   }
 
   formatGel(n: number) { return this.svc.formatGel(n); }

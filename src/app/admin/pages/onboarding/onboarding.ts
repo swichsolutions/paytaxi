@@ -41,7 +41,6 @@ export class OnboardingComponent {
   carPlate   = signal('');
   iban       = signal('');
   holderName = signal('');
-  notify     = signal(true);
   creating   = signal(false);
   createError = signal<string | null>(null);
 
@@ -76,7 +75,7 @@ export class OnboardingComponent {
       this.selected.set(new Set());
       this.rosterLoaded.set(true);
     } catch (err: any) {
-      this.rosterError.set(err?.error?.message ?? err?.message ?? 'Could not load roster');
+      this.rosterError.set(err?.error?.message ?? this.t.errLoadRoster);
     } finally {
       this.rosterLoading.set(false);
     }
@@ -107,7 +106,7 @@ export class OnboardingComponent {
       this.bulkResult.set({ created: res.createdCount, skipped: res.skippedCount });
       await this.loadRoster(); // refresh flags
     } catch (err: any) {
-      this.rosterError.set(err?.error?.message ?? err?.message ?? 'Bulk onboard failed');
+      this.rosterError.set(err?.error?.message ?? this.t.errBulkOnboard);
     } finally {
       this.bulkBusy.set(false);
     }
@@ -119,9 +118,8 @@ export class OnboardingComponent {
     !!this.parkCtx.currentParkId()
   );
 
-  step2Valid = computed(() =>
-    this.driverName().trim().length > 0 && this.carPlate().trim().length > 0
-  );
+  // Car plate is display-only (it comes from Yandex and is never sent), so only the name is required.
+  step2Valid = computed(() => this.driverName().trim().length > 0);
 
   formatPhone(raw: string): string {
     const digits = raw.replace(/\D/g, '').slice(0, 9);
@@ -146,7 +144,7 @@ export class OnboardingComponent {
       this.lookupResult.set({
         found: true,
         alreadyLinked: r.alreadyLinked,
-        name: r.name ?? '(no name in Yandex)',
+        name: r.name ?? this.t.noNameInYandex,
         carPlate: r.carPlate ?? '',
         yandexBalance: r.balance,
       });
@@ -158,7 +156,7 @@ export class OnboardingComponent {
       if (err?.status === 404) {
         this.lookupResult.set({ found: false });
       } else {
-        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? 'Lookup failed';
+        const msg = err?.error?.message ?? err?.error?.error ?? this.t.lookupFailed;
         this.lookupError.set(msg);
       }
     } finally {
@@ -189,7 +187,7 @@ export class OnboardingComponent {
       : code === 'yandex_profile_already_linked' ? this.t['obErrYandexLinked']
       : code === 'bank_not_supported' ? this.t['obErrBankNotSupported']
       : (code === 'invalid_iban_format' || code === 'invalid_iban_checksum') ? this.t['obErrInvalidIban']
-      : err?.error?.message ?? err?.message ?? this.t['obErrCreate'];
+      : err?.error?.message ?? this.t['obErrCreate'];
       this.createError.set(msg);
     } finally {
       this.creating.set(false);

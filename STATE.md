@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-19 (platform review + block A backend hardening — see the newest section)
+**Last updated:** 2026-09-19 (platform review: all blocks A–E fixed — see the newest sections)
 
 ---
 
@@ -11,6 +11,57 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-19 (part 3) — review blocks B–E (driver app + admin console) fixed
+
+All remaining items of `docs/REVIEW-2026-09-19.md` are done; `ng build --configuration production` is green
+(only the pre-existing 12 kB style-budget *warnings* on five admin pages). Not yet eyeballed in a browser —
+the dev server was stopped by the OS for low memory and deliberately not restarted. First thing next session:
+`npx ng serve --port 4200`, then check the driver app at 360×640 (keypad, RU bottom nav, balance states) and
+the admin console (cashout tabs, manual cashout modal, settings fee field per role).
+
+### Driver app — new contract consumption
+- `DriverSessionService`: `balance: number | null` (+ `balanceAsOf`, `balanceStale`, `balanceError`),
+  `refresh(fresh)` → `/me?fresh=true`, `refreshing` signal, `error` is a code. Dashboard has loading /
+  unavailable-tap-to-retry / stale ("as of HH:MM · may be outdated") states; the Refresh button works.
+- Cashout: step 1 disabled until a balance is known; idempotency key = `nonce:amount:cardId` (rotates on change
+  and after a terminal result); `newUuid()` fallback for insecure contexts; redirect timer cleared on destroy;
+  rejections rendered via `errCashout_<code>` with params; Completed title "Cashout completed"; back/dots hidden
+  on the result screen; keypad keys fixed height so Next fits on 360×640.
+- Login: phone sanitised to 9 local digits (paste of "+995 599 123 456" → 599123456), sent as +995…; all
+  request/verify errors mapped to i18n incl. 429 (per-phone cap with seconds, per-IP without); resend guarded;
+  OTP inputs `autocomplete="one-time-code"`.
+- History/dashboard: skeletons, error banners, empty states; rides carry no status badge; cashout rows show NET
+  with "· Fee ₾ 0.50"; `/history?tab=rides|cashouts`; dates formatted per language with year when not current.
+- Notifications: rendered client-side from `type` + parsed `data` (falls back to server text for old rows);
+  `cashout_queued` tone; loading/error states.
+- `MockDataService` is now i18n + formatters only (`t`, `tr(key, params)`, `lang`, `locale`, `initials`);
+  `core/mock/data.ts` holds only `Lang`, `Translations`, `T`. All MOCK_* data, `calcFee`, `CashoutStatus`,
+  `BankType` deleted. i18n en/ka/ru = 139 keys each, identical sets.
+
+### Admin console
+- Status model matches the backend 1:1: tabs All / Queued / Processing / Completed / Failed / Needs review; driver
+  statuses Active / Pending / Suspended. Retry only for `Failed`; ReviewRequired rows link to reconciliation.
+- Manual cashout: no client `initiatedBy` (server uses the token); confirm step shows the real admin; backdrop/Esc
+  blocked while submitting; Queued result case; min/max from park config; typed rejection map (`rej*` keys);
+  `/admin/cashouts?driverId=` opens the modal preselected (used by "New cashout for X").
+- Dead controls fixed or removed: overview Refresh, CSV exports (`admin/shared/csv.ts`, UTF-8 BOM, filtered rows),
+  Onboard driver link, Onboarding guide / bell / Forgot? / SSO removed. Login honours a safe `?next=`.
+- Loading skeletons + error banners (`shared/_page-base.scss`) on overview, cashouts, drivers, settlements,
+  reconciliation, reports; park-context failure shows a retry card in the layout.
+- Confirmations for Retry, Settle now, Deactivate account (warns on queued payouts), Suspend driver.
+- Fee input super_admin only (others read-only + "Fixed by Swich"); Park-details IBAN read-only mirror of the
+  primary payout account; Model A only in settings.
+- Copy: "{fee} per cashout", sidebar shows the selected park, mock float widget / login stats / "Mock login" /
+  version preview / yp_tb3 dev notes all gone; "in flight", "of N enabled", "fees charged (before Swich share)";
+  onboarding no longer claims an SMS was sent; car plate optional and not sent. en/ka = 516 keys, identical.
+- `AdminMockService` is formatters only; `admin-data.ts` keeps only `MOCK_HOURLY_VOLUME`.
+
+### Also this session
+- `netlify.toml` deleted at the user's request (no Netlify hosting; frontend host undecided — DEPLOY.md updated).
+- Admin overview "today" KPIs use the Tbilisi day (closes A22 fully).
 
 ---
 

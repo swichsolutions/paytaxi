@@ -8,7 +8,7 @@
 
   @if (!isSuperAdmin()) {
     <section class="ap-card">
-      <p class="ap-blocked">{{ t.signOut }}</p>
+      <p class="ap-blocked">{{ t.swichOnly }}</p>
     </section>
   } @else if (created(); as c) {
     <!-- ── Success ─────────────────────────────────────────────── -->
@@ -125,9 +125,9 @@
             <span class="ap-field__label">{{ t.bankProviderLabel }}</span>
             <select class="ap-input" [value]="form().bankProvider"
               (change)="setField('bankProvider', $any($event.target).value)">
-              <option value="tbc">TBC (Business Integration)</option>
-              <option value="bog">BOG (Business Online)</option>
-              <option value="mock">mock (dev)</option>
+              <option value="tbc">TBC</option>
+              <option value="bog">BOG</option>
+              <option value="mock">{{ t.providerMockDev }}</option>
             </select>
           </label>
         </div>

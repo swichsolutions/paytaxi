@@ -383,10 +383,12 @@
 
   .rng__range { display: none; }
 
-  // Daily breakdown table needs horizontal scroll
+  // Daily breakdown table scrolls horizontally inside .rpt-daily-scroll;
+  // the min-width keeps every column readable instead of squeezing to 0.
   .rpt-daily-head,
   .rpt-daily-row {
-    grid-template-columns: 110px 60px 80px 70px 50px 1fr;
+    grid-template-columns: 110px 60px 80px 70px 50px minmax(80px, 1fr);
+    min-width: 520px;
     font-size: 12px;
     padding: 8px 12px;
     gap: 8px;
@@ -395,4 +397,11 @@
   // The rpt-grid (top drivers + by bank) stacks via existing 900px media.
   // Card heads on phone
   .rpt-card__head { padding: 12px 14px; }
+}
+
+// ── Daily table scroll wrapper (D16) ──────────────────────────────
+.rpt-daily-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }

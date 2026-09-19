@@ -27,6 +27,10 @@ export class ReconciliationComponent {
 
   loading = signal(true);
   loadError = signal<string | null>(null);
+  private loadedOnce = signal(false);
+
+  /** Skeleton only before the first successful load; later refreshes keep the data on screen. */
+  readonly firstLoad = computed(() => this.loading() && !this.loadedOnce());
 
   runs = signal<DisplayRun[]>([]);
   discrepancies = signal<ApiRecDiscrepancy[]>([]);
@@ -66,8 +70,9 @@ export class ReconciliationComponent {
       })));
       this.discrepancies.set(discResp.discrepancies);
       this.openCount.set(discResp.openCount);
+      this.loadedOnce.set(true);
     } catch (err: any) {
-      this.loadError.set(`Could not load reconciliation: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadReconciliation);
     } finally {
       this.loading.set(false);
     }
@@ -98,7 +103,7 @@ export class ReconciliationComponent {
       this.resolveNotes.set('');
       await this.fetchFor(parkId);
     } catch (err: any) {
-      this.loadError.set(`Could not resolve: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errResolve);
     } finally {
       this.resolving.set(null);
     }
@@ -134,6 +139,11 @@ export class ReconciliationComponent {
   }
 
   asDate(s: string): Date { return new Date(s); }
+
+  /** Human-readable timestamp for nullable ISO strings (resolvedAt). */
+  formatIso(s: string | null | undefined): string {
+    return s ? this.formatTime(new Date(s)) : '—';
+  }
 
   formatRel(d: Date) { return this.svc.formatRelTime(d); }
 }

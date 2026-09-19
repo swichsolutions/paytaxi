@@ -428,7 +428,7 @@ export interface UpdateDriverBody {
   name?: string;
   phone?: string;
   yandexProfileId?: string;
-  status?: string; // "Active" | "Inactive" | "Suspended"
+  status?: string; // "Active" | "Suspended" | "Pending"
 }
 
 export interface UpdateParkBody {
@@ -578,12 +578,12 @@ export interface ApiCard {
   isDefault: boolean;
 }
 
+/** The server records the initiating admin from the bearer token — never from the body. */
 export interface CreateCashoutBody {
   driverId: string;
   cardId: string;
   amount: number;
   idempotencyKey: string;
-  initiatedBy?: string;
 }
 
 export interface CashoutSagaResult {

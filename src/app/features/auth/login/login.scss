@@ -285,6 +285,7 @@
   cursor: pointer;
 
   &:hover { color: var(--color-brand-dark); }
+  &:disabled { color: var(--color-text-3); text-decoration: none; cursor: default; }
 }
 
 .login-error {

@@ -26,6 +26,11 @@ export class IbanHelpComponent {
 
   has(label: string) { return this.banks().includes(label); }
 
+  /** "Bank of Georgia" spelled out (translated); other labels are already the bank's short name. */
+  bankTitle(bank: string) { return bank === 'BOG' ? this.t['bankOfGeorgia'] : bank; }
+
+  shotAlt(bank: string) { return this.svc.tr('ibanHelpShotAlt', { bank: this.bankTitle(bank) }); }
+
   /** Per-bank screenshot state: true once the image loaded, false when missing/failed. */
   private readonly loaded = signal<Record<string, boolean>>({});
   imageOk(bank: string) { return this.loaded()[bank] === true; }

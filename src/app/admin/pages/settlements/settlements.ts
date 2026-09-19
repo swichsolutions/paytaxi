@@ -44,6 +44,18 @@ export class SettlementsComponent {
 
   busy = signal<string | null>(null);   // settlement id or 'run'
   message = signal<string | null>(null);
+  /** "Settle now" waits for an explicit confirmation (D17). */
+  confirmRun = signal(false);
+
+  /**
+   * Failed-settlement tile scoped to the current park, like its siblings —
+   * even when the history list is widened to all parks.
+   */
+  readonly parkFailed = computed(() => {
+    const parkId = this.parkCtx.currentParkId();
+    const failed = this.settlements().filter(s => s.status === 'Failed' && (!this.scopeAll() || s.parkId === parkId));
+    return { count: failed.length, swichShare: failed.reduce((sum, s) => sum + s.swichShare, 0) };
+  });
 
   constructor() {
     this.parkCtx.ensureLoaded();
@@ -66,7 +78,7 @@ export class SettlementsComponent {
       this.settlements.set(list.settlements);
       this.totals.set(list.totals);
     } catch (err: any) {
-      this.loadError.set(`Could not load settlements: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadSettlements);
     } finally {
       this.loading.set(false);
     }
@@ -112,16 +124,26 @@ export class SettlementsComponent {
       const body = err?.error;
       this.message.set(body?.status
         ? `${this.t['settlementRetried']} ${body.status} — ${body.failureReason ?? ''}`
-        : (body?.message ?? err?.message ?? 'Retry failed'));
+        : (body?.message ?? this.t.retryFailed));
     } finally {
       this.busy.set(null);
       await this.refresh();
     }
   }
 
+  askRunNow() {
+    if (this.busy()) return;
+    this.confirmRun.set(true);
+  }
+
+  cancelRunNow() {
+    this.confirmRun.set(false);
+  }
+
   async runNow() {
     const parkId = this.parkCtx.currentParkId();
     if (!parkId || this.busy()) return;
+    this.confirmRun.set(false);
     this.busy.set('run');
     this.message.set(null);
     try {
@@ -129,7 +151,7 @@ export class SettlementsComponent {
       if (r && r.created === false) this.message.set(this.t['nothingToSettle']);
       else this.message.set(`${this.t['settlementRunResult']} ${r.status} · ${this.formatGel(r.swichShare ?? 0, 2)}${r.bankTransferId ? ' · ' + r.bankTransferId : ''}${r.failureReason ? ' — ' + r.failureReason : ''}`);
     } catch (err: any) {
-      this.message.set(err?.error?.message ?? err?.message ?? 'Run failed');
+      this.message.set(err?.error?.message ?? this.t.errRunFailed);
     } finally {
       this.busy.set(null);
       await this.refresh();

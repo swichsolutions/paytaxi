@@ -3,54 +3,88 @@
     <h1>{{ t.history }}</h1>
   </header>
 
-  <div class="filter-tabs">
-    <button class="filter-tab" [class.filter-tab--active]="filter() === 'all'"     (click)="filter.set('all')">{{ t.all }}</button>
-    <button class="filter-tab" [class.filter-tab--active]="filter() === 'cashouts'" (click)="filter.set('cashouts')">{{ t.cashouts }}</button>
-    <button class="filter-tab" [class.filter-tab--active]="filter() === 'rides'"   (click)="filter.set('rides')">{{ t.rides }}</button>
+  <div class="filter-tabs" role="tablist">
+    <button class="filter-tab" role="tab" [attr.aria-selected]="filter() === 'all'"      [class.filter-tab--active]="filter() === 'all'"      (click)="filter.set('all')">{{ t.all }}</button>
+    <button class="filter-tab" role="tab" [attr.aria-selected]="filter() === 'cashouts'" [class.filter-tab--active]="filter() === 'cashouts'" (click)="filter.set('cashouts')">{{ t.cashouts }}</button>
+    <button class="filter-tab" role="tab" [attr.aria-selected]="filter() === 'rides'"    [class.filter-tab--active]="filter() === 'rides'"    (click)="filter.set('rides')">{{ t.rides }}</button>
   </div>
 
   <div class="tx-list">
-    @if (items().length === 0) {
-      <div class="empty-state">
-        <div class="empty-state__icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
-            <rect x="9" y="3" width="6" height="4" rx="2"/>
-          </svg>
-        </div>
-        <p>{{ t.noTransactions }}</p>
+    <!-- 1. loading skeleton → 2. hard failure (our cashout history) → 3. data / empty state -->
+    @if (loading()) {
+      <div class="tx-skeleton-list" role="status" [attr.aria-label]="t.loading">
+        @for (i of skeletonRows; track i) {
+          <div class="tx-skeleton" aria-hidden="true">
+            <span class="tx-skeleton__icon"></span>
+            <span class="tx-skeleton__lines">
+              <span class="tx-skeleton__line tx-skeleton__line--title"></span>
+              <span class="tx-skeleton__line tx-skeleton__line--sub"></span>
+            </span>
+            <span class="tx-skeleton__amount"></span>
+          </div>
+        }
       </div>
-    }
+    } @else if (loadError()) {
+      <div class="tx-banner tx-banner--error" role="alert">
+        <p>{{ t.historyLoadError }}</p>
+        <button class="btn btn--secondary btn--sm tx-banner__retry" (click)="load()">{{ t.retry }}</button>
+      </div>
+    } @else {
+      @if (showRidesNotice()) {
+        <div class="tx-banner tx-banner--warn">
+          <p>{{ t.ridesUnavailable }}</p>
+          <button class="btn btn--ghost btn--sm tx-banner__retry" (click)="load()">{{ t.retry }}</button>
+        </div>
+      }
 
-    @for (item of items(); track item.id) {
-      <div class="tx-row" [class.tx-row--cashout]="item.type === 'cashout'" [class.tx-row--ride]="item.type === 'ride'">
-        <div class="tx-row__icon" [class.tx-row__icon--cashout]="item.type === 'cashout'" [class.tx-row__icon--ride]="item.type === 'ride'">
-          @if (item.type === 'cashout') {
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 5v14M5 12l7-7 7 7"/>
+      @if (items().length === 0) {
+        <div class="empty-state">
+          <div class="empty-state__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/>
+              <rect x="9" y="3" width="6" height="4" rx="2"/>
             </svg>
-          } @else {
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="1" y="3" width="15" height="13" rx="2"/>
-              <path d="M16 8h4l3 5v3h-7V8z"/>
-              <circle cx="5.5" cy="18.5" r="2.5"/>
-              <circle cx="18.5" cy="18.5" r="2.5"/>
-            </svg>
-          }
+          </div>
+          <p>
+            @switch (filter()) {
+              @case ('cashouts') { {{ t.noCashoutsYet }} }
+              @case ('rides') { {{ t.noRidesYet }} }
+              @default { {{ t.noTransactions }} }
+            }
+          </p>
         </div>
-        <div class="tx-row__main">
-          <span class="tx-row__title">{{ item.title }}</span>
-          <span class="tx-row__sub">{{ item.subtitle }}</span>
+      }
+
+      @for (item of items(); track item.id) {
+        <div class="tx-row" [class.tx-row--cashout]="item.type === 'cashout'" [class.tx-row--ride]="item.type === 'ride'">
+          <div class="tx-row__icon" [class.tx-row__icon--cashout]="item.type === 'cashout'" [class.tx-row__icon--ride]="item.type === 'ride'">
+            @if (item.type === 'cashout') {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 5v14M5 12l7-7 7 7"/>
+              </svg>
+            } @else {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="1" y="3" width="15" height="13" rx="2"/>
+                <path d="M16 8h4l3 5v3h-7V8z"/>
+                <circle cx="5.5" cy="18.5" r="2.5"/>
+                <circle cx="18.5" cy="18.5" r="2.5"/>
+              </svg>
+            }
+          </div>
+          <div class="tx-row__main">
+            <span class="tx-row__title">{{ item.title }}</span>
+            <span class="tx-row__sub">{{ item.subtitle }}</span>
+          </div>
+          <div class="tx-row__right">
+            <span class="tx-row__amount gel" [class.tx-row__amount--green]="item.type === 'ride'">
+              {{ item.type === 'ride' ? '+' : '' }}{{ formatGel(item.amount) }}
+            </span>
+            @if (item.status) {
+              <span class="badge badge--{{ item.status }}">{{ statusLabel(item.status) }}</span>
+            }
+          </div>
         </div>
-        <div class="tx-row__right">
-          <span class="tx-row__amount gel" [class.tx-row__amount--green]="item.type === 'ride'">
-            {{ item.type === 'ride' ? '+' : '' }}{{ formatGel(item.amount) }}
-          </span>
-          @if (item.status) {
-            <span class="badge badge--{{ item.status }}">{{ statusLabel(item.status) }}</span>
-          }
-        </div>
-      </div>
+      }
     }
   </div>
 </div>

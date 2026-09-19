@@ -5,12 +5,12 @@
       <p class="page-head__sub">{{ t.overviewSub }}</p>
     </div>
     <div class="page-head__actions">
-      <button class="btn-admin btn-admin--secondary">
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
           <path d="M21 3v5h-5"/>
         </svg>
-        <span>{{ t.refresh }}</span>
+        <span>@if (loading() && !firstLoad()) { {{ t.loadingEllipsis }} } @else { {{ t.refresh }} }</span>
       </button>
       <a routerLink="/admin/cashouts" class="btn-admin btn-admin--brand">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -21,19 +21,37 @@
     </div>
   </header>
 
+  @if (loadError()) {
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ loadError() }}</span>
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
+    </div>
+  }
+  @if (retryError()) {
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ retryError() }}</span>
+    </div>
+  }
+
+  @if (firstLoad()) {
+    <!-- ── Skeleton while the first payload arrives ─────────────── -->
+    <section class="kpi-grid" aria-busy="true">
+      <div class="skel skel--tile"></div>
+      <div class="skel skel--tile"></div>
+      <div class="skel skel--tile"></div>
+      <div class="skel skel--tile"></div>
+    </section>
+    <section class="row row--split" aria-hidden="true">
+      <div class="skel skel--card"></div>
+      <div class="skel skel--card"></div>
+    </section>
+  } @else {
+
   <!-- ── KPI tiles ───────────────────────────────────────────────── -->
   <section class="kpi-grid">
     <div class="kpi">
       <div class="kpi__top">
         <span class="kpi__label">{{ t.kpiCashoutsToday }}</span>
-        @if (kpis().cashoutsToday.deltaPct !== 0) {
-          <span class="kpi__delta kpi__delta--up">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M7 17L17 7M9 7h8v8"/>
-            </svg>
-            +{{ kpis().cashoutsToday.deltaPct }}%
-          </span>
-        }
       </div>
       <div class="kpi__value gel">{{ formatGel(kpis().cashoutsToday.value, 0) }}</div>
       <div class="kpi__sub">
@@ -45,25 +63,24 @@
     <div class="kpi">
       <div class="kpi__top">
         <span class="kpi__label">{{ t.kpiFeesCollected }}</span>
-        @if (kpis().feesCollectedToday.deltaPct !== 0) {
-          <span class="kpi__delta kpi__delta--up">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M7 17L17 7M9 7h8v8"/>
-            </svg>
-            +{{ kpis().feesCollectedToday.deltaPct }}%
-          </span>
-        }
       </div>
       <div class="kpi__value gel">{{ formatGel(kpis().feesCollectedToday.value, 2) }}</div>
       <div class="kpi__sub">
-        <span>{{ t.onePerCashout }}</span>
+        @if (cashoutFee() !== null) {
+          <span class="gel">{{ formatGel(cashoutFee()!, 2) }}</span>
+        }
+        <span>{{ t.perCashout }}</span>
       </div>
     </div>
 
     <div class="kpi">
       <div class="kpi__top">
         <span class="kpi__label">{{ t.kpiPendingQueue }}</span>
-        @if (kpis().pendingQueue.count > 0) {
+        @if (kpis().failedToday.count > 0) {
+          <span class="kpi__delta kpi__delta--danger">
+            {{ kpis().failedToday.count }} {{ t.failedLower }}
+          </span>
+        } @else if (kpis().pendingQueue.count > 0) {
           <span class="kpi__delta kpi__delta--pulse">
             <span class="kpi__delta-dot"></span>
             {{ t.live }}
@@ -72,34 +89,28 @@
       </div>
       <div class="kpi__value">
         <span class="gel">{{ kpis().pendingQueue.count }}</span>
-        <span class="kpi__value-unit">{{ t.inFlight }}</span>
+        <span class="kpi__value-unit">{{ t.cashoutsWord }}</span>
       </div>
       <div class="kpi__sub">
         <span class="gel">{{ formatGel(kpis().pendingQueue.value, 0) }}</span>
-        <span>{{ t.totalReserved }}</span>
+        <span>{{ t.inFlight }}</span>
       </div>
     </div>
 
     <div class="kpi">
       <div class="kpi__top">
         <span class="kpi__label">{{ t.kpiActiveDrivers }}</span>
-        @if (kpis().failedToday.count > 0) {
-          <span class="kpi__delta kpi__delta--danger">
-            {{ kpis().failedToday.count }} {{ t.failedLower }}
-          </span>
-        }
       </div>
       <div class="kpi__value">
-        <span class="gel">{{ kpis().activeDriversToday.count }}</span>
-        <span class="kpi__value-unit">{{ t.of }} {{ kpis().activeDriversToday.total }}</span>
+        <span class="gel">{{ kpis().activeDrivers.count }}</span>
       </div>
       <div class="kpi__sub">
-        <span>{{ t.onlineToday }}</span>
+        <span>{{ t.of }} {{ kpis().activeDrivers.total }} {{ t.enabledLower }}</span>
       </div>
     </div>
   </section>
 
-  <!-- ── Float monitor + Action items ─────────────────────────────── -->
+  <!-- ── Payout accounts + Action items ───────────────────────────── -->
   <section class="row row--split">
     <!-- Payout accounts (Model A: the park pays from its own bank accounts) -->
     <article class="float-card" [class.float-card--low]="lowFloat()">
@@ -145,7 +156,9 @@
                     <span class="acct-row__label">{{ t.balanceLabel }}</span>
                   } @else {
                     <span class="acct-row__amount acct-row__amount--muted">{{ t.bankBalanceNotExposed }}</span>
-                    <span class="acct-row__label">{{ t.parkManagesFloat }}</span>
+                    @if (balanceNote(a)) {
+                      <span class="acct-row__label">{{ balanceNote(a) }}</span>
+                    }
                   }
                 </div>
               </div>
@@ -231,23 +244,47 @@
           </div>
         }
         @for (c of failed(); track c.id) {
-          <div class="action-row">
-            <div class="action-row__pill">{{ t.failedCaps }}</div>
+          <div class="action-row" [class.action-row--review]="c.rawStatus === 'ReviewRequired'">
+            <div class="action-row__pill">
+              @if (c.rawStatus === 'ReviewRequired') { {{ t.reviewrequired }} } @else { {{ t.failedCaps }} }
+            </div>
             <div class="action-row__main">
               <div class="action-row__top">
                 <span class="action-row__driver">{{ c.driverName }}</span>
                 <span class="action-row__amount gel">{{ formatGel(c.amount, 0) }}</span>
               </div>
-              <span class="action-row__msg">{{ c.errorMessage }}</span>
+              @if (c.rawStatus === 'ReviewRequired') {
+                <span class="action-row__msg">{{ t.needsReconciliationHint }}</span>
+              } @else if (c.errorMessage) {
+                <span class="action-row__msg">{{ c.errorMessage }}</span>
+              }
               <span class="action-row__meta">{{ formatRel(c.createdAt) }} · {{ c.bankType }} {{ c.maskedPan }}</span>
+              @if (confirmRetryId() === c.id) {
+                <div class="confirm-inline">
+                  <span class="confirm-inline__text">{{ t.confirmRetryCashout }}</span>
+                  <span class="confirm-inline__actions">
+                    <button class="btn-admin btn-admin--secondary" (click)="cancelRetry()">{{ t.cancel }}</button>
+                    <button class="btn-admin btn-admin--brand" (click)="retry(c.id)">{{ t.confirm }}</button>
+                  </span>
+                </div>
+              }
             </div>
-            <button class="action-row__retry" (click)="retry(c.id)">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
-                <path d="M21 3v5h-5"/>
-              </svg>
-              <span>{{ t.retry }}</span>
-            </button>
+            @if (c.rawStatus === 'Failed') {
+              <button class="action-row__retry" (click)="askRetry(c.id)" [disabled]="retrying() !== null">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+                  <path d="M21 3v5h-5"/>
+                </svg>
+                <span>@if (retrying() === c.id) { {{ t.updating }} } @else { {{ t.retry }} }</span>
+              </button>
+            } @else {
+              <a class="action-row__retry" routerLink="/admin/reconciliation">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+                <span>{{ t.openReconciliation }}</span>
+              </a>
+            }
           </div>
         }
       </div>
@@ -272,6 +309,9 @@
     </header>
 
     <div class="activity-list">
+      @if (activity().length === 0) {
+        <p class="activity-empty">{{ t.noActivityYet }}</p>
+      }
       @for (e of activity(); track e.id) {
         <div class="activity-row" [attr.data-severity]="e.severity">
           <div class="activity-row__rail">
@@ -310,12 +350,6 @@
                   <path d="M18 13v8M14 17h8"/>
                 </svg>
               }
-              @case ('float_topped_up') {
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="3" y="6" width="18" height="13" rx="2"/>
-                  <path d="M3 10h18M7 15h4"/>
-                </svg>
-              }
             }
           </div>
           <div class="activity-row__main">
@@ -332,4 +366,6 @@
       }
     </div>
   </section>
+
+  }
 </div>

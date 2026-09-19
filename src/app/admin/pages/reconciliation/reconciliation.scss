@@ -348,10 +348,11 @@
     &__num { grid-area: counts; }
 
     // Show numbers as inline labelled chips
-    &__num:nth-of-type(2)::before { content: "Cashouts: "; color: #9ca3af; font-weight: 400; }
-    &__num:nth-of-type(3)::before { content: "· Bank: "; color: #9ca3af; font-weight: 400; }
-    &__num:nth-of-type(4)::before { content: "· Yandex: "; color: #9ca3af; font-weight: 400; }
-    &__num:nth-of-type(5)::before { content: "· Drifts: "; color: #9ca3af; font-weight: 400; }
+    // Labels come from the template (translated) via data-label.
+    &__num::before { content: attr(data-label) ": "; color: #9ca3af; font-weight: 400; }
+    &__num:nth-of-type(3)::before,
+    &__num:nth-of-type(4)::before,
+    &__num:nth-of-type(5)::before { content: "· " attr(data-label) ": "; }
     &__num { display: inline; font-size: 11.5px; padding-right: 4px; }
   }
 }

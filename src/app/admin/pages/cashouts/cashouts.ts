@@ -1,13 +1,16 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminApiService, ApiCashout } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
-import { CashoutStatus } from '../../../core/mock/data';
 import { ManualCashoutComponent } from './manual-cashout/manual-cashout';
+import { downloadCsv, isoDateLocal } from '../../shared/csv';
 
-type StatusTab = 'all' | CashoutStatus;
+/** UI status, mapped 1:1 from the backend enum. */
+export type UiCashoutStatus = 'queued' | 'processing' | 'completed' | 'failed' | 'review';
+type StatusTab = 'all' | UiCashoutStatus;
 type DateRange = 'today' | 'yesterday' | 'week' | 'all';
 
 interface DisplayCashout {
@@ -17,7 +20,7 @@ interface DisplayCashout {
   amount: number;
   fee: number;
   net: number;
-  status: CashoutStatus;
+  status: UiCashoutStatus;
   rawStatus: string;           // backend status: Queued | Processing | Completed | Failed | ReviewRequired
   bankTransferId: string | null;
   yandexTransactionId: string | null;
@@ -32,7 +35,7 @@ interface DisplayCashout {
 
 @Component({
   selector: 'app-admin-cashouts',
-  imports: [FormsModule, ManualCashoutComponent],
+  imports: [FormsModule, RouterLink, ManualCashoutComponent],
   templateUrl: './cashouts.html',
   styleUrl: './cashouts.scss',
 })
@@ -41,6 +44,8 @@ export class CashoutsComponent {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   private i18n = inject(AdminI18nService);
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
 
   get t() { return this.i18n.t; }
 
@@ -50,11 +55,16 @@ export class CashoutsComponent {
   expanded  = signal<string | null>(null);
   showManualModal = signal(false);
 
+  /** Driver to preselect in the manual-cashout modal (from ?driverId=, set by the Drivers drawer). */
+  presetDriverId = signal<string | null>(null);
+
+  private manual = viewChild(ManualCashoutComponent);
+
   loading = signal(true);
   loadError = signal<string | null>(null);
   raw = signal<ApiCashout[]>([]);
 
-  private readonly TODAY_REF = Date.now();
+  readonly firstLoad = computed(() => this.loading() && this.raw().length === 0 && this.loadError() === null);
 
   constructor() {
     // Lazy-init the park context, then re-fetch whenever the selected park changes.
@@ -63,6 +73,20 @@ export class CashoutsComponent {
       const parkId = this.parkCtx.currentParkId();
       if (parkId) this.fetchFor(parkId);
     });
+
+    // "New cashout for {driver}" deep link from the Drivers drawer.
+    const driverId = this.route.snapshot.queryParamMap.get('driverId');
+    if (driverId) {
+      this.presetDriverId.set(driverId);
+      this.showManualModal.set(true);
+      // Strip the param so a refresh doesn't re-open the modal.
+      void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+    }
+  }
+
+  refresh() {
+    const parkId = this.parkCtx.currentParkId();
+    if (parkId && !this.loading()) void this.fetchFor(parkId);
   }
 
   private async fetchFor(parkId: string) {
@@ -72,14 +96,15 @@ export class CashoutsComponent {
       const resp = await this.api.listCashouts(parkId, 200);
       this.raw.set(resp.cashouts);
     } catch (err: any) {
-      this.loadError.set(`Could not load cashouts: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadCashouts);
     } finally {
       this.loading.set(false);
     }
   }
 
   private inRange(d: Date): boolean {
-    const ms = this.TODAY_REF - d.getTime();
+    // Computed per call: a page left open overnight must not keep yesterday's "now".
+    const ms = Date.now() - d.getTime();
     switch (this.range()) {
       case 'today':     return ms < 24 * 3600 * 1000;
       case 'yesterday': return ms >= 24 * 3600 * 1000 && ms < 48 * 3600 * 1000;
@@ -88,23 +113,32 @@ export class CashoutsComponent {
     }
   }
 
-  /**
-   * Map backend's PascalCase status to the lowercase CashoutStatus used by the UI pills.
-   * Queued (Yandex debited, bank retrying) renders as "processing" — from the park's
-   * point of view the payout is in flight, not stuck.
-   */
-  private mapStatus(s: string): CashoutStatus {
-    const lower = s.toLowerCase();
-    if (lower === 'completed') return 'completed';
-    if (lower === 'failed' || lower === 'reviewrequired') return 'failed';
-    if (lower === 'processing' || lower === 'queued') return 'processing';
-    return 'pending';
+  /** Backend PascalCase → UI status. Every backend value has its own tab and pill. */
+  private mapStatus(s: string): UiCashoutStatus {
+    switch (s.toLowerCase()) {
+      case 'completed':      return 'completed';
+      case 'failed':         return 'failed';
+      case 'reviewrequired': return 'review';
+      case 'processing':     return 'processing';
+      case 'queued':         return 'queued';
+      default:               return 'processing';
+    }
+  }
+
+  statusLabel(s: UiCashoutStatus): string {
+    switch (s) {
+      case 'queued':     return this.t.queued;
+      case 'processing': return this.t.processing;
+      case 'completed':  return this.t.completed;
+      case 'failed':     return this.t.failed;
+      case 'review':     return this.t.reviewrequired;
+    }
   }
 
   all = computed<DisplayCashout[]>(() => this.raw().map(c => ({
     id: c.id,
     driverId: c.driverId,
-    driverName: c.driverName ?? '(unnamed)',
+    driverName: c.driverName ?? this.t.unnamed,
     amount: c.amount,
     fee: c.fee,
     net: c.amount - c.fee,
@@ -137,12 +171,14 @@ export class CashoutsComponent {
 
   counts = computed(() => {
     const inRange = this.all().filter(c => this.inRange(c.createdAt));
+    const by = (s: UiCashoutStatus) => inRange.filter(c => c.status === s).length;
     return {
       all:        inRange.length,
-      pending:    inRange.filter(c => c.status === 'pending').length,
-      processing: inRange.filter(c => c.status === 'processing').length,
-      completed:  inRange.filter(c => c.status === 'completed').length,
-      failed:     inRange.filter(c => c.status === 'failed').length,
+      queued:     by('queued'),
+      processing: by('processing'),
+      completed:  by('completed'),
+      failed:     by('failed'),
+      review:     by('review'),
     };
   });
 
@@ -157,9 +193,40 @@ export class CashoutsComponent {
     this.expanded.update(v => v === id ? null : id);
   }
 
+  // ── Export ────────────────────────────────────────────────────────
+  exportCsv() {
+    const rows = this.filtered();
+    if (rows.length === 0) return;
+    const park = this.parkCtx.currentPark();
+    downloadCsv(
+      `paytaxi-cashouts-${park?.slug ?? 'park'}-${isoDateLocal()}`,
+      [this.t.cashoutId, this.t.colDriver, this.t.colAmount, this.t.feeWord, this.t.netToDriver, this.t.colStatus,
+       this.t.colDestination, this.t.colInitiated, this.t.colWhen, this.t.bankTransfer, this.t.yandexTransaction],
+      rows.map(c => [
+        c.id, c.driverName, c.amount.toFixed(2), c.fee.toFixed(2), c.net.toFixed(2), c.rawStatus,
+        `${c.bankType} ${c.maskedPan}`.trim(), c.initiatedBy, c.createdAt.toISOString(),
+        c.bankTransferId ?? '', c.yandexTransactionId ?? '',
+      ]),
+    );
+  }
+
+  // ── Retry / process-now (retry needs an explicit confirmation) ────
   retrying = signal<string | null>(null);
   retryMessage = signal<string | null>(null);
   openingInvoice = signal<string | null>(null);
+  confirmRetryId = signal<string | null>(null);
+
+  askRetry(id: string, e: Event) {
+    e.stopPropagation();
+    if (this.retrying()) return;
+    this.confirmRetryId.set(id);
+    this.expanded.set(id);
+  }
+
+  cancelRetry(e: Event) {
+    e.stopPropagation();
+    this.confirmRetryId.set(null);
+  }
 
   async openInvoice(cashoutId: string, e: Event) {
     e.stopPropagation();
@@ -169,7 +236,7 @@ export class CashoutsComponent {
     try {
       await this.api.openInvoice(parkId, cashoutId);
     } catch (err: any) {
-      this.retryMessage.set(`Could not open invoice: ${err?.message ?? err}`);
+      this.retryMessage.set(err?.error?.message ?? this.t.errOpenInvoice);
     } finally {
       this.openingInvoice.set(null);
     }
@@ -179,6 +246,7 @@ export class CashoutsComponent {
     e.stopPropagation();
     const parkId = this.parkCtx.currentParkId();
     if (!parkId || this.retrying()) return;
+    this.confirmRetryId.set(null);
     this.retrying.set(id);
     this.retryMessage.set(null);
     try {
@@ -194,8 +262,8 @@ export class CashoutsComponent {
         this.retryMessage.set(this.describeRetry(sagaResult));
         await this.fetchFor(parkId);
       } else {
-        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? this.t['retryFailed'];
-        this.retryMessage.set(`${this.t['retryFailed']} ${msg}`);
+        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? '';
+        this.retryMessage.set(`${this.t.retryFailed} ${msg}`.trim());
       }
     } finally {
       this.retrying.set(null);
@@ -219,8 +287,8 @@ export class CashoutsComponent {
         this.retryMessage.set(this.describeRetry(sagaResult));
         await this.fetchFor(parkId);
       } else {
-        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? this.t['retryFailed'];
-        this.retryMessage.set(`${this.t['retryFailed']} ${msg}`);
+        const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? '';
+        this.retryMessage.set(`${this.t.retryFailed} ${msg}`.trim());
       }
     } finally {
       this.retrying.set(null);
@@ -229,16 +297,33 @@ export class CashoutsComponent {
 
   private describeRetry(r: { status: string; cashoutId: string; failureReason: string | null }): string {
     const short = r.cashoutId.slice(0, 8);
-    if (r.status === 'Completed')      return `${this.t['retrySucceeded']} ${short}…`;
-    if (r.status === 'ReviewRequired') return `${this.t['retryNeedsReview']} ${short}…`;
-    if (r.status === 'Queued')         return `${this.t['queued']} · ${short}…`;
-    if (r.status === 'Failed')         return `${this.t['retryFailedAgain']} ${r.failureReason ?? this.t['noReason']}`;
-    return `${this.t['retryReturned']} ${r.status}`;
+    if (r.status === 'Completed')      return `${this.t.retrySucceeded} ${short}…`;
+    if (r.status === 'ReviewRequired') return `${this.t.retryNeedsReview} ${short}…`;
+    if (r.status === 'Queued')         return `${this.t.queued} · ${short}…`;
+    if (r.status === 'Failed')         return `${this.t.retryFailedAgain} ${r.failureReason ?? this.t.noReason}`;
+    return `${this.t.retryReturned} ${r.status}`;
   }
 
-  openManual()  { this.showManualModal.set(true); }
+  // ── Manual cashout modal ─────────────────────────────────────────
+  openManual()  {
+    this.presetDriverId.set(null);
+    this.showManualModal.set(true);
+  }
+
+  /** Backdrop click / Escape: ignored while the saga request is in flight (D2). */
+  requestCloseManual() {
+    if (this.manual()?.submitting()) return;
+    this.closeManual();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape() {
+    if (this.showManualModal()) this.requestCloseManual();
+  }
+
   closeManual() {
     this.showManualModal.set(false);
+    this.presetDriverId.set(null);
     // Refresh the list so the new cashout appears.
     const parkId = this.parkCtx.currentParkId();
     if (parkId) this.fetchFor(parkId);
@@ -262,8 +347,8 @@ export class CashoutsComponent {
     const dayMs = 24 * 3600 * 1000;
     const startOfThis = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const daysAgo = Math.round((startOfToday - startOfThis) / dayMs);
-    if (daysAgo === 0) return `Today · ${time}`;
-    if (daysAgo === 1) return `Yesterday · ${time}`;
+    if (daysAgo === 0) return `${this.t.today} · ${time}`;
+    if (daysAgo === 1) return `${this.t.yesterday} · ${time}`;
     return `${d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}, ${time}`;
   }
 }

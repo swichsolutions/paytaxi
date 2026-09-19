@@ -50,6 +50,18 @@ export class AdminParkContextService {
     return this.bootstrapping;
   }
 
+  /**
+   * Retry after a failed bootstrap. `loadParks` clears the cached promise on
+   * failure, so this simply kicks off a fresh load and lets pages' effects
+   * re-run when `currentParkId` is finally set.
+   */
+  retry(): Promise<void> {
+    this.bootstrapping = null;
+    this.error.set(null);
+    this.loading.set(true);
+    return this.ensureLoaded();
+  }
+
   setCurrentPark(parkId: string) {
     if (this.parks().some(p => p.id === parkId)) {
       this.currentParkId.set(parkId);
@@ -68,16 +80,20 @@ export class AdminParkContextService {
         this.currentParkId.set(parks[0].id);
       }
     } catch (err: any) {
-      this.error.set(`Could not refresh parks: ${err?.message ?? err}`);
+      this.error.set(err?.error?.message ?? err?.message ?? 'refresh_failed');
     }
   }
 
   private async loadParks(): Promise<void> {
+    this.error.set(null);
     try {
       const parks = await this.api.listParks();
       this.parks.set(parks);
       if (parks.length === 0) {
-        this.error.set('No parks accessible.');
+        // Distinct marker so the layout can show a "no parks" message rather
+        // than a generic transport error. Retry is still allowed.
+        this.error.set('no_parks');
+        this.bootstrapping = null;
         return;
       }
       // Prefer the park from the admin's session (park-admin), else first.
@@ -85,7 +101,9 @@ export class AdminParkContextService {
       const initial = parks.find(p => p.id === sessionParkId) ?? parks[0];
       this.currentParkId.set(initial.id);
     } catch (err: any) {
-      this.error.set(`Could not load parks: ${err?.message ?? err}`);
+      this.error.set(err?.error?.message ?? err?.message ?? 'load_failed');
+      // Drop the cached promise so the next ensureLoaded()/retry() re-fetches.
+      this.bootstrapping = null;
     } finally {
       this.loading.set(false);
     }

@@ -38,10 +38,11 @@
       <div class="rng__custom">
         <label>
           <span>{{ t.from }}</span>
+          <!-- The constructor effect tracks customFrom/customTo, so setting the signal is enough to re-fetch once. -->
           <input
             type="date"
             [value]="customFrom()"
-            (change)="customFrom.set($any($event.target).value); refresh()"
+            (change)="customFrom.set($any($event.target).value)"
           />
         </label>
         <label>
@@ -49,7 +50,7 @@
           <input
             type="date"
             [value]="customTo()"
-            (change)="customTo.set($any($event.target).value); refresh()"
+            (change)="customTo.set($any($event.target).value)"
           />
         </label>
       </div>
@@ -60,7 +61,10 @@
   </section>
 
   @if (loadError()) {
-    <div class="rpt-error">{{ loadError() }}</div>
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ loadError() }}</span>
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
+    </div>
   }
 
   @if (report(); as r) {
@@ -74,7 +78,7 @@
       <div class="rpt-tile">
         <span class="rpt-tile__label">{{ t.kpiFeesCollected }}</span>
         <span class="rpt-tile__value gel">{{ formatGel(r.summary.fees, 2) }}</span>
-        <span class="rpt-tile__sub">{{ t.parkRevenue }}</span>
+        <span class="rpt-tile__sub">{{ t.feesChargedBeforeSwich }}</span>
       </div>
       <div class="rpt-tile">
         <span class="rpt-tile__label">{{ t.driversServed }}</span>
@@ -95,29 +99,32 @@
         <span class="rpt-card__hint">{{ r.daily.length }} {{ t.days }}</span>
       </header>
 
-      <div class="rpt-daily-head">
-        <span>{{ t.colDay }}</span>
-        <span class="num">{{ t.cashoutsLabel }}</span>
-        <span class="num">{{ t.colValue }}</span>
-        <span class="num">{{ t.fees }}</span>
-        <span class="num">{{ t.failed }}</span>
-        <span class="rpt-daily-head__bar">{{ t.colDistribution }}</span>
-      </div>
-
-      @for (d of r.daily; track d.date) {
-        <div class="rpt-daily-row" [class.rpt-daily-row--empty]="d.cashoutsCount === 0">
-          <span class="rpt-daily-row__date">{{ formatDate(d.date) }}</span>
-          <span class="num">{{ d.cashoutsCount }}</span>
-          <span class="num gel">{{ formatGel(d.value, 0) }}</span>
-          <span class="num gel">{{ formatGel(d.fees, 2) }}</span>
-          <span class="num" [class.num--alert]="d.failedCount > 0">{{ d.failedCount }}</span>
-          <div class="rpt-daily-row__bar">
-            @if (d.value > 0) {
-              <div class="rpt-daily-row__fill" [style.width]="barWidth(d.value)"></div>
-            }
-          </div>
+      <!-- Horizontal scroll container so narrow phones never clip the trailing columns -->
+      <div class="rpt-daily-scroll">
+        <div class="rpt-daily-head">
+          <span>{{ t.colDay }}</span>
+          <span class="num">{{ t.cashoutsLabel }}</span>
+          <span class="num">{{ t.colValue }}</span>
+          <span class="num">{{ t.fees }}</span>
+          <span class="num">{{ t.failed }}</span>
+          <span class="rpt-daily-head__bar">{{ t.colDistribution }}</span>
         </div>
-      }
+
+        @for (d of r.daily; track d.date) {
+          <div class="rpt-daily-row" [class.rpt-daily-row--empty]="d.cashoutsCount === 0">
+            <span class="rpt-daily-row__date">{{ formatDate(d.date) }}</span>
+            <span class="num">{{ d.cashoutsCount }}</span>
+            <span class="num gel">{{ formatGel(d.value, 0) }}</span>
+            <span class="num gel">{{ formatGel(d.fees, 2) }}</span>
+            <span class="num" [class.num--alert]="d.failedCount > 0">{{ d.failedCount }}</span>
+            <div class="rpt-daily-row__bar">
+              @if (d.value > 0) {
+                <div class="rpt-daily-row__fill" [style.width]="barWidth(d.value)"></div>
+              }
+            </div>
+          </div>
+        }
+      </div>
     </section>
 
     <div class="rpt-grid">

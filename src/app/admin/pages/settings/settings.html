@@ -87,8 +87,9 @@
           </div>
           <div class="set-row">
             <span class="set-row__label">{{ t.iban }}</span>
-            <span class="set-row__value gel" [class.set-row__value--muted]="!p.bankAccountIban">
-              {{ p.bankAccountIban || t.notSet }}
+            <span class="set-row__value gel" [class.set-row__value--muted]="!primaryIban()">
+              {{ primaryIban() || t.notSet }}
+              <span class="set-row__note">{{ t.ibanMirrorsPrimary }}</span>
             </span>
           </div>
           <div class="set-row">
@@ -99,7 +100,10 @@
           <div class="set-rows__divider">{{ t.secFees }}</div>
           <div class="set-row">
             <span class="set-row__label">{{ t.feeLabel }}</span>
-            <span class="set-row__value gel">{{ formatGel(p.cashoutFee, 2) }}</span>
+            <span class="set-row__value gel">
+              {{ formatGel(p.cashoutFee, 2) }}
+              @if (!isSuperAdmin()) { <span class="set-row__note">{{ t.feeSwichOnly }}</span> }
+            </span>
           </div>
           <div class="set-row">
             <span class="set-row__label">{{ t.minCashoutLabel }}</span>
@@ -170,20 +174,22 @@
             <input type="tel" class="set-field__input gel" [value]="form().phone"
               (input)="setField('phone', $any($event.target).value)" [placeholder]="t.phonePlaceholder" />
           </label>
-          <label class="set-field">
-            <span class="set-field__label">{{ t.iban }}</span>
-            <input type="text" class="set-field__input gel" [value]="form().bankAccountIban"
-              (input)="setField('bankAccountIban', $any($event.target).value)" [placeholder]="t.ibanPlaceholder" />
-          </label>
-
           <div class="set-edit__divider"><span>{{ t.secFees }}</span></div>
           <p class="set-edit__hint">{{ t.feesHint }}</p>
           <div class="set-edit__grid">
-            <label class="set-field">
-              <span class="set-field__label">{{ t.feeLabel }}</span>
-              <input type="number" step="0.01" min="0" class="set-field__input gel" [value]="form().cashoutFee"
-                (input)="setField('cashoutFee', $any($event.target).value)" />
-            </label>
+            @if (isSuperAdmin()) {
+              <label class="set-field">
+                <span class="set-field__label">{{ t.feeLabel }}</span>
+                <input type="number" step="0.01" min="0" class="set-field__input gel" [value]="form().cashoutFee"
+                  (input)="setField('cashoutFee', $any($event.target).value)" />
+              </label>
+            } @else {
+              <div class="set-field">
+                <span class="set-field__label">{{ t.feeLabel }}</span>
+                <div class="set-field__input set-field__input--readonly gel">{{ formatGel(p.cashoutFee, 2) }}</div>
+                <span class="set-field__note">{{ t.feeSwichOnly }}</span>
+              </div>
+            }
             <label class="set-field">
               <span class="set-field__label">{{ t.minCashoutLabel }}</span>
               <input type="number" step="1" min="1" class="set-field__input gel" [value]="form().minCashoutAmount"
@@ -308,10 +314,24 @@
               @if (a.isActive && !a.isPrimary) {
                 <button class="acct__btn" (click)="makePrimary(a)" [disabled]="accountBusy() !== null">{{ t.makePrimary }}</button>
               }
-              <button class="acct__btn" [class.acct__btn--danger]="a.isActive" (click)="toggleActive(a)" [disabled]="accountBusy() !== null || (a.isActive && a.isPrimary && accounts().length > 1)">
+              <button class="acct__btn" [class.acct__btn--danger]="a.isActive" (click)="toggleActive(a)" [disabled]="accountBusy() !== null || confirmDeactivateId() === a.id || (a.isActive && a.isPrimary && accounts().length > 1)">
                 {{ a.isActive ? t.deactivate : t.activate }}
               </button>
             </div>
+            @if (confirmDeactivateId() === a.id) {
+              <div class="confirm-inline acct__confirm">
+                <span class="confirm-inline__text">
+                  {{ t.confirmDeactivateAccount }}
+                  @if ((a.queuedCount ?? 0) > 0) {
+                    <b>{{ a.queuedCount }}</b> {{ t.confirmDeactivateQueuedWarn }}
+                  }
+                </span>
+                <span class="confirm-inline__actions">
+                  <button class="btn-admin btn-admin--secondary" (click)="cancelDeactivate()">{{ t.cancel }}</button>
+                  <button class="btn-admin btn-admin--brand" (click)="toggleActive(a)" [disabled]="accountBusy() !== null">{{ t.confirm }}</button>
+                </span>
+              </div>
+            }
           </div>
         }
         @if (accounts().length === 0 && !accountsLoading() && !addingAccount()) {
@@ -331,15 +351,15 @@
               <span class="set-field__label">{{ t.providerLabel }}</span>
               <select class="set-field__input" [value]="accountForm().provider" (change)="setAccountField('provider', $any($event.target).value)">
                 <option value="">—</option>
-                <option value="tbc">tbc — TBC Business Integration</option>
-                <option value="bog">bog — BoG Business Online</option>
-                <option value="mock">mock — dev</option>
+                <option value="tbc">TBC</option>
+                <option value="bog">BOG</option>
+                <option value="mock">{{ t.providerMockDev }}</option>
               </select>
             </label>
             <label class="set-field">
               <span class="set-field__label">{{ t.accountLabelLabel }}</span>
               <input type="text" class="set-field__input" [value]="accountForm().label"
-                (input)="setAccountField('label', $any($event.target).value)" placeholder="TBC business account" />
+                (input)="setAccountField('label', $any($event.target).value)" [placeholder]="t.accountLabelPlaceholder" />
             </label>
           </div>
           <label class="set-field">

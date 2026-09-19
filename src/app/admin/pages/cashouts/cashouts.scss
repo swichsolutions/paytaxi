@@ -115,10 +115,11 @@
   border-radius: 50%;
   background: var(--color-text-3);
 
-  &[data-color='pending']    { background: var(--color-brand); }
+  &[data-color='queued']     { background: var(--color-brand); }
   &[data-color='processing'] { background: var(--color-info); }
   &[data-color='completed']  { background: #00C896; }
   &[data-color='failed']     { background: var(--color-error); }
+  &[data-color='review']     { background: #F97316; }
 }
 
 .status-tab__count {
@@ -701,3 +702,44 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+// ── Review-required rows: bank ↔ Yandex disagree, no retry ────────
+.queue-row--review {
+  background: rgba(249, 115, 22, 0.04);
+}
+
+.detail-review {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(249, 115, 22, 0.10);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  color: #9A3412;
+  font-size: 12.5px;
+  cursor: default;
+
+  > svg { width: 16px; height: 16px; flex: 0 0 auto; }
+
+  &__text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+    b { font-weight: 800; }
+  }
+
+  .btn-admin { height: 32px; padding: 0 12px; font-size: 12px; flex: 0 0 auto; text-decoration: none; }
+
+  @media (max-width: 560px) {
+    flex-wrap: wrap;
+    .btn-admin { width: 100%; }
+  }
+}
+
+.queue-row__detail .confirm-inline { margin-top: 12px; cursor: default; }
+
+.queue__retry:disabled { opacity: 0.6; cursor: default; }

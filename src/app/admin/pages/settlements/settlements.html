@@ -6,7 +6,7 @@
     </div>
     <div class="page-head__actions">
       @if (isSuperAdmin()) {
-        <button class="btn-admin btn-admin--brand" (click)="runNow()" [disabled]="busy() !== null">
+        <button class="btn-admin btn-admin--brand" (click)="askRunNow()" [disabled]="busy() !== null || confirmRun()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="5 3 19 12 5 21 5 3"/>
           </svg>
@@ -23,8 +23,22 @@
     </div>
   </header>
 
-  @if (loadError()) { <div class="stl-error">{{ loadError() }}</div> }
+  @if (loadError()) {
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ loadError() }}</span>
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
+    </div>
+  }
   @if (message()) { <div class="stl-message">{{ message() }}</div> }
+  @if (confirmRun()) {
+    <div class="confirm-inline">
+      <span class="confirm-inline__text">{{ t.confirmSettleNow }}</span>
+      <span class="confirm-inline__actions">
+        <button class="btn-admin btn-admin--secondary" (click)="cancelRunNow()">{{ t.cancel }}</button>
+        <button class="btn-admin btn-admin--brand" (click)="runNow()" [disabled]="busy() !== null">{{ t.confirm }}</button>
+      </span>
+    </div>
+  }
 
   @if (summary(); as s) {
     <!-- ── Tiles ─────────────────────────────────────────────────── -->
@@ -61,10 +75,10 @@
         <span class="stl-tile__sub">{{ s.unsettled.count }} {{ t.cashoutsLabel }} · {{ t.unsettledFees }}</span>
       </div>
 
-      <div class="stl-tile" [class.stl-tile--alert]="(totals()?.failedCount ?? 0) > 0">
+      <div class="stl-tile" [class.stl-tile--alert]="parkFailed().count > 0">
         <span class="stl-tile__label">{{ t.failedSettlements }}</span>
-        <span class="stl-tile__value gel">{{ totals()?.failedCount ?? 0 }}</span>
-        <span class="stl-tile__sub">{{ formatGel(totals()?.failedSwichShare ?? 0, 2) }} {{ t.needsRetry }}</span>
+        <span class="stl-tile__value gel">{{ parkFailed().count }}</span>
+        <span class="stl-tile__sub">{{ formatGel(parkFailed().swichShare, 2) }} {{ t.needsRetry }}</span>
       </div>
     </section>
 
@@ -78,16 +92,16 @@
         </div>
         @for (d of s.daily; track d.date) {
           <div class="stl-table__row" [class.stl-table__row--muted]="d.cashouts === 0">
-            <span>{{ formatDate(d.date) }}</span>
-            <span class="gel">{{ d.cashouts }}</span>
-            <span class="gel">{{ formatGel(d.volume, 0) }}</span>
-            <span class="gel">{{ formatGel(d.fees, 2) }}</span>
-            <span>
+            <span class="stl-table__cell stl-table__cell--date" [attr.data-label]="t.colDate">{{ formatDate(d.date) }}</span>
+            <span class="stl-table__cell gel" [attr.data-label]="t.cashoutsLabel">{{ d.cashouts }}</span>
+            <span class="stl-table__cell gel" [attr.data-label]="t.colVolume">{{ formatGel(d.volume, 0) }}</span>
+            <span class="stl-table__cell gel" [attr.data-label]="t.colFees">{{ formatGel(d.fees, 2) }}</span>
+            <span class="stl-table__cell" [attr.data-label]="t.colSettlement">
               @if (d.settlementStatus) {
                 <span class="stl-pill" [attr.data-status]="statusKey(d.settlementStatus)">{{ statusLabel(d.settlementStatus) }}</span>
               } @else if (d.cashouts > 0) { <span class="stl-muted">{{ t.notSettled }}</span> } @else { — }
             </span>
-            <span class="gel">{{ d.swichShare !== null ? formatGel(d.swichShare, 2) : '—' }}</span>
+            <span class="stl-table__cell gel" [attr.data-label]="t.colSwichShare">{{ d.swichShare !== null ? formatGel(d.swichShare, 2) : '—' }}</span>
           </div>
         }
       </div>
@@ -140,7 +154,7 @@
             <div class="stl-row__detail" (click)="$event.stopPropagation()">
               <div class="stl-detail-grid">
                 <div><span class="stl-detail__label">{{ t.colTransfer }}</span><code>{{ st.bankTransferId ?? '—' }}</code></div>
-                <div><span class="stl-detail__label">IBAN</span><code>{{ st.sourceIban ?? '—' }} → {{ st.swichIban ?? '—' }}</code></div>
+                <div><span class="stl-detail__label">{{ t.colIbanRoute }}</span><code>{{ st.sourceIban ?? '—' }} → {{ st.swichIban ?? '—' }}</code></div>
                 <div><span class="stl-detail__label">{{ t.attempts }}</span><span>{{ st.attemptCount }} · {{ formatDateTime(st.lastAttemptAt) }}</span></div>
                 <div><span class="stl-detail__label">{{ t.phaseSplit }}</span><span class="gel">{{ formatGel(st.phase1Fees, 2) }} / {{ formatGel(st.phase2Fees, 2) }}</span></div>
               </div>
@@ -151,13 +165,17 @@
               @if (expandedLoading()) { <p class="stl-muted">{{ t.loadingCashouts }}</p> }
               @if (expandedCashouts(); as ec) {
                 <div class="stl-table stl-table--cashouts">
+                  <div class="stl-table__head">
+                    <span>{{ t.colCompleted }}</span><span>{{ t.colDriver }}</span><span>{{ t.colAmount }}</span>
+                    <span>{{ t.colFees }}</span><span>{{ t.colInvoice }}</span>
+                  </div>
                   @for (c of ec.cashouts; track c.id) {
                     <div class="stl-table__row">
-                      <span>{{ formatDateTime(c.completedAt) }}</span>
-                      <span>{{ c.driverName || '—' }}</span>
-                      <span class="gel">{{ formatGel(c.amount, 2) }}</span>
-                      <span class="gel">{{ formatGel(c.fee, 2) }}</span>
-                      <code>{{ c.invoiceNumber ?? '—' }}</code>
+                      <span class="stl-table__cell" [attr.data-label]="t.colCompleted">{{ formatDateTime(c.completedAt) }}</span>
+                      <span class="stl-table__cell" [attr.data-label]="t.colDriver">{{ c.driverName || '—' }}</span>
+                      <span class="stl-table__cell gel" [attr.data-label]="t.colAmount">{{ formatGel(c.amount, 2) }}</span>
+                      <span class="stl-table__cell gel" [attr.data-label]="t.colFees">{{ formatGel(c.fee, 2) }}</span>
+                      <code class="stl-table__cell" [attr.data-label]="t.colInvoice">{{ c.invoiceNumber ?? '—' }}</code>
                     </div>
                   }
                 </div>

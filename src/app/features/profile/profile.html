@@ -12,29 +12,44 @@
     <div class="prof-section__label section-label">{{ t.myCards }}</div>
     <div class="prof-card">
       @for (card of cards; track card.id) {
-        <div class="prof-row">
+        <div class="prof-row" [class.prof-row--confirming]="confirmingRemoveId() === card.id">
           <div class="bank-chip" [attr.data-bank]="card.bankType">
             {{ card.bankType }}
           </div>
           <div class="prof-row__info">
             <span class="prof-row__title gel">{{ card.maskedPan }}</span>
-            <span class="prof-row__sub">
-              @if (card.holderName) { {{ card.holderName }} }
-              @if (card.isDefault) {
-                <span class="badge badge--processing">{{ t.defaultCard }}</span>
-              } @else {
-                <button class="prof-link" (click)="makeDefault(card.id)" [disabled]="busy()">{{ t.setDefault }}</button>
-              }
-            </span>
+            @if (confirmingRemoveId() === card.id) {
+              <!-- Inline confirm: nothing is deleted until the driver taps Remove here. -->
+              <span class="prof-row__sub prof-row__confirm" role="alert">
+                <span class="prof-row__confirm-text">{{ t.confirmRemoveAccount }}</span>
+                <span class="prof-row__confirm-actions">
+                  <button class="prof-link" (click)="cancelRemove()" [disabled]="busy()">{{ t.cancel }}</button>
+                  <button class="prof-link prof-link--danger" (click)="removeCard(card.id)" [disabled]="busy()">
+                    @if (removingId() === card.id) { {{ t.removing }} } @else { {{ t.remove }} }
+                  </button>
+                </span>
+              </span>
+            } @else {
+              <span class="prof-row__sub">
+                @if (card.holderName) { {{ card.holderName }} }
+                @if (card.isDefault) {
+                  <span class="badge badge--processing">{{ t.defaultCard }}</span>
+                } @else {
+                  <button class="prof-link" (click)="makeDefault(card.id)" [disabled]="busy()">{{ t.setDefault }}</button>
+                }
+              </span>
+            }
           </div>
-          <button class="remove-btn" (click)="removeCard(card.id)" [disabled]="busy()" aria-label="{{ t.remove }}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="3 6 5 6 21 6"/>
-              <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-              <path d="M10 11v6M14 11v6"/>
-              <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
-            </svg>
-          </button>
+          @if (confirmingRemoveId() !== card.id) {
+            <button class="remove-btn" (click)="askRemove(card.id)" [disabled]="busy()" [attr.aria-label]="t.remove" [title]="t.remove">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </button>
+          }
         </div>
       }
       @if (cards.length === 0 && !adding()) {

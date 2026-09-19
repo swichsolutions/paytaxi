@@ -2,6 +2,7 @@ import { Component, computed, inject, input } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AdminI18nService } from '../../services/admin-i18n.service';
 import { AdminAuthService } from '../../services/admin-auth.service';
+import { AdminParkContextService } from '../../services/admin-park-context.service';
 
 interface NavItem {
   path: string;
@@ -21,9 +22,13 @@ export class AdminSidebarComponent {
 
   private i18n = inject(AdminI18nService);
   private auth = inject(AdminAuthService);
+  private parkCtx = inject(AdminParkContextService);
   get t() { return this.i18n.t; }
 
   readonly isSuperAdmin = computed(() => this.auth.admin()?.role === 'super_admin');
+
+  /** Name of the park the console is currently operating; em dash while loading. */
+  readonly parkName = computed(() => this.parkCtx.currentPark()?.name ?? '—');
 
   primary: NavItem[] = [
     { path: '/admin/overview',   key: 'navOverview',   icon: 'overview' },

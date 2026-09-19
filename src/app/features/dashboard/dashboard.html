@@ -4,13 +4,13 @@
     <header class="dash-header">
       <div class="dash-header__left">
         <p class="dash-header__park">{{ driver.parkName }}</p>
-        <p class="dash-header__name">{{ driver.name }}</p>
+        <p class="dash-header__name" [title]="driver.name">{{ driver.name }}</p>
       </div>
       <div class="dash-header__actions">
         <button class="dash-header__lang" (click)="cycleLang()" [attr.aria-label]="t.language" [title]="t.language">
           {{ langLabel() }}
         </button>
-        <a routerLink="/notifications" class="dash-header__bell" aria-label="Notifications">
+        <a routerLink="/notifications" class="dash-header__bell" [attr.aria-label]="t.notifications">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
@@ -19,7 +19,7 @@
             <span class="dash-header__bell-badge">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
           }
         </a>
-        <div class="dash-header__avatar">
+        <div class="dash-header__avatar" aria-hidden="true">
           {{ svc.initials(driver.name) }}
         </div>
       </div>
@@ -28,7 +28,15 @@
     <div class="balance-card">
       <div class="balance-card__top">
         <span class="balance-card__label">{{ t.available }}</span>
-        <button class="balance-card__refresh" aria-label="Refresh balance">
+        <button
+          class="balance-card__refresh"
+          [class.balance-card__refresh--busy]="session.refreshing()"
+          [disabled]="session.refreshing()"
+          (click)="refreshBalance()"
+          [attr.aria-label]="t.refreshBalance"
+          [attr.aria-busy]="session.refreshing()"
+          [title]="t.refreshBalance"
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M1 4v6h6"/>
             <path d="M23 20v-6h-6"/>
@@ -36,8 +44,32 @@
           </svg>
         </button>
       </div>
-      <div class="balance-card__amount gel">{{ formatGel(driver.balance) }}</div>
-      </div>
+
+      @switch (balanceState()) {
+        @case ('loading') {
+          <div class="balance-card__skeleton" role="status" [attr.aria-label]="t.balanceLoading"></div>
+        }
+        @case ('unavailable') {
+          <button class="balance-card__unavailable" (click)="refreshBalance()" [disabled]="session.refreshing()">
+            <span class="balance-card__unavailable-title">{{ t.balanceUnavailable }}</span>
+            <span class="balance-card__unavailable-hint">
+              {{ unavailableHint() }}
+              @if (!session.refreshing()) { · {{ t.tapToRetry }} }
+            </span>
+          </button>
+        }
+        @default {
+          <div
+            class="balance-card__amount gel"
+            [class.balance-card__amount--long]="balanceDigits() >= 4 && balanceDigits() < 6"
+            [class.balance-card__amount--xlong]="balanceDigits() >= 6"
+          >{{ formatGel(balance()!) }}</div>
+          @if (balanceStale()) {
+            <p class="balance-card__stale">{{ asOfLabel() }} · {{ t.balanceMayBeOutdated }}</p>
+          }
+        }
+      }
+    </div>
 
     <div class="dash-cta">
       <a routerLink="/cashout" class="btn btn--primary">
@@ -56,9 +88,17 @@
       <section class="list-section">
         <div class="list-section__header">
           <span class="section-label">{{ t.recentCashouts }}</span>
-          <a routerLink="/history" class="see-all">{{ t.seeAll }}</a>
+          <a routerLink="/history" [queryParams]="{ tab: 'cashouts' }" class="see-all">{{ t.seeAll }}</a>
         </div>
         <div class="list-rows">
+          @if (activityLoading()) {
+            <div class="list-skeleton" aria-hidden="true"></div>
+            <div class="list-skeleton" aria-hidden="true"></div>
+          } @else if (cashoutsFailed()) {
+            <p class="list-empty list-empty--error">{{ t.historyLoadError }}</p>
+          } @else if (recentCashouts.length === 0) {
+            <p class="list-empty">{{ t.noCashoutsYet }}</p>
+          }
           @for (co of recentCashouts; track co.id) {
             <div class="list-row">
               <div class="list-row__icon list-row__icon--cashout">
@@ -68,10 +108,10 @@
               </div>
               <div class="list-row__main">
                 <span class="list-row__title">{{ co.card.bankType }} {{ co.card.maskedPan }}</span>
-                <span class="list-row__sub">{{ formatDate(co.createdAt) }} · {{ formatTime(co.createdAt) }}</span>
+                <span class="list-row__sub">{{ formatDate(co.createdAt) }} · {{ formatTime(co.createdAt) }} · {{ t.fee }} <span class="gel">{{ formatGel(co.fee) }}</span></span>
               </div>
               <div class="list-row__right">
-                <span class="list-row__amount gel">{{ formatGel(co.amount) }}</span>
+                <span class="list-row__amount gel">{{ formatGel(co.net) }}</span>
                 <span class="badge badge--{{ co.status }}">{{ t[co.status] }}</span>
               </div>
             </div>
@@ -83,9 +123,17 @@
       <section class="list-section">
         <div class="list-section__header">
           <span class="section-label">{{ t.recentRides }}</span>
-          <a routerLink="/history" class="see-all">{{ t.seeAll }}</a>
+          <a routerLink="/history" [queryParams]="{ tab: 'rides' }" class="see-all">{{ t.seeAll }}</a>
         </div>
         <div class="list-rows">
+          @if (activityLoading()) {
+            <div class="list-skeleton" aria-hidden="true"></div>
+            <div class="list-skeleton" aria-hidden="true"></div>
+          } @else if (ridesFailed()) {
+            <p class="list-empty list-empty--error">{{ t.ridesUnavailable }}</p>
+          } @else if (recentRides.length === 0) {
+            <p class="list-empty">{{ t.noRidesYet }}</p>
+          }
           @for (ride of recentRides; track ride.id) {
             <div class="list-row">
               <div class="list-row__icon list-row__icon--ride">

@@ -4,7 +4,7 @@
     <div class="lang-bar">
       <button class="lang-btn" [class.lang-btn--active]="svc.lang() === 'en'" (click)="svc.lang.set('en')">EN</button>
       <span class="lang-sep"></span>
-      <button class="lang-btn" [class.lang-btn--active]="svc.lang() === 'ka'" (click)="svc.lang.set('ka')">ქარ</button>
+      <button class="lang-btn" [class.lang-btn--active]="svc.lang() === 'ka'" (click)="svc.lang.set('ka')">ქა</button>
       <span class="lang-sep"></span>
       <button class="lang-btn" [class.lang-btn--active]="svc.lang() === 'ru'" (click)="svc.lang.set('ru')">RU</button>
     </div>
@@ -34,23 +34,24 @@
             inputmode="numeric"
             class="phone-input"
             placeholder="599 000 000"
-            [ngModel]="phone()"
-            (ngModelChange)="phone.set($event)"
-            maxlength="12"
-            autocomplete="tel"
+            [value]="phone()"
+            (input)="onPhoneInput($event)"
+            (keydown.enter)="sendCode()"
+            autocomplete="tel-national"
+            [attr.aria-label]="t.enterPhone"
           />
         </div>
 
         <button class="btn btn--primary" (click)="sendCode()" [disabled]="!phoneValid() || submitting()">
           @if (submitting()) { {{ t.sending }} } @else { {{ t.sendCode }} }
         </button>
-        @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
+        @if (errorMessage()) { <p class="login-error" role="alert">{{ errorMessage() }}</p> }
       </div>
     }
 
     @if (step() === 'otp') {
       <div class="form-step">
-        <button class="back-btn" (click)="goBack()" aria-label="Back">
+        <button class="back-btn" (click)="goBack()" [attr.aria-label]="t.back">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M19 12H5M12 5l-7 7 7 7"/>
           </svg>
@@ -58,7 +59,7 @@
 
         <div class="step-text">
           <h2>{{ t.enterCode }}</h2>
-          <p>{{ t.otpHint }} +995 {{ phone() }}</p>
+          <p>{{ t.otpHint }} +995 {{ phoneDisplay() }}</p>
           @if (devCode()) {
             <p class="dev-otp-hint">DEV CODE · {{ devCode() }}</p>
           }
@@ -70,13 +71,15 @@
               #digitInput
               type="text"
               inputmode="numeric"
+              autocomplete="one-time-code"
+              pattern="[0-9]*"
               maxlength="1"
               class="otp-digit"
               [class.otp-digit--filled]="d !== ''"
               [value]="d"
               (input)="onDigitInput($event, $index)"
               (keydown)="onDigitKeydown($event, $index)"
-              aria-label="Digit {{ $index + 1 }}"
+              [attr.aria-label]="digitLabel($index)"
             />
           }
         </div>
@@ -84,15 +87,17 @@
         <button class="btn btn--primary" (click)="verify()" [disabled]="!otpValid() || submitting()">
           @if (submitting()) { {{ t.verifying }} } @else { {{ t.verify }} }
         </button>
-        @if (errorMessage()) { <p class="login-error">{{ errorMessage() }}</p> }
+        @if (errorMessage()) { <p class="login-error" role="alert">{{ errorMessage() }}</p> }
 
         <p class="trusted-hint">{{ t.trustedDeviceHint }}</p>
 
         <div class="resend-row">
           @if (resendSecs() > 0) {
-            <span class="resend-timer">{{ t.resendIn }} {{ resendSecs() }}s</span>
+            <span class="resend-timer">{{ resendLabel() }}</span>
           } @else {
-            <button class="resend-link" (click)="resend()">{{ t.resend }}</button>
+            <button class="resend-link" (click)="resend()" [disabled]="resending() || submitting()">
+              @if (resending()) { {{ t.sending }} } @else { {{ t.resend }} }
+            </button>
           }
         </div>
       </div>

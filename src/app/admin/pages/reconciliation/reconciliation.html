@@ -18,8 +18,26 @@
   </header>
 
   @if (loadError()) {
-    <div class="rec-error">{{ loadError() }}</div>
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ loadError() }}</span>
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
+    </div>
   }
+
+  @if (firstLoad()) {
+    <section class="rec-tiles" aria-busy="true">
+      <div class="skel skel--tile"></div>
+      <div class="skel skel--tile"></div>
+      <div class="skel skel--tile"></div>
+    </section>
+    <section class="rec-card" aria-hidden="true">
+      <div class="skel-stack">
+        <div class="skel skel--row"></div>
+        <div class="skel skel--row"></div>
+        <div class="skel skel--row"></div>
+      </div>
+    </section>
+  } @else {
 
   <!-- Summary tiles -->
   <section class="rec-tiles">
@@ -66,10 +84,10 @@
             <span class="rec-run-row__started">{{ t.started }} {{ formatRel(r.startedAtDate) }}</span>
           </div>
           <span class="rec-status-pill" [attr.data-status]="r.status">{{ r.status }}</span>
-          <span class="rec-run-row__num">{{ r.cashoutsScanned }}</span>
-          <span class="rec-run-row__num">{{ r.bankTransfersScanned }}</span>
-          <span class="rec-run-row__num">{{ r.yandexTxScanned }}</span>
-          <span class="rec-run-row__num rec-run-row__num--alert" [class.rec-run-row__num--ok]="r.discrepanciesFound === 0">
+          <span class="rec-run-row__num" [attr.data-label]="t.cashoutsLabel">{{ r.cashoutsScanned }}</span>
+          <span class="rec-run-row__num" [attr.data-label]="t.colBank">{{ r.bankTransfersScanned }}</span>
+          <span class="rec-run-row__num" [attr.data-label]="t.colYandex">{{ r.yandexTxScanned }}</span>
+          <span class="rec-run-row__num rec-run-row__num--alert" [class.rec-run-row__num--ok]="r.discrepanciesFound === 0" [attr.data-label]="t.drifts">
             {{ r.discrepanciesFound }}
           </span>
         </div>
@@ -137,7 +155,7 @@
 
             @if (d.isResolved) {
               <div class="rec-disc__resolved">
-                <span><b>{{ t.resolvedBy }}</b> {{ d.resolvedBy }} · {{ d.resolvedAt }}</span>
+                <span><b>{{ t.resolvedBy }}</b> {{ d.resolvedBy || '—' }} · {{ formatIso(d.resolvedAt) }}</span>
                 @if (d.resolutionNotes) {
                   <p>{{ d.resolutionNotes }}</p>
                 }
@@ -188,4 +206,6 @@
       }
     </div>
   </section>
+
+  }
 </div>

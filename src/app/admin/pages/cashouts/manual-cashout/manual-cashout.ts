@@ -1,9 +1,10 @@
-import { Component, computed, inject, OnInit, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, OnInit, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { AdminMockService } from '../../../services/admin-mock.service';
 import { AdminApiService, ApiCard, ApiDriver, ApiPark, CashoutSagaResult } from '../../../services/admin-api.service';
 import { AdminParkContextService } from '../../../services/admin-park-context.service';
 import { AdminI18nService } from '../../../services/admin-i18n.service';
+import { AdminAuthService } from '../../../services/admin-auth.service';
 
 interface SubmittedEvent {
   parkId: string;
@@ -11,6 +12,14 @@ interface SubmittedEvent {
   amount: number;
   cardId: string;
   result: CashoutSagaResult;
+}
+
+/** `400 { error: 'cashout_rejected', code, message, params }` from the saga. */
+interface CashoutRejection {
+  error: 'cashout_rejected';
+  code: string;
+  message?: string;
+  params?: Record<string, unknown>;
 }
 
 @Component({
@@ -24,8 +33,12 @@ export class ManualCashoutComponent implements OnInit {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   private i18n = inject(AdminI18nService);
+  private auth = inject(AdminAuthService);
 
   get t() { return this.i18n.t; }
+
+  /** Driver to pre-select (deep link from the Drivers drawer). */
+  presetDriverId = input<string | null>(null);
 
   close = output<void>();
   submitted = output<SubmittedEvent>();
@@ -46,8 +59,25 @@ export class ManualCashoutComponent implements OnInit {
   result = signal<CashoutSagaResult | null>(null);
   submitError = signal<string | null>(null);
 
+  /** Who the audit trail will show — the server derives it from the token; this is display only. */
+  readonly initiatedByLabel = computed(() => {
+    const a = this.auth.admin();
+    return a?.name ?? a?.email ?? '—';
+  });
+
   // Idempotency key — generated once per modal lifetime so retries dedupe correctly.
   private readonly idempotencyKey = crypto.randomUUID();
+
+  constructor() {
+    // Apply the preset once the roster for the selected park has arrived.
+    effect(() => {
+      const id = this.presetDriverId();
+      const list = this.drivers();
+      if (!id || list.length === 0 || this.selectedDriver()) return;
+      const d = list.find(x => x.id === id);
+      if (d && d.cards.length > 0) this.pickDriver(d);
+    });
+  }
 
   async ngOnInit() {
     try {
@@ -61,10 +91,10 @@ export class ManualCashoutComponent implements OnInit {
         const defaultPark = parks.find(p => p.id === currentParkId) ?? parks[0];
         await this.selectPark(defaultPark.id);
       } else {
-        this.loadError.set('No parks configured on the backend.');
+        this.loadError.set(this.t.noParksConfigured);
       }
     } catch (err: any) {
-      this.loadError.set(`Failed to load parks: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadParks);
     } finally {
       this.loading.set(false);
     }
@@ -78,7 +108,7 @@ export class ManualCashoutComponent implements OnInit {
       const resp = await this.api.listDrivers(parkId);
       this.drivers.set(resp.drivers);
     } catch (err: any) {
-      this.loadError.set(`Failed to load drivers: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadDrivers);
     }
   }
 
@@ -109,11 +139,16 @@ export class ManualCashoutComponent implements OnInit {
 
   driverBalance = computed(() => this.selectedDriver()?.yandex?.balance ?? 0);
 
+  belowMin = computed(() => this.amount() > 0 && this.amount() < this.parkMin());
+  aboveMax = computed(() => {
+    const max = this.parkMax();
+    return max !== null && this.amount() > max;
+  });
+
   canProceedStep2 = computed(() => {
     const d = this.selectedDriver();
     const a = this.amount();
-    const max = this.parkMax();
-    return d !== null && a >= this.parkMin() && (max === null || a <= max) && a <= this.driverBalance();
+    return d !== null && a > 0 && !this.belowMin() && !this.aboveMax() && a <= this.driverBalance();
   });
 
   selectedCard = computed<ApiCard | null>(() => {
@@ -142,7 +177,9 @@ export class ManualCashoutComponent implements OnInit {
 
   setMax() {
     const balance = this.driverBalance();
-    if (balance > 0) this.amountStr.set(String(Math.floor(balance)));
+    const cap = this.parkMax();
+    const target = cap !== null ? Math.min(balance, cap) : balance;
+    if (target > 0) this.amountStr.set(String(Math.floor(target)));
   }
 
   next() {
@@ -150,6 +187,7 @@ export class ManualCashoutComponent implements OnInit {
   }
 
   back() {
+    if (this.submitting()) return;
     if (this.step() === 2) this.step.set(1);
     else if (this.step() === 3) this.step.set(2);
   }
@@ -158,17 +196,17 @@ export class ManualCashoutComponent implements OnInit {
     const d = this.selectedDriver();
     const card = this.selectedCard();
     const parkId = this.selectedParkId();
-    if (!d || !card || !parkId) return;
+    if (!d || !card || !parkId || this.submitting()) return;
 
     this.submitting.set(true);
     this.submitError.set(null);
     try {
+      // `initiatedBy` is intentionally absent: the server records the admin from the token.
       const result = await this.api.createCashout(parkId, {
         driverId: d.id,
         cardId: card.id,
         amount: this.amount(),
         idempotencyKey: this.idempotencyKey,
-        initiatedBy: this.svc.user().name,
       });
       this.result.set(result);
       this.step.set(4);
@@ -180,15 +218,55 @@ export class ManualCashoutComponent implements OnInit {
         result,
       });
     } catch (err: any) {
-      // HttpErrorResponse: surface server message if present
-      const serverMsg = err?.error?.message ?? err?.error?.error ?? err?.message ?? 'Unknown error';
-      this.submitError.set(serverMsg);
+      const body = err?.error;
+      // 422 / 202 carry the saga result (Failed / ReviewRequired / Queued) — show it as an outcome.
+      if (body && typeof body.status === 'string' && body.cashoutId) {
+        this.result.set(body as CashoutSagaResult);
+        this.step.set(4);
+      } else {
+        this.submitError.set(this.describeError(err));
+      }
     } finally {
       this.submitting.set(false);
     }
   }
 
+  /** Translate `cashout_rejected` codes; fall back to the server message, then a generic one. */
+  private describeError(err: any): string {
+    const body = err?.error as CashoutRejection | undefined;
+    if (body?.error === 'cashout_rejected' && body.code) {
+      const p = body.params ?? {};
+      const gel = (v: unknown) => this.formatGel(Number(v) || 0, 2);
+      switch (body.code) {
+        case 'below_minimum':          return `${this.t.rejBelowMinimum} ${gel(p['min'])}`;
+        case 'above_maximum':          return `${this.t.rejAboveMaximum} ${gel(p['max'])}`;
+        case 'daily_limit_reached':    return `${this.t.rejDailyLimit} · ${gel(p['usedToday'])} / ${gel(p['limit'])} ${this.t.rejUsedToday}`;
+        case 'insufficient_balance':   return `${this.t.rejInsufficientBalance} · ${gel(p['balance'])}`;
+        case 'bank_not_supported': {
+          const supported = Array.isArray(p['supported']) ? (p['supported'] as unknown[]).join(', ') : '';
+          const detail = [p['bankCode'] ? String(p['bankCode']) : '', supported ? `${this.t.rejSupported}: ${supported}` : '']
+            .filter(Boolean).join(' · ');
+          return detail ? `${this.t.rejBankNotSupported} (${detail})` : this.t.rejBankNotSupported;
+        }
+        case 'cashout_in_flight':       return this.t.rejCashoutInFlight;
+        case 'driver_not_linked':       return this.t.rejDriverNotLinked;
+        case 'driver_inactive':         return this.t.rejDriverInactive;
+        case 'park_inactive':           return this.t.rejParkInactive;
+        case 'destination_removed':     return this.t.rejDestinationRemoved;
+        case 'destination_no_iban':     return this.t.rejDestinationNoIban;
+        case 'balance_unavailable':     return this.t.rejBalanceUnavailable;
+        case 'yandex_read_only':        return this.t.rejYandexReadOnly;
+        case 'idempotency_key_conflict':return this.t.rejIdempotencyConflict;
+        case 'rejected':                return this.t.rejRejected;
+        default:                        return body.message ?? this.t.rejRejected;
+      }
+    }
+    return err?.error?.message ?? err?.error?.error ?? this.t.errUnknown;
+  }
+
   closeModal() {
+    // Never close mid-submit: the result (and the idempotency key) would be lost.
+    if (this.submitting()) return;
     this.close.emit();
   }
 

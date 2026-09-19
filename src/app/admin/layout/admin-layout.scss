@@ -1,3 +1,5 @@
+@use '../shared/page-base';
+
 :host {
   display: block;
   min-height: 100dvh;
@@ -112,4 +114,34 @@
       pointer-events: none;
     }
   }
+}
+
+// ── Park bootstrap failure (replaces the router outlet) ───────────
+.park-fail {
+  max-width: 480px;
+  margin: 10vh auto 0;
+  padding: var(--space-8) var(--space-6);
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+
+  &__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    svg { width: 22px; height: 22px; }
+  }
+
+  &__title { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; color: var(--color-text); }
+  &__text { font-size: 13.5px; color: var(--color-text-2); max-width: 40ch; }
+  .btn-admin { margin-top: var(--space-2); }
 }

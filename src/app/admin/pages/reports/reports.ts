@@ -4,6 +4,7 @@ import { AdminApiService, ApiReport } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
+import { downloadCsv } from '../../shared/csv';
 
 type Preset = 'today' | 'week' | 'month' | '30d' | 'custom';
 
@@ -84,7 +85,7 @@ export class ReportsComponent {
       const r = await this.api.getReport(parkId, from.toISOString(), to.toISOString(), 10);
       this.report.set(r);
     } catch (err: any) {
-      this.loadError.set(`Could not load report: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadReport);
     } finally {
       this.loading.set(false);
     }
@@ -103,33 +104,12 @@ export class ReportsComponent {
   exportCsv() {
     const r = this.report();
     if (!r) return;
-    const header = ['Date', 'Cashouts', 'Value (GEL)', 'Fees (GEL)', 'Failed'];
-    const rows = r.daily.map(d => [
-      d.date.slice(0, 10),
-      d.cashoutsCount,
-      d.value.toFixed(2),
-      d.fees.toFixed(2),
-      d.failedCount,
-    ]);
-    const csv = [header, ...rows]
-      .map(row => row.map(cell => this.csvEscape(String(cell))).join(','))
-      .join('\r\n');
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     const park = this.parkCtx.currentPark();
-    a.href = url;
-    a.download = `paytaxi-${park?.slug ?? 'park'}-${r.windowFrom.slice(0, 10)}_to_${r.windowTo.slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  private csvEscape(s: string): string {
-    if (s.includes('"') || s.includes(',') || s.includes('\n')) {
-      return `"${s.replace(/"/g, '""')}"`;
-    }
-    return s;
+    downloadCsv(
+      `paytaxi-${park?.slug ?? 'park'}-${r.windowFrom.slice(0, 10)}_to_${r.windowTo.slice(0, 10)}`,
+      [this.t.colDate, this.t.cashoutsLabel, `${this.t.colValue} (GEL)`, `${this.t.colFees} (GEL)`, this.t.failed],
+      r.daily.map(d => [d.date.slice(0, 10), d.cashoutsCount, d.value.toFixed(2), d.fees.toFixed(2), d.failedCount]),
+    );
   }
 
   private todayIso(): string {

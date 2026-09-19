@@ -70,9 +70,11 @@ export class AdminTopbarComponent implements OnInit {
     if (u.includes('/admin/cashouts'))       return this.t['navCashouts'];
     if (u.includes('/admin/drivers'))        return this.t['navDrivers'];
     if (u.includes('/admin/onboarding'))     return this.t['navOnboarding'];
+    if (u.includes('/admin/settlements'))    return this.t['navSettlements'];
     if (u.includes('/admin/reconciliation')) return this.t['navReconciliation'];
     if (u.includes('/admin/reports'))        return this.t['navReports'];
     if (u.includes('/admin/settings'))       return this.t['navSettings'];
+    if (u.includes('/admin/add-park'))       return this.t['navAddPark'];
     return this.t['navAdmin'];
   });
 

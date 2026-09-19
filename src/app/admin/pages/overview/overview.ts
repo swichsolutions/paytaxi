@@ -15,6 +15,8 @@ interface FailedRow {
   bankType: string;
   maskedPan: string;
   createdAt: Date;
+  /** Only `Failed` rows may be retried; `ReviewRequired` goes to Reconciliation. */
+  rawStatus: 'Failed' | 'ReviewRequired';
 }
 
 @Component({
@@ -24,7 +26,7 @@ interface FailedRow {
   styleUrl: './overview.scss',
 })
 export class OverviewComponent {
-  svc = inject(AdminMockService); // hourly chart + activity feed still mock
+  svc = inject(AdminMockService); // formatters only
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
   private i18n = inject(AdminI18nService);
@@ -39,12 +41,20 @@ export class OverviewComponent {
   private hourlyRaw = signal<ApiHourBucket[]>([]);
   accounts = signal<ApiBankAccount[]>([]);
 
+  /** True until the first successful load — drives the skeleton. */
+  readonly firstLoad = computed(() => this.loading() && this.kpisRaw() === null);
+
   constructor() {
     this.parkCtx.ensureLoaded();
     effect(() => {
       const parkId = this.parkCtx.currentParkId();
       if (parkId) this.fetchFor(parkId);
     });
+  }
+
+  refresh() {
+    const parkId = this.parkCtx.currentParkId();
+    if (parkId && !this.loading()) void this.fetchFor(parkId);
   }
 
   private async fetchFor(parkId: string) {
@@ -64,26 +74,27 @@ export class OverviewComponent {
       this.hourlyRaw.set(hourly.buckets);
       this.accounts.set(accounts.accounts);
     } catch (err: any) {
-      this.loadError.set(`Could not load overview: ${err?.message ?? err}`);
+      this.loadError.set(err?.error?.message ?? this.t.errLoadOverview);
     } finally {
       this.loading.set(false);
     }
   }
 
-  // Adapted to keep the existing template happy (it expects the mock-shape).
-  // deltaPct/hourly/activity stay 0 / mocked — visible follow-up.
   kpis = computed(() => {
     const k = this.kpisRaw();
     return {
-      cashoutsToday:      { count: k?.cashoutsToday.count ?? 0, value: k?.cashoutsToday.value ?? 0, deltaPct: 0 },
-      feesCollectedToday: { value: k?.feesToday.value ?? 0,    deltaPct: 0 },
+      cashoutsToday:      { count: k?.cashoutsToday.count ?? 0, value: k?.cashoutsToday.value ?? 0 },
+      feesCollectedToday: { value: k?.feesToday.value ?? 0 },
       pendingQueue:       { count: k?.pendingQueue.count ?? 0,  value: k?.pendingQueue.value ?? 0 },
       failedToday:        { count: k?.failedToday.count ?? 0 },
-      activeDriversToday: { count: k?.activeDrivers.count ?? 0, total: k?.activeDrivers.total ?? 0 },
+      activeDrivers:      { count: k?.activeDrivers.count ?? 0, total: k?.activeDrivers.total ?? 0 },
     };
   });
 
-  // Model A: the park pays from its own bank account(s). The float card lists the
+  /** Flat per-cashout fee configured for this park (0.50 GEL at launch). */
+  cashoutFee = computed(() => this.kpisRaw()?.cashoutFee ?? null);
+
+  // Model A: the park pays from its own bank account(s). The card lists the
   // park's payout accounts with a live balance where the rail exposes one, plus
   // the payouts currently queued behind the bank.
   activeAccounts = computed(() => this.accounts().filter(a => a.isActive));
@@ -93,6 +104,13 @@ export class OverviewComponent {
     return withBalance.length === 0 ? null : withBalance.reduce((s, a) => s + (a.balance ?? 0), 0);
   });
 
+  /** Why a balance is missing for an account: bank error, no credentials, or the rail simply doesn't expose one. */
+  balanceNote(a: ApiBankAccount): string {
+    if (a.balanceError) return this.t.balanceReadFailed;
+    if (a.credentialsSet === false) return this.t.parkManagesFloat;
+    return '';
+  }
+
   queuedRows = computed(() =>
     this.cashoutsRaw()
       .filter(c => c.status === 'Queued')
@@ -100,7 +118,7 @@ export class OverviewComponent {
       .slice(0, 6)
       .map(c => ({
         id: c.id,
-        driverName: c.driverName ?? '(unnamed)',
+        driverName: c.driverName ?? this.t.unnamed,
         net: c.amount - c.fee,
         attemptCount: c.attemptCount ?? 0,
         nextAttemptAt: c.nextAttemptAt ? new Date(c.nextAttemptAt) : null,
@@ -116,28 +134,22 @@ export class OverviewComponent {
     return bal !== null && q > 0 && bal < q * 2;
   });
 
-  operatingModel = computed(() => this.kpisRaw()?.park.operatingModel ?? '');
-
   failed = computed<FailedRow[]>(() =>
     this.cashoutsRaw()
       .filter(c => c.status === 'Failed' || c.status === 'ReviewRequired')
       .slice(0, 8)
       .map(c => ({
         id: c.id,
-        driverName: c.driverName ?? '(unnamed)',
+        driverName: c.driverName ?? this.t.unnamed,
         amount: c.amount,
         errorMessage: c.failureReason,
         bankType: c.bankType,
         maskedPan: c.maskedPan,
         createdAt: new Date(c.createdAt),
+        rawStatus: c.status === 'Failed' ? 'Failed' : 'ReviewRequired',
       }))
   );
 
-  pending = computed(() =>
-    this.cashoutsRaw().filter(c => c.status === 'Queued' || c.status === 'Processing')
-  );
-
-  // Hourly chart + activity feed now backed by /api/admin/parks/{id}/{hourly,activity}.
   hourly = computed(() => this.hourlyRaw().map(b => ({
     hour: b.hour,
     value: b.value,
@@ -154,7 +166,7 @@ export class OverviewComponent {
     amount: e.amount ?? undefined,
   })));
 
-  // Bar chart geometry helpers (unchanged)
+  // Bar chart geometry helpers
   readonly chartH = 80;
   readonly chartW = 280;
 
@@ -179,12 +191,26 @@ export class OverviewComponent {
 
   todayTotal = computed(() => this.kpisRaw()?.cashoutsToday.value ?? 0);
 
+  // ── Retry with inline confirmation ──────────────────────────────
   retrying = signal<string | null>(null);
+  confirmRetryId = signal<string | null>(null);
+  retryError = signal<string | null>(null);
+
+  askRetry(id: string) {
+    if (this.retrying()) return;
+    this.confirmRetryId.set(id);
+  }
+
+  cancelRetry() {
+    this.confirmRetryId.set(null);
+  }
 
   async retry(id: string) {
     const parkId = this.parkCtx.currentParkId();
     if (!parkId || this.retrying()) return;
+    this.confirmRetryId.set(null);
     this.retrying.set(id);
+    this.retryError.set(null);
     try {
       await this.api.retryCashout(parkId, id);
       await this.fetchFor(parkId);
@@ -193,8 +219,8 @@ export class OverviewComponent {
       if (err?.error?.cashoutId) {
         await this.fetchFor(parkId);
       } else {
-        const msg = err?.error?.message ?? err?.message ?? 'Retry failed';
-        this.loadError.set(`Retry failed: ${msg}`);
+        const msg = err?.error?.message ?? err?.message ?? '';
+        this.retryError.set(`${this.t.retryFailed} ${msg}`.trim());
       }
     } finally {
       this.retrying.set(null);

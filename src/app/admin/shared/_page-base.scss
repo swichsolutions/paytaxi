@@ -156,6 +156,84 @@
   }
 }
 
+// ── Load / error banner (shared by every data page) ───────────────
+.load-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--color-error-bg);
+  border: 1px solid rgba(229, 57, 53, 0.25);
+  color: var(--color-error);
+
+  &__text { min-width: 0; overflow-wrap: anywhere; }
+
+  .btn-admin { height: 32px; padding: 0 var(--space-3); font-size: 12px; flex: 0 0 auto; }
+}
+
+// ── Skeleton placeholders ─────────────────────────────────────────
+.skel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--admin-surface-2);
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    animation: skel-shimmer 1.4s infinite;
+  }
+
+  &--text { height: 12px; width: 60%; }
+  &--title { height: 22px; width: 40%; }
+  &--row { height: 56px; width: 100%; border-radius: 0; }
+  &--tile { height: 118px; width: 100%; border-radius: 14px; }
+  &--card { height: 260px; width: 100%; border-radius: 16px; }
+}
+
+.skel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+@keyframes skel-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skel::after { animation: none; }
+}
+
+// ── Inline confirmation strip ─────────────────────────────────────
+.confirm-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--color-warning-bg);
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-text);
+
+  &__text { min-width: 0; flex: 1 1 200px; }
+  &__actions { display: flex; gap: var(--space-2); flex: 0 0 auto; }
+
+  .btn-admin { height: 32px; padding: 0 var(--space-3); font-size: 12px; }
+}
+
 // ── Placeholder card (stubs) ──────────────────────────────────────
 .placeholder {
   border: 1.5px dashed var(--admin-border-strong);

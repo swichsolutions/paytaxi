@@ -6,16 +6,6 @@
         {{ t.onboardingSub }}
       </p>
     </div>
-    <div class="page-head__actions">
-      <a class="btn-admin btn-admin--secondary" href="#" (click)="$event.preventDefault()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="8" x2="12" y2="12"/>
-          <line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <span>{{ t.onboardingGuide }}</span>
-      </a>
-    </div>
   </header>
 
   <!-- ── Bulk sync from Yandex ──────────────────────────────────── -->
@@ -154,7 +144,7 @@
             <input
               type="text"
               class="field__input field__input--mono"
-              placeholder="yp_xxxxxx"
+              [placeholder]="t.yandexProfileIdPlaceholder"
               [ngModel]="yandexId()"
               (ngModelChange)="yandexId.set($event)"
               autocomplete="off"
@@ -249,7 +239,7 @@
           </label>
 
           <label class="field">
-            <span class="field__label">{{ t.carPlate }}</span>
+            <span class="field__label">{{ t.carPlate }} <span class="field__opt">· {{ t.optional }}</span></span>
             <input
               type="text"
               class="field__input field__input--mono"
@@ -284,22 +274,6 @@
               />
             </label>
           }
-
-          <div class="ob-toggle">
-            <label class="ob-toggle__label">
-              <span class="ob-toggle__title">{{ t.sendWelcomeSms }}</span>
-              <span class="ob-toggle__sub">{{ t.sendWelcomeSmsSub }}</span>
-            </label>
-            <button
-              class="toggle"
-              [class.toggle--on]="notify()"
-              (click)="notify.update(v => !v)"
-              [attr.aria-checked]="notify()"
-              role="switch"
-            >
-              <span class="toggle__thumb"></span>
-            </button>
-          </div>
 
           @if (createError()) {
             <div class="ob-banner ob-banner--error">
@@ -350,9 +324,6 @@
           <p>
             {{ t.obLinkedA }} <code>{{ yandexId() }}</code> {{ t.obLinkedB }}
             <strong>+995 {{ phone() }}</strong>.
-            @if (notify()) {
-              {{ t.welcomeSmsSent }}
-            }
           </p>
 
           <div class="ob-success__actions">
@@ -395,15 +366,6 @@
             </div>
           </li>
         </ol>
-
-        <div class="ob-side__note">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <span>{{ t.obNoteLead }} <strong>{{ parkName() || t.theSelectedPark }}</strong>{{ t.obNoteBody1 }} <code>yp_tb3_001</code>{{ t.obNoteBody2 }} <code>yp_tb3_</code>{{ t.obNoteBody3 }}</span>
-        </div>
       }
 
       @if (step() === 2 && lookupResult()!.found) {

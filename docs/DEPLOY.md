@@ -1,6 +1,6 @@
 # PayTaxi — deployment runbook
 
-Two deployables: the **.NET 8 API** (container) and the **Angular 21 app** (static + SSR, Netlify or any static host).
+Two deployables: the **.NET 8 API** (container) and the **Angular 21 app** (static + SSR, any static host — hosting provider not yet chosen).
 Postgres 17 is the only stateful dependency.
 
 ## 1. Secrets (never in git)
@@ -54,7 +54,7 @@ npm ci
 npm run build          # production configuration → dist/paytaxi/browser (+ server for SSR)
 ```
 
-Netlify: `netlify.toml` is present (publish `dist/paytaxi/browser`, Node 22). Any static host works for the browser
+Frontend host: not decided yet (Netlify was considered and dropped on 2026-09-19). Any static host works for the browser
 bundle; SSR is optional. The API's `Cors:AllowedOrigins` must include the frontend origin(s).
 
 ## 4. Go-live checklist (from PAYTAXI-CONTEXT.md §8)

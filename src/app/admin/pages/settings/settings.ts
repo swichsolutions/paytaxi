@@ -10,7 +10,6 @@ interface ParkForm {
   legalEntityName: string;
   taxId: string;
   phone: string;
-  bankAccountIban: string;
   yandexClientId: string;
   yandexApiKey: string;
   yandexParkId: string;
@@ -56,13 +55,23 @@ export class SettingsComponent {
   saving = signal(false);
   editError = signal<string | null>(null);
   form = signal<ParkForm>({
-    legalEntityName: '', taxId: '', phone: '', bankAccountIban: '',
+    legalEntityName: '', taxId: '', phone: '',
     yandexClientId: '', yandexApiKey: '', yandexParkId: '',
     cashoutFee: '0.50', minCashoutAmount: '5', maxCashoutAmount: '', dailyCashoutLimitPerDriver: '',
     swichSharePercent: '50', phase1SharePercent: '', phase1CapGel: '',
   });
 
   readonly isSuperAdmin = computed(() => this.auth.admin()?.role === 'super_admin');
+
+  /** Display-only: the IBAN under Park details mirrors the primary payout account. */
+  readonly primaryIban = computed(() =>
+    this.accounts().find(a => a.isPrimary && a.isActive)?.iban
+    ?? this.accounts().find(a => a.isPrimary)?.iban
+    ?? this.park()?.bankAccountIban
+    ?? null);
+
+  /** Account awaiting a deactivate confirmation (D17). */
+  confirmDeactivateId = signal<string | null>(null);
 
   // ── Payout accounts ──────────────────────────────────────────────
   accounts = signal<ApiBankAccount[]>([]);
@@ -91,13 +100,9 @@ export class SettingsComponent {
     return this.t['roleParkManager'];
   }
 
+  /** Launch is Model A only; any legacy value is echoed as-is. */
   modelLabel(model: string | undefined): string {
-    switch (model) {
-      case 'ModelA':  return this.t['modelAOpt'];
-      case 'ModelA5': return 'Model A.5 (legacy)';
-      case 'ModelB':  return 'Model B';
-      default:        return model ?? '—';
-    }
+    return model === 'ModelA' ? this.t['modelAOpt'] : (model ?? '—');
   }
 
   statusLabel(status: string | undefined): string {
@@ -120,7 +125,6 @@ export class SettingsComponent {
       legalEntityName: p.legalEntityName ?? '',
       taxId: p.taxId ?? '',
       phone: p.phone ?? '',
-      bankAccountIban: p.bankAccountIban ?? '',
       yandexClientId: p.yandexClientId ?? '',
       yandexApiKey: '', // write-only — never prefilled
       yandexParkId: p.yandexParkId ?? '',
@@ -152,11 +156,11 @@ export class SettingsComponent {
         legalEntityName: f.legalEntityName.trim(),
         taxId: f.taxId.trim(),
         phone: f.phone.trim(),
-        bankAccountIban: f.bankAccountIban.trim(),
         yandexClientId: f.yandexClientId.trim(),
         yandexParkId: f.yandexParkId.trim(),
         yandexApiKey: f.yandexApiKey.trim(), // blank = keep existing
-        cashoutFee: Number(f.cashoutFee) || 0,
+        // Fee is Swich-only (backend returns 403 otherwise) — only sent by super_admin.
+        ...(this.isSuperAdmin() ? { cashoutFee: Number(f.cashoutFee) || 0 } : {}),
         minCashoutAmount: Number(f.minCashoutAmount) || 0,
         maxCashoutAmount: f.maxCashoutAmount.trim() ? Number(f.maxCashoutAmount) : 0,               // 0 = no limit
         dailyCashoutLimitPerDriver: f.dailyCashoutLimitPerDriver.trim() ? Number(f.dailyCashoutLimitPerDriver) : 0,
@@ -200,7 +204,7 @@ export class SettingsComponent {
       const r = await this.api.listBankAccounts(parkId);
       this.accounts.set(r.accounts);
     } catch (err: any) {
-      this.accountsError.set(err?.error?.message ?? err?.message ?? 'Could not load payout accounts.');
+      this.accountsError.set(err?.error?.message ?? this.t.errLoadAccounts);
     } finally {
       this.accountsLoading.set(false);
     }
@@ -255,9 +259,15 @@ export class SettingsComponent {
     }
   }
 
+  /** Activating is immediate; deactivating asks first (and warns when payouts are queued on the account). */
   async toggleActive(a: ApiBankAccount) {
-    await this.mutateAccount(a, { isActive: !a.isActive });
+    if (!a.isActive) { await this.mutateAccount(a, { isActive: true }); return; }
+    if (this.confirmDeactivateId() !== a.id) { this.confirmDeactivateId.set(a.id); return; }
+    this.confirmDeactivateId.set(null);
+    await this.mutateAccount(a, { isActive: false });
   }
+
+  cancelDeactivate() { this.confirmDeactivateId.set(null); }
 
   async makePrimary(a: ApiBankAccount) {
     await this.mutateAccount(a, { isPrimary: true });

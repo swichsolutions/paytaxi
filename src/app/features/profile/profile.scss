@@ -91,9 +91,6 @@
   font-weight: 800;
   letter-spacing: 0.06em;
   flex-shrink: 0;
-
-  &--bog { background: #E8F0FE; color: #1A56DB; }
-  &--tbc { background: #FFF4E5; color: #E67E22; }
 }
 
 .remove-btn {
@@ -111,29 +108,30 @@
   &:hover { background: var(--color-error-bg); color: var(--color-error); }
 }
 
-// ── Toggle ────────────────────────────────────────────────────────
-.toggle {
-  width: 48px;
-  height: 28px;
-  border-radius: var(--radius-full);
-  background: var(--color-border);
-  padding: 3px;
-  transition: background 0.2s ease;
-  flex-shrink: 0;
+// ── Inline "remove this account?" confirm ─────────────────────────
+.prof-row--confirming {
+  background: var(--color-error-bg);
+}
 
-  &--on { background: var(--color-success); }
+.prof-row__confirm {
+  flex-direction: column;
+  align-items: flex-start !important;
+  gap: 6px !important;
+}
 
-  &__thumb {
-    display: block;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-    transition: transform 0.2s ease;
-  }
+.prof-row__confirm-text {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
 
-  &--on &__thumb { transform: translateX(20px); }
+.prof-row__confirm-actions {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.prof-link--danger {
+  color: var(--color-error);
 }
 
 // ── Language options ──────────────────────────────────────────────

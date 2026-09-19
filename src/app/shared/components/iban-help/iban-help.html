@@ -18,13 +18,13 @@
       @for (bank of ['TBC', 'BOG']; track bank) {
         @if (has(bank)) {
           <section class="iban-help__bank">
-            <h4 class="iban-help__bank-title">{{ bank === 'BOG' ? 'Bank of Georgia' : bank }}</h4>
+            <h4 class="iban-help__bank-title">{{ bankTitle(bank) }}</h4>
             <!-- Real app screenshot, shown only once it actually loads; hidden if the file is missing. -->
             <img
               class="iban-help__shot"
               [class.iban-help__shot--hidden]="!imageOk(bank)"
               [src]="imageSrc(bank)"
-              [alt]="bank + ' app – account details with IBAN'"
+              [alt]="shotAlt(bank)"
               loading="lazy"
               (load)="onImageLoad(bank)"
               (error)="onImageError(bank)"

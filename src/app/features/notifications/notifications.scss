@@ -38,9 +38,17 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   text-align: center;
+  // Never let a long "Mark all read" translation squeeze the title into wrapping.
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .notif-mark-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: none;
   background: transparent;
   color: var(--color-brand-dark, #B58400);
@@ -48,8 +56,23 @@
   font-size: 0.85rem;
   cursor: pointer;
   padding: 6px 8px;
+  max-width: 44vw;
+  white-space: nowrap;
+
+  svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+  &__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   &:hover { color: var(--color-brand, #FFB800); }
+
+  // On narrow phones the icon carries the meaning (aria-label + title still say "Mark all read").
+  @media (max-width: 380px) {
+    &__label { display: none; }
+    padding: 6px;
+  }
 }
 
 .notif-spacer { width: 38px; }
@@ -135,9 +158,57 @@
   svg { width: 22px; height: 22px; }
 
   &[data-tone="success"] { background: #d1fae5; color: #065f46; }
+  &[data-tone="pending"] { background: rgba(255, 184, 0, 0.18); color: #9A6F00; }
   &[data-tone="error"]   { background: #fee2e2; color: #991b1b; }
   &[data-tone="warning"] { background: #fef3c7; color: #92400e; }
   &[data-tone="info"]    { background: #dbeafe; color: #1e40af; }
+}
+
+// ── Loading skeleton / error state ────────────────────────────────
+.notif-skeleton {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+
+  &__icon,
+  &__line {
+    display: block;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #f3f4f6 0%, #e5e7eb 50%, #f3f4f6 100%);
+    background-size: 200% 100%;
+    animation: notifShimmer 1.4s ease-in-out infinite;
+  }
+
+  &__icon { width: 44px; height: 44px; border-radius: 12px; }
+  &__lines { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+  &__line { height: 10px; width: 90%; }
+  &__line--title { height: 12px; width: 55%; }
+  &__line--short { width: 30%; }
+}
+
+@keyframes notifShimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+.notif-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 16px;
+  text-align: center;
+  color: #991b1b;
+  font-weight: 600;
+  font-size: 0.9rem;
+
+  p { margin: 0; }
+  &__retry { width: auto; min-width: 140px; }
 }
 
 .notif-row__main {

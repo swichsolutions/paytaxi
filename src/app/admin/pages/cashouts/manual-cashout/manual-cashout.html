@@ -1,7 +1,7 @@
 <header class="modal__head">
   <div class="modal__head-left">
     @if (step() > 1 && step() < 4) {
-      <button class="modal__back" (click)="back()" aria-label="Back">
+      <button class="modal__back" (click)="back()" [disabled]="submitting()" [attr.aria-label]="t.back">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M19 12H5M12 5l-7 7 7 7"/>
         </svg>
@@ -18,7 +18,7 @@
       </div>
     </div>
   </div>
-  <button class="modal__close" (click)="closeModal()" aria-label="Close">
+  <button class="modal__close" (click)="closeModal()" [disabled]="submitting()" [attr.aria-label]="t.cancel">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <line x1="18" y1="6" x2="6" y2="18"/>
       <line x1="6" y1="6" x2="18" y2="18"/>
@@ -44,7 +44,7 @@
             (ngModelChange)="selectPark($event)"
           >
             @for (p of parks(); track p.id) {
-              <option [value]="p.id">{{ p.name }} ({{ p.operatingModel }})</option>
+              <option [value]="p.id">{{ p.name }}</option>
             }
           </select>
         }
@@ -93,13 +93,13 @@
     </div>
   }
 
-  <!-- ── Step 2: Amount + card ────────────────────────────────── -->
+  <!-- ── Step 2: Amount + destination ─────────────────────────── -->
   @if (step() === 2 && selectedDriver(); as d) {
     <div class="mc-step">
       <div class="mc-picked">
         <div class="mc-picked__avatar">{{ initials(d.name) }}</div>
         <div class="mc-picked__main">
-          <span class="mc-picked__name">{{ d.name }}</span>
+          <span class="mc-picked__name">{{ d.name ?? t.unnamed }}</span>
           <span class="mc-picked__sub">{{ t.available }} · <b class="gel">{{ formatGel(driverBalance(), 2) }}</b></span>
         </div>
         <button class="mc-picked__change" (click)="back()">{{ t.change }}</button>
@@ -122,8 +122,11 @@
         @if (amount() > driverBalance()) {
           <p class="mc-error">{{ t.exceedsBalance }}</p>
         }
-        @if (amount() > 0 && amount() < 5) {
-          <p class="mc-error">{{ t.minCashout }}</p>
+        @if (belowMin()) {
+          <p class="mc-error">{{ t.minCashout }} <span class="gel">{{ formatGel(parkMin(), 2) }}</span></p>
+        }
+        @if (aboveMax()) {
+          <p class="mc-error">{{ t.maxCashoutIs }} <span class="gel">{{ formatGel(parkMax() ?? 0, 2) }}</span></p>
         }
 
         <div class="mc-keypad">
@@ -177,7 +180,7 @@
       <div class="mc-confirm">
         <span class="mc-confirm__label">{{ t.youAreAboutToTransfer }}</span>
         <div class="mc-confirm__amount gel">{{ formatGel(net(), 2) }}</div>
-        <span class="mc-confirm__to">{{ t.to }} {{ d.name }} · {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}</span>
+        <span class="mc-confirm__to">{{ t.to }} {{ d.name ?? t.unnamed }} · {{ selectedCard()?.bankType }} {{ selectedCard()?.maskedPan }}</span>
       </div>
 
       <div class="mc-summary">
@@ -195,7 +198,7 @@
         </div>
         <div class="mc-summary__row">
           <span>{{ t.initiatedBy }}</span>
-          <span class="mc-summary__pill">{{ t.managerCaps }} · {{ svc.user().name }}</span>
+          <span class="mc-summary__pill">{{ t.managerCaps }} · {{ initiatedByLabel() }}</span>
         </div>
       </div>
 
@@ -222,6 +225,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="20 6 9 17 4 12"/>
           </svg>
+        } @else if (r.status === 'Queued') {
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
         } @else {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
@@ -233,18 +241,30 @@
       <h3>
         @switch (r.status) {
           @case ('Completed')      { {{ t.cashoutCompleted }} }
+          @case ('Queued')         { {{ t.queued }} }
           @case ('ReviewRequired') { {{ t.needsManualReview }} }
           @case ('Failed')         { {{ t.cashoutFailed }} }
           @default                  { {{ r.status }} }
         }
       </h3>
-      <p>
-        @if (r.status === 'Completed') {
-          {{ formatGel(r.net, 2) }} {{ t.wasTransferredTo }} {{ selectedDriver()?.name }}. {{ t.bankRef }} {{ r.bankTransferId }} · {{ t.yandexRef }} {{ r.yandexTransactionId }}.
-        } @else {
-          {{ r.failureReason }}
+      @switch (r.status) {
+        @case ('Completed') {
+          <p>
+            {{ formatGel(r.net, 2) }} {{ t.wasTransferredTo }} {{ selectedDriver()?.name ?? t.unnamed }}.
+            @if (r.bankTransferId) { {{ t.bankRef }} <code>{{ r.bankTransferId }}</code> }
+            @if (r.yandexTransactionId) { · {{ t.yandexRef }} <code>{{ r.yandexTransactionId }}</code> }
+          </p>
         }
-      </p>
+        @case ('Queued') {
+          <p>{{ t.mcQueuedSub }}</p>
+        }
+        @case ('ReviewRequired') {
+          <p>{{ t.needsReconciliationHint }}</p>
+        }
+        @default {
+          @if (r.failureReason) { <p>{{ r.failureReason }}</p> }
+        }
+      }
     </div>
   }
 </div>
@@ -263,7 +283,7 @@
     </button>
   }
   @if (step() === 3) {
-    <button class="btn-admin btn-admin--secondary" (click)="back()">{{ t.back }}</button>
+    <button class="btn-admin btn-admin--secondary" (click)="back()" [disabled]="submitting()">{{ t.back }}</button>
     <button class="btn-admin btn-admin--brand" [disabled]="submitting()" (click)="confirm()">
       @if (submitting()) {
         <span class="mc-spin"></span>

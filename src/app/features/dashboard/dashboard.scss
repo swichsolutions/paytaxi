@@ -38,7 +38,8 @@
   position: relative;
   z-index: 1;
 
-  &__left { display: flex; flex-direction: column; gap: 2px; }
+  // min-width:0 lets the name column shrink so long names truncate instead of wrapping under the actions.
+  &__left { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; margin-right: var(--space-3); }
 
   &__park {
     font-size: var(--text-xs);
@@ -46,6 +47,9 @@
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: rgba(255, 255, 255, 0.35);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   &__name {
@@ -53,6 +57,9 @@
     font-weight: 700;
     color: #fff;
     letter-spacing: -0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   &__actions {
@@ -192,7 +199,13 @@
 
     svg { width: 17px; height: 17px; }
     &:hover { color: rgba(255, 255, 255, 0.7); background: rgba(255,255,255,0.07); }
-    &:active svg { animation: spin 0.5s linear; }
+    &:disabled { cursor: default; }
+
+    // Spins for as long as the /me?fresh=true round-trip is in flight.
+    &--busy {
+      color: var(--color-brand);
+      svg { animation: spin 0.8s linear infinite; }
+    }
   }
 
   &__amount {
@@ -203,8 +216,65 @@
     line-height: 1;
     display: block;
     text-shadow: 0 2px 24px rgba(0,0,0,0.3);
+    white-space: nowrap;
+
+    // 4–5 integer digits (₾ 1234.50) — still fits a 360px-wide phone.
+    &--long  { font-size: clamp(2.5rem, 12vw, 4rem); letter-spacing: -0.04em; }
+    // 6+ integer digits (₾ 123456.50).
+    &--xlong { font-size: clamp(2rem, 9.5vw, 3.25rem); letter-spacing: -0.03em; }
   }
 
+  &__stale {
+    margin-top: var(--space-3);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--color-brand);
+    opacity: 0.9;
+  }
+
+  // Loading placeholder — same height as the amount so the card doesn't jump.
+  &__skeleton {
+    height: clamp(4rem, 18vw, 5.5rem);
+    width: 62%;
+    border-radius: var(--radius-md);
+    background: linear-gradient(90deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.06) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+
+  // Unknown balance: tap the whole block to retry. Never shows ₾ 0.00.
+  &__unavailable {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    color: #fff;
+    padding: var(--space-1) 0;
+    border-radius: var(--radius-md);
+
+    &:disabled { opacity: 0.6; cursor: default; }
+  }
+
+  &__unavailable-title {
+    font-size: var(--text-2xl);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.15;
+  }
+
+  &__unavailable-hint {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
 }
 
 @keyframes spin {
@@ -258,6 +328,28 @@
 .list-rows {
   border-radius: var(--radius-xl);
   overflow: hidden;
+}
+
+// Empty / error states for the two recent lists
+.list-empty {
+  padding: var(--space-5) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-3);
+  text-align: center;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+
+  &--error { color: var(--color-warning-fg); background: var(--color-warning-bg); }
+}
+
+.list-skeleton {
+  height: 58px;
+  margin: var(--space-2) 0;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--color-surface) 0%, var(--color-surface-2) 50%, var(--color-surface) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 .list-row {

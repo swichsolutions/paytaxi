@@ -5,7 +5,7 @@
       <p class="page-head__sub">{{ t.driversSub }}</p>
     </div>
     <div class="page-head__actions">
-      <button class="btn-admin btn-admin--secondary">
+      <button class="btn-admin btn-admin--secondary" (click)="exportCsv()" [disabled]="filtered().length === 0">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="7 10 12 15 17 10"/>
@@ -13,7 +13,7 @@
         </svg>
         <span>{{ t.exportCsv }}</span>
       </button>
-      <button class="btn-admin btn-admin--brand">
+      <a class="btn-admin btn-admin--brand" routerLink="/admin/onboarding">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="10" cy="8" r="4"/>
           <path d="M2 21c0-4 3-7 8-7"/>
@@ -21,9 +21,16 @@
           <line x1="14" y1="17" x2="22" y2="17"/>
         </svg>
         <span>{{ t.onboardDriver }}</span>
-      </button>
+      </a>
     </div>
   </header>
+
+  @if (loadError()) {
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ loadError() }}</span>
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
+    </div>
+  }
 
   <!-- Toolbar -->
   <div class="toolbar">
@@ -60,11 +67,11 @@
       </button>
       <button
         class="chip"
-        [class.chip--active]="status() === 'inactive'"
-        (click)="setStatus('inactive')"
+        [class.chip--active]="status() === 'pending'"
+        (click)="setStatus('pending')"
       >
-        {{ t.inactive }}
-        <span class="chip__count">{{ counts().inactive }}</span>
+        {{ t.pending }}
+        <span class="chip__count">{{ counts().pending }}</span>
       </button>
       <button
         class="chip"
@@ -82,6 +89,7 @@
       <span class="toolbar__meta-label">·</span>
       <span class="toolbar__meta-label">{{ t.cashedOutThisMonth }}</span>
       <span class="toolbar__meta-value gel">{{ formatGel(sumThisMonth(), 0) }}</span>
+      <span class="toolbar__meta-label toolbar__meta-note">({{ t.recentSampleNote }})</span>
     </div>
   </div>
 
@@ -117,7 +125,15 @@
         <div class="table__cell table__cell--action"></div>
       </div>
 
-      @if (filtered().length === 0) {
+      @if (firstLoad()) {
+        <div class="skel-stack" aria-busy="true">
+          <div class="skel skel--row"></div>
+          <div class="skel skel--row"></div>
+          <div class="skel skel--row"></div>
+          <div class="skel skel--row"></div>
+          <div class="skel skel--row"></div>
+        </div>
+      } @else if (filtered().length === 0) {
         <div class="table__empty">
           <p>{{ t.noDriversMatch }}</p>
         </div>
@@ -141,15 +157,15 @@
           <div class="table__cell table__cell--status">
             <span class="status-pill" [attr.data-status]="d.status">
               <span class="status-pill__dot"></span>
-              {{ t[d.status] }}
+              {{ statusLabel(d.status) }}
             </span>
           </div>
           <div class="table__cell table__cell--num">
             <span class="num gel">{{ formatGel(d.balance, 2) }}</span>
           </div>
           <div class="table__cell table__cell--num">
-            <span class="num gel">{{ formatGel(d.totalCashedOutMonth, 0) }}</span>
-            <span class="num__sub">{{ d.cashoutCountMonth }} {{ t.cashoutsWord }}</span>
+            <span class="num gel">{{ formatGel(d.totalCashedOut30d, 0) }}</span>
+            <span class="num__sub">{{ d.cashoutCount30d }} {{ t.cashoutsWord }}</span>
           </div>
           <div class="table__cell table__cell--meta">
             <span class="meta">{{ formatRel(d.lastSeenAt) }}</span>
@@ -176,11 +192,11 @@
             <span class="drawer__id-sub">{{ d.phone }} · {{ d.carPlate }}</span>
             <span class="status-pill status-pill--inline" [attr.data-status]="d.status">
               <span class="status-pill__dot"></span>
-              {{ t[d.status] }}
+              {{ statusLabel(d.status) }}
             </span>
           </div>
         </div>
-        <button class="drawer__close" (click)="closeDetail()" aria-label="Close">
+        <button class="drawer__close" (click)="closeDetail()" [attr.aria-label]="t.cancel">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -195,13 +211,14 @@
         </div>
         <div class="drawer__stat">
           <span class="drawer__stat-label">{{ t.cashedOutMonth }}</span>
-          <span class="drawer__stat-value gel">{{ formatGel(d.totalCashedOutMonth, 0) }}</span>
+          <span class="drawer__stat-value gel">{{ formatGel(d.totalCashedOut30d, 0) }}</span>
         </div>
         <div class="drawer__stat">
           <span class="drawer__stat-label">{{ t.cashoutCount }}</span>
-          <span class="drawer__stat-value">{{ d.cashoutCountMonth }}</span>
+          <span class="drawer__stat-value">{{ d.cashoutCount30d }}</span>
         </div>
       </section>
+      <p class="drawer__stats-note">{{ t.recentSampleNote }}</p>
 
       <section class="drawer__section">
         <header class="drawer__section-head">
@@ -230,7 +247,7 @@
           </div>
           <div class="drawer__kv">
             <span class="drawer__kv-label">{{ t.status }}</span>
-            <span class="drawer__kv-value">{{ t[d.status] }}</span>
+            <span class="drawer__kv-value">{{ statusLabel(d.status) }}</span>
           </div>
           <div class="drawer__kv">
             <span class="drawer__kv-label">{{ t.lastSeen }}</span>
@@ -262,7 +279,7 @@
                 type="text"
                 [value]="editForm().yandexProfileId"
                 (input)="setEditField('yandexProfileId', $any($event.target).value)"
-                placeholder="yp_xxxxxx"
+                [placeholder]="t.yandexProfileIdPlaceholder"
               />
             </label>
             <label class="edit-field">
@@ -272,7 +289,7 @@
                 (change)="setEditField('status', $any($event.target).value)"
               >
                 <option value="active">{{ t.active }}</option>
-                <option value="inactive">{{ t.inactive }}</option>
+                <option value="pending">{{ t.pending }}</option>
                 <option value="suspended">{{ t.suspended }}</option>
               </select>
             </label>
@@ -305,7 +322,7 @@
                 <span class="drawer__co-amount gel">{{ formatGel(c.amount, 0) }}</span>
                 <span class="drawer__co-bank">{{ c.bankType }} {{ c.maskedPan }}</span>
               </div>
-              <span class="status-pill status-pill--sm" [attr.data-status]="c.status">{{ t[c.status] }}</span>
+              <span class="status-pill status-pill--sm" [attr.data-status]="c.status">{{ cashoutStatusLabel(c.status) }}</span>
               <span class="drawer__co-time">{{ formatRel(c.createdAt) }}</span>
             </div>
           }
@@ -314,6 +331,20 @@
           }
         </div>
       </section>
+
+      @if (!editing() && editError()) {
+        <p class="edit-error edit-error--pad">{{ editError() }}</p>
+      }
+
+      @if (confirmSuspend()) {
+        <div class="confirm-inline drawer__confirm">
+          <span class="confirm-inline__text">{{ t.confirmSuspendDriver }}</span>
+          <span class="confirm-inline__actions">
+            <button class="btn-admin btn-admin--secondary" (click)="cancelSuspend()">{{ t.cancel }}</button>
+            <button class="btn-admin btn-admin--brand" (click)="setDriverStatus('suspended')" [disabled]="statusUpdating()">{{ t.confirm }}</button>
+          </span>
+        </div>
+      }
 
       <footer class="drawer__footer">
         @if (d.status === 'suspended') {
@@ -327,14 +358,14 @@
         } @else {
           <button
             class="btn-admin btn-admin--secondary"
-            (click)="setDriverStatus('suspended')"
-            [disabled]="statusUpdating()"
+            (click)="askSuspend()"
+            [disabled]="statusUpdating() || confirmSuspend()"
           >
             @if (statusUpdating()) { {{ t.updating }} } @else { {{ t.suspend }} }
           </button>
         }
-        <button class="btn-admin btn-admin--brand">
-          {{ t.newCashoutFor }} {{ d.name.split(' ')[0] }}
+        <button class="btn-admin btn-admin--brand" (click)="newCashoutFor(d.id)" [disabled]="d.status !== 'active'">
+          {{ t.newCashoutFor }} {{ d.hasName ? d.name.split(' ')[0] : t.driver }}
         </button>
       </footer>
     </aside>

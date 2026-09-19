@@ -33,6 +33,7 @@
   transition: color 0.15s ease;
   position: relative;
   height: 100%;
+  min-width: 0;
 
   svg {
     width: 22px;
@@ -41,7 +42,15 @@
     flex-shrink: 0;
   }
 
-  span { flex-shrink: 0; }
+  // Labels never spill into the neighbouring slot — a translation that is still too long gets an ellipsis.
+  span {
+    flex-shrink: 0;
+    max-width: 100%;
+    padding: 0 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   &:hover  { color: rgba(255, 255, 255, 0.75); }
 
