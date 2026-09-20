@@ -57,3 +57,7 @@ backend/PayTaxi.Api/appsettings.Development.json
 .env
 .env.*
 .scratch/
+
+# Playwright
+test-results/
+playwright-report/

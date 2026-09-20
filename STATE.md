@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-20 (visual pass fixes + payout-account ownership rule — see the newest section)
+**Last updated:** 2026-09-20 (CI + regression tests — see the newest section)
 
 ---
 
@@ -11,6 +11,33 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-20 (part 2) — CI + regression tests (N1)
+
+Everything found by hand this week is now a test that runs on every push.
+- **Integration tests** (`PayTaxi.Tests/Integration`, 24 tests): `ApiFixture` boots the API in-process
+  (`WebApplicationFactory<Program>` — `public partial class Program {}` added) against a fresh
+  `paytaxi_test` DB (dropped/recreated per run, Development seed). Settings go in as ENVIRONMENT VARIABLES,
+  not in-memory config: Program.cs reads Jwt:Key etc. eagerly and the factory's in-memory overrides land
+  too late (tokens signed with one key, validated with another → every call 401). Covers: ownership rule
+  (own-name variants, refusals, admin reason gating, laundering lock, length limits, placeholder names),
+  saga (typed rejections, concurrent double-tap, scoped idempotency, removed card, third-party payout +
+  queue flag + invoice PDF, balance cache), auth (phone spellings, OTP cap, suspended driver), authorization
+  (park confinement, fee Swich-only, token scopes). 101 tests total, ~6 s.
+- **Playwright** (`e2e/`, 8 tests, ~25 s): `playwright.config.ts` starts `ng serve`, expects the API on
+  :5196. Projects: `phone` (360 px: driver app + admin-on-phone overflow checks) and `desktop` (admin).
+  Login helper pastes the OTP via a real `ClipboardEvent` (typing digit-by-digit races the auto-advance).
+  Local: `npm run e2e`, set `PW_CHROMIUM` if the bundled browser is missing.
+- **GitHub Actions** (`.github/workflows/ci.yml`): backend (Postgres service, `fonts-noto-core` for the
+  invoice), frontend (tsc + production build), e2e (API in background with env config, Playwright).
+- Production knobs added so tests can turn them: `RateLimit:AuthPerMinute` (default 10),
+  `Auth:OtpMaxPerWindow` (3), `Auth:OtpWindowMinutes` (10). Local dev json raises the cap for e2e reruns.
+- Found by writing the tests: a token that expired while the tab was closed sent the admin to login
+  WITHOUT the "session expired" notice (only the interceptor set it) → `AdminAuthService.expiredOnLoad`
+  + guard appends `reason=expired`.
+- `docs/TESTING.md` explains how to run each layer and the conventions.
 
 ---
 

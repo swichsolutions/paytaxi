@@ -32,8 +32,9 @@ public class AuthController : ControllerBase
 {
     private const int CodeExpiryMinutes = 5;
     private const int MaxAttemptsPerCode = 5;
-    private const int OtpWindowMinutes = 10;
-    private const int MaxOtpPerWindow = 3;
+    // Per-phone OTP cap — Auth:OtpWindowMinutes / Auth:OtpMaxPerWindow (defaults 10 min / 3 codes).
+    private readonly int OtpWindowMinutes;
+    private readonly int MaxOtpPerWindow;
 
     private readonly AppDbContext _db;
     private readonly IJwtTokenService _jwt;
@@ -53,6 +54,8 @@ public class AuthController : ControllerBase
         _env = env;
         _log = log;
         _trustedDeviceDays = config.GetValue("Auth:TrustedDeviceDays", 90);
+        OtpWindowMinutes = config.GetValue("Auth:OtpWindowMinutes", 10);
+        MaxOtpPerWindow = config.GetValue("Auth:OtpMaxPerWindow", 3);
     }
 
     [HttpPost("request-otp")]

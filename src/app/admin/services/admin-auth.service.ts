@@ -36,9 +36,15 @@ export class AdminAuthService {
     return exp === null || exp - EXPIRY_SKEW_MS > Date.now();
   });
 
+  /** True when a stored token was found already expired on load — the guard turns this into "session expired". */
+  readonly expiredOnLoad = signal(false);
+
   constructor() {
     // Drop a token that already expired while the tab was closed.
-    if (this.token() !== null && !this.isAuthenticated()) this.logout();
+    if (this.token() !== null && !this.isAuthenticated()) {
+      this.logout();
+      this.expiredOnLoad.set(true);
+    }
   }
 
   async login(email: string, password: string): Promise<void> {

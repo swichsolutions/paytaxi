@@ -9,5 +9,6 @@ export const adminAuthGuard: CanActivateFn = (_route, state) => {
   const auth = inject(AdminAuthService);
   const router = inject(Router);
   if (auth.isAuthenticated()) return true;
-  return router.parseUrl(`/admin/login?next=${encodeURIComponent(state.url)}`);
+  const reason = auth.expiredOnLoad() ? '&reason=expired' : '';
+  return router.parseUrl(`/admin/login?next=${encodeURIComponent(state.url)}${reason}`);
 };

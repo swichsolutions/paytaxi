@@ -197,6 +197,8 @@ builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 // AdminAuthController complements this by punishing specific accounts.
 //   - 10 requests per minute per IP
 //   - queue depth 0 → excess gets 429 immediately
+// RateLimit:AuthPerMinute — per-IP permits per minute on the auth endpoints (default 10; tests raise it).
+var authPerMinute = builder.Configuration.GetValue("RateLimit:AuthPerMinute", 10);
 builder.Services.AddRateLimiter(opts =>
 {
     opts.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -205,7 +207,7 @@ builder.Services.AddRateLimiter(opts =>
             partitionKey: ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             factory: _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 10,
+                PermitLimit = authPerMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
@@ -271,3 +273,6 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+/// <summary>Lets the integration tests host the API in-process (WebApplicationFactory&lt;Program&gt;).</summary>
+public partial class Program { }

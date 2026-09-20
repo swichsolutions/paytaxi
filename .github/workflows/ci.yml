@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  NG_CLI_ANALYTICS: "false"
+  # Throw-away settings for the CI database and test hosts. Nothing here is a real secret.
+  CI_DB: "Host=localhost;Database=paytaxi_test;Username=postgres;Password=postgres"
+  CI_JWT_KEY: "ci-only-jwt-key-0123456789-abcdefghijklmnopqrstuvwxyz"
+  CI_ENC_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+jobs:
+  backend:
+    name: Backend · unit + integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Georgian font for the invoice PDF test (the production image installs the same package)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fontconfig fonts-noto-core > /dev/null
+      - run: dotnet restore backend/PayTaxi.sln
+      - run: dotnet build backend/PayTaxi.sln -c Release --no-restore
+      - name: Test (unit + in-process API against Postgres)
+        env:
+          PAYTAXI_TEST_DB: ${{ env.CI_DB }}
+        run: dotnet test backend/PayTaxi.sln -c Release --no-build --logger "trx;LogFileName=results.trx"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: backend-test-results
+          path: "**/TestResults/*.trx"
+
+  frontend:
+    name: Frontend · production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit -p tsconfig.app.json
+      - run: npx ng build --configuration production
+
+  e2e:
+    name: End-to-end · Playwright (driver app + admin console)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: dotnet build backend/PayTaxi.Api -c Release
+
+      - name: Start the API (Development seed, deterministic mocks)
+        shell: bash
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          ConnectionStrings__DefaultConnection: ${{ env.CI_DB }}
+          Jwt__Key: ${{ env.CI_JWT_KEY }}
+          Encryption__Key: ${{ env.CI_ENC_KEY }}
+          Cors__AllowedOrigins__0: http://localhost:4200
+          YandexFleet__ReadOnlyMode: "false"
+          YandexFleet__MockLatencyMs: "0"
+          YandexFleet__MockTransientFailureRate: "0"
+          BankPayout__Mock__LatencyMs: "0"
+          BankPayout__Mock__TransientFailureRate: "0"
+          BankPayout__Mock__AmbiguousFailureRate: "0"
+          BalanceSync__Enabled: "false"
+          Reconciliation__Enabled: "false"
+          Settlement__Enabled: "false"
+          RateLimit__AuthPerMinute: "100000"
+          Auth__OtpMaxPerWindow: "50"
+        run: |
+          nohup dotnet run --project backend/PayTaxi.Api -c Release --no-build --no-launch-profile --urls http://localhost:5196 > api.log 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5196/api/driver/me || true)
+            [ "$code" = "401" ] && echo "API up" && exit 0
+            sleep 2
+          done
+          echo "API did not start"; tail -50 api.log; exit 1
+
+      - run: npx playwright install --with-deps chromium
+      - name: Playwright
+        run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-artifacts
+          path: |
+            playwright-report
+            test-results
+            api.log
