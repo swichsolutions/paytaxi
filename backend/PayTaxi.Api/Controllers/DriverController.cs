@@ -171,8 +171,10 @@ public class DriverController : ControllerBase
         var driver = await _db.Drivers.FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (driver is null) return NotFound(new { error = "driver_not_found" });
 
+        // Drivers may only add accounts in their own name; anything else goes through the park.
         var (outcome, err, payload) = await DestinationHelper.AddAsync(
-            _db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true, ct);
+            _db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true,
+            allowThirdParty: false, thirdPartyReason: null, initiatedBy: $"driver:{driverId}", ct);
 
         return outcome switch
         {

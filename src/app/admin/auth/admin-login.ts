@@ -31,6 +31,9 @@ export class AdminLoginComponent {
   submitting = signal(false);
   error = signal('');
 
+  /** Set when the interceptor sent us here after a 401 (`?reason=expired`). */
+  readonly sessionExpired = signal(this.route.snapshot.queryParamMap.get('reason') === 'expired');
+
   canSubmit = computed(() =>
     this.email().includes('@') && this.password().length >= 4 && !this.submitting()
   );
@@ -53,6 +56,7 @@ export class AdminLoginComponent {
     this.error.set('');
     try {
       await this.auth.login(this.email().trim(), this.password());
+      this.sessionExpired.set(false);
       this.router.navigateByUrl(this.nextUrl());
     } catch (err: any) {
       const code = err?.error?.error;

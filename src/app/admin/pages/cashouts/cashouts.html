@@ -167,6 +167,9 @@
         <div class="queue__cell queue__cell--bank">
           <div class="bank-chip" [attr.data-bank]="c.bankType">{{ c.bankType }}</div>
           <span class="queue__pan gel">{{ c.maskedPan }}</span>
+          @if (c.isThirdPartyAccount) {
+            <span class="acct-badge acct-badge--third" [title]="c.holderName ? t.thirdPartyTitle + ': ' + c.holderName : t.thirdPartyTitle">{{ t.thirdPartyBadge }}</span>
+          }
         </div>
         <div class="queue__cell queue__cell--init">
           <span class="init-pill" [attr.data-init]="c.initiatedBy">

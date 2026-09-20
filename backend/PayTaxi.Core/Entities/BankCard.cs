@@ -30,6 +30,19 @@ public class BankCard : BaseEntity
     /// <summary>Account holder name, as the bank expects on the transfer order.</summary>
     public string? HolderName { get; set; }
 
+    /// <summary>
+    /// The holder name does not look like the driver's registered name (script-blind compare),
+    /// i.e. the park knowingly pays this driver into someone else's account. Only a park admin
+    /// can create such a destination, and only with a reason; drivers are refused.
+    /// </summary>
+    public bool IsThirdPartyAccount { get; set; }
+
+    /// <summary>Why the park agreed to pay a third party (admin-entered; e.g. "driver has no account, wife's account, statement on file").</summary>
+    public string? ThirdPartyReason { get; set; }
+
+    /// <summary>Who created the destination: "driver:{id}" or "admin:{email}". Audit convenience beside the API audit log.</summary>
+    public string? AddedBy { get; set; }
+
     public bool IsDefault { get; set; }
     public bool IsActive { get; set; } = true;
 

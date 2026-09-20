@@ -57,9 +57,38 @@
     font-weight: 700;
     color: #fff;
     letter-spacing: -0.02em;
+    line-height: 1.2;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  // Phones: the header actions leave ~150px for the text, which crops both "TBILISI AUTO PARK #3"
+  // and a Georgian full name. Drop the avatar (it just repeats the name's initials), slim the
+  // language pill, and let the name wrap to two lines instead of being cut.
+  @media (max-width: 599px) {
+    &__avatar { display: none; }
+    &__lang { min-width: 40px; padding: 0 8px; }
+    &__actions { gap: var(--space-2); }
+    &__park {
+      letter-spacing: 0.06em;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      line-height: 1.3;
+    }
+    &__name {
+      font-size: var(--text-base);
+      white-space: normal;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
   }
 
   &__actions {

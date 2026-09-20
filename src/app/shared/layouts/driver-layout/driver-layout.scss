@@ -21,7 +21,10 @@
   flex-direction: column;
 
   @media (min-width: 600px) {
-    min-height: calc(100dvh - 56px);
+    // A real phone frame: fixed height, content scrolls inside, corners clip everything
+    // (including the bottom nav, which is absolutely positioned inside the frame here).
+    height: calc(100dvh - 56px);
+    min-height: 0;
     border-radius: 32px;
     overflow: hidden;
     box-shadow: 0 32px 96px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(0,0,0,0.06);

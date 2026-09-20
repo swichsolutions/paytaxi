@@ -142,3 +142,11 @@ select.ap-input { cursor: pointer; }
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
+
+.ap-field__note {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-3);
+}

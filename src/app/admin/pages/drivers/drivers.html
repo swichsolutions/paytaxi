@@ -263,6 +263,7 @@
                 (input)="setEditField('name', $any($event.target).value)"
                 [placeholder]="t.driverFullNamePlaceholder"
               />
+              <small class="edit-hint">{{ t.driverNameHint }}</small>
             </label>
             <label class="edit-field">
               <span>{{ t.phone }}</span>
@@ -307,6 +308,94 @@
               </button>
             </div>
           </div>
+        }
+      </section>
+
+      <section class="drawer__section">
+        <header class="drawer__section-head">
+          <h3 class="drawer__section-title">{{ t.payoutAccounts }}</h3>
+          @if (!addingCard()) {
+            <button class="drawer__edit-btn" (click)="startAddCard()">{{ t.addPayoutAccount }}</button>
+          }
+        </header>
+
+        @if (d.cards.length === 0 && !addingCard()) {
+          <p class="drawer__co-empty">{{ t.noDriverAccounts }}</p>
+        }
+
+        <div class="acct-list">
+          @for (c of d.cards; track c.id) {
+            <div class="acct-row" [class.acct-row--third]="c.isThirdPartyAccount">
+              <div class="acct-row__main">
+                <span class="acct-row__iban gel">{{ c.iban || c.maskedPan }}</span>
+                <span class="acct-row__meta">
+                  <span class="acct-row__bank">{{ c.bankType }}</span>
+                  @if (c.holderName) { <span>· {{ c.holderName }}</span> }
+                  @if (c.isDefault) { <span class="acct-badge acct-badge--default">{{ t.defaultBadge }}</span> }
+                  @if (c.isThirdPartyAccount) {
+                    <span class="acct-badge acct-badge--third" [title]="t.thirdPartyTitle">{{ t.thirdPartyBadge }}</span>
+                  }
+                </span>
+                @if (c.isThirdPartyAccount && c.thirdPartyReason) {
+                  <span class="acct-row__reason">{{ c.thirdPartyReason }}</span>
+                }
+                <span class="acct-row__added">{{ t.addedByLabel }}: {{ addedByLabel(c.addedBy) }}</span>
+              </div>
+              @if (confirmRemoveCardId() === c.id) {
+                <div class="confirm-inline">
+                  <span>{{ t.confirmRemoveAccount }}</span>
+                  <button class="btn-admin btn-admin--secondary btn-admin--sm" (click)="cancelRemoveCard()">{{ t.cancel }}</button>
+                  <button class="btn-admin btn-admin--danger btn-admin--sm" (click)="removeCard(c.id)">{{ t.removeAccount }}</button>
+                </div>
+              } @else {
+                <button class="acct-row__remove" (click)="askRemoveCard(c.id)" [disabled]="removingCardId() !== null">
+                  @if (removingCardId() === c.id) { {{ t.saving }} } @else { {{ t.removeAccount }} }
+                </button>
+              }
+            </div>
+          }
+        </div>
+
+        @if (addingCard()) {
+          <div class="edit-form">
+            <p class="acct-rule">{{ t.ownAccountRuleAdmin }}</p>
+            <label class="edit-field">
+              <span>{{ t.ibanLabel }}</span>
+              <input type="text" class="gel" autocomplete="off" spellcheck="false"
+                [value]="cardForm().iban" (input)="setCardField('iban', $any($event.target).value)"
+                [placeholder]="t.ibanPlaceholder" />
+            </label>
+            <label class="edit-field">
+              <span>{{ t.holderNameLabel }}</span>
+              <input type="text" maxlength="200" [value]="cardForm().holderName"
+                (input)="setCardField('holderName', $any($event.target).value)" />
+              <small class="edit-hint">{{ t.holderNameAdminHint }}</small>
+            </label>
+
+            @if (cardLooksThirdParty() || cardNeedsReason()) {
+              <div class="acct-warning" role="alert">{{ thirdPartyWarningText() }}</div>
+              <label class="edit-field">
+                <span>{{ t.thirdPartyReasonLabel }}</span>
+                <textarea rows="2" maxlength="500" [value]="cardForm().reason"
+                  (input)="setCardField('reason', $any($event.target).value)"
+                  [placeholder]="t.thirdPartyReasonPlaceholder"></textarea>
+                <small class="edit-hint">{{ t.thirdPartyReasonHint }}</small>
+              </label>
+            }
+
+            @if (cardError()) {
+              <p class="edit-error">{{ cardError() }}</p>
+            }
+
+            <div class="edit-actions">
+              <button class="btn-admin btn-admin--secondary" (click)="cancelAddCard()" [disabled]="cardBusy()">{{ t.cancel }}</button>
+              <button class="btn-admin btn-admin--brand" (click)="submitAddCard()" [disabled]="!canSubmitCard()">
+                @if (cardBusy()) { {{ t.saving }} } @else { {{ t.save }} }
+              </button>
+            </div>
+          </div>
+        } @else if (cardError()) {
+          <p class="edit-error">{{ cardError() }}</p>
         }
       </section>
 

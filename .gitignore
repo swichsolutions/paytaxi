@@ -56,3 +56,4 @@ backend/PayTaxi.Api/appsettings.Development.json
 # Docker compose / local secrets
 .env
 .env.*
+.scratch/

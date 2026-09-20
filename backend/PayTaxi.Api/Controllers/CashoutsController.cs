@@ -67,6 +67,8 @@ public class CashoutsController : AdminControllerBase
                 bankType = c.BankCard.BankType,
                 maskedPan = c.BankCard.MaskedPan,
                 destinationIban = c.BankCard.Iban,
+                holderName = c.BankCard.HolderName,
+                isThirdPartyAccount = c.BankCard.IsThirdPartyAccount,
                 sourceIban = c.ParkBankAccount != null ? c.ParkBankAccount.Iban : null,
             })
             .ToListAsync(ct);

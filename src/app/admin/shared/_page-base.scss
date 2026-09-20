@@ -127,6 +127,15 @@
 
   svg { width: 15px; height: 15px; }
 
+  // A disabled action must read as disabled — no hover lift, no pointer, washed out.
+  &:disabled,
+  &[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
   &--primary {
     background: var(--color-dark);
     color: var(--color-brand);
@@ -269,4 +278,27 @@
     font-weight: 500;
     max-width: 50ch;
   }
+}
+
+.btn-admin--sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.btn-admin--danger {
+  background: #fff;
+  color: #b91c1c;
+  border-color: var(--admin-border);
+
+  &:hover { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
+}
+
+// Account badges (drivers drawer, cashout queue, manual-cashout picker)
+.acct-badge {
+  display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  &--default { background: #e8f5e9; color: #1b6e2f; }
+  &--third   { background: #fdebc8; color: #8a5a00; }
 }

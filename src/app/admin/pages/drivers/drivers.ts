@@ -2,7 +2,7 @@ import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AdminMockService } from '../../services/admin-mock.service';
-import { AdminApiService, ApiDriver, ApiCashout, UpdateDriverBody } from '../../services/admin-api.service';
+import { AdminApiService, ApiDriver, ApiCashout, ApiCard, UpdateDriverBody } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
 import { downloadCsv, isoDateLocal } from '../../shared/csv';
@@ -27,9 +27,52 @@ interface DisplayDriver {
   /** Most recent cashout, or null when the driver has never cashed out. */
   lastSeenAt: Date | null;
   carPlate: string;
+  /** Active payout destinations (IBANs), default first. */
+  cards: ApiCard[];
 }
 
 const WINDOW_MS = 30 * 24 * 3600 * 1000;
+
+// Mirrors backend PersonName.LooksLikeSamePerson for the live hint in the add-account form.
+// Georgian/Cyrillic → lowercase Latin, words compared as sets (order/middle name irrelevant).
+const GEO: Record<string, string> = {
+  'ა':'a','ბ':'b','გ':'g','დ':'d','ე':'e','ვ':'v','ზ':'z','თ':'t','ი':'i','კ':'k','ლ':'l','მ':'m','ნ':'n','ო':'o',
+  'პ':'p','ჟ':'zh','რ':'r','ს':'s','ტ':'t','უ':'u','ფ':'p','ქ':'k','ღ':'gh','ყ':'q','შ':'sh','ჩ':'ch','ც':'ts',
+  'ძ':'dz','წ':'ts','ჭ':'ch','ხ':'kh','ჯ':'j','ჰ':'h',
+};
+const CYR: Record<string, string> = {
+  'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'e','ж':'zh','з':'z','и':'i','й':'i','к':'k','л':'l','м':'m',
+  'н':'n','о':'o','п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'kh','ц':'ts','ч':'ch','ш':'sh','щ':'sh',
+  'ъ':'','ы':'y','ь':'','э':'e','ю':'yu','я':'ya',
+};
+const FOLDS: Array<[string, string]> = [
+  ['ph', 'p'], ['th', 't'], ['gh', 'g'], ['kh', 'h'], ['zh', 'j'], ['dz', 'z'],
+  ['ts', 'c'], ['tz', 'c'], ['ch', 'c'], ['sh', 's'],
+  ['q', 'k'], ['y', 'i'], ['w', 'v'], ['f', 'p'], ['x', 'ks'],
+];
+function translit(word: string): string {
+  let out = '';
+  for (const ch of word.normalize('NFD')) {
+    if (GEO[ch] !== undefined) { out += GEO[ch]; continue; }
+    const lo = ch.toLowerCase();
+    if (CYR[lo] !== undefined) { out += CYR[lo]; continue; }
+    if (lo >= 'a' && lo <= 'z') out += lo;
+  }
+  // Same folding as backend PersonName.Fold: common Latin spelling variants → one letter, no doubles.
+  for (const [from, to] of FOLDS) out = out.split(from).join(to);
+  return out.replace(/(.)\1+/g, '$1');
+}
+function nameWords(name: string): Set<string> {
+  return new Set(name.split(/[\s\-,.'’]+/).map(translit).filter(w => w.length >= 2));
+}
+export function namesLookAlike(a: string, b: string): boolean {
+  const wa = nameWords(a), wb = nameWords(b);
+  if (wa.size === 0 || wb.size === 0) return false;
+  const [shorter, longer] = wa.size <= wb.size ? [wa, wb] : [wb, wa];
+  for (const w of shorter) if (!longer.has(w)) return false;
+  return true;
+}
+
 
 @Component({
   selector: 'app-admin-drivers',
@@ -115,6 +158,7 @@ export class DriversComponent {
         cashoutCount30d: recent.length,
         lastSeenAt: mine[0] ? new Date(mine[0].createdAt) : null,
         carPlate: d.yandex?.carPlate ?? '—',
+        cards: d.cards ?? [],
       };
     });
   });
@@ -217,8 +261,138 @@ export class DriversComponent {
     this.editing.set(false);
     this.editError.set(null);
     this.confirmSuspend.set(false);
+    this.cancelAddCard();
+    this.confirmRemoveCardId.set(null);
   }
-  closeDetail()      { this.selectedId.set(null); this.editing.set(false); this.confirmSuspend.set(false); }
+  closeDetail()      {
+    this.selectedId.set(null);
+    this.editing.set(false);
+    this.confirmSuspend.set(false);
+    this.cancelAddCard();
+    this.confirmRemoveCardId.set(null);
+  }
+
+  // ── Payout accounts (IBANs) ──────────────────────────────────────
+  // The park may register an account in someone else's name (the driver app refuses that);
+  // the backend then demands a reason and flags the account as third-party everywhere.
+  addingCard = signal(false);
+  cardBusy = signal(false);
+  cardError = signal<string | null>(null);
+  /** Set when the backend says the typed holder is not the driver: reveals the reason field. */
+  cardNeedsReason = signal(false);
+  cardForm = signal<{ iban: string; holderName: string; reason: string }>({ iban: '', holderName: '', reason: '' });
+  confirmRemoveCardId = signal<string | null>(null);
+  removingCardId = signal<string | null>(null);
+
+  startAddCard() {
+    const d = this.selected();
+    this.cardForm.set({ iban: '', holderName: d?.hasName ? d.name : '', reason: '' });
+    this.cardError.set(null);
+    this.cardNeedsReason.set(false);
+    this.addingCard.set(true);
+  }
+
+  cancelAddCard() {
+    this.addingCard.set(false);
+    this.cardError.set(null);
+    this.cardNeedsReason.set(false);
+  }
+
+  setCardField<K extends keyof ReturnType<typeof this.cardForm>>(key: K, value: ReturnType<typeof this.cardForm>[K]) {
+    this.cardForm.update(f => ({ ...f, [key]: value }));
+  }
+
+  /** Pure-client hint: the typed holder differs from the registered name, so a reason will be needed. */
+  cardLooksThirdParty = computed(() => {
+    const d = this.selected();
+    const typed = this.cardForm().holderName.trim();
+    if (!d?.hasName || !typed) return false;
+    return !namesLookAlike(d.name, typed);
+  });
+
+  canSubmitCard = computed(() => {
+    const f = this.cardForm();
+    const ibanDigits = f.iban.replace(/\s+/g, '');
+    if (ibanDigits.length < 22 || this.cardBusy()) return false;
+    if ((this.cardLooksThirdParty() || this.cardNeedsReason()) && f.reason.trim().length < 3) return false;
+    return true;
+  });
+
+  async submitAddCard() {
+    const parkId = this.parkCtx.currentParkId();
+    const d = this.selected();
+    if (!parkId || !d || !this.canSubmitCard()) return;
+    this.cardBusy.set(true);
+    this.cardError.set(null);
+    const f = this.cardForm();
+    try {
+      await this.api.addDriverCard(parkId, d.id, {
+        iban: f.iban.replace(/\s+/g, '').toUpperCase(),
+        holderName: f.holderName.trim() || undefined,
+        makeDefault: d.cards.length === 0,
+        reason: f.reason.trim() || undefined,
+      });
+      this.addingCard.set(false);
+      this.cardNeedsReason.set(false);
+      const keep = d.id;
+      await this.fetchFor(parkId);
+      this.selectedId.set(keep);
+    } catch (err: any) {
+      const code = err?.error?.error;
+      if (code === 'third_party_reason_required') {
+        this.cardNeedsReason.set(true);
+        this.cardError.set(this.t.errThirdPartyReasonRequired);
+      } else if (code === 'invalid_iban_format' || code === 'invalid_iban_checksum' || code === 'iban_required') {
+        this.cardError.set(this.t.errInvalidIban);
+      } else if (code === 'bank_not_supported') {
+        this.cardError.set(this.t.errBankNotSupportedAdmin);
+      } else if (code === 'iban_already_added') {
+        this.cardError.set(this.t.errIbanExistsAdmin);
+      } else if (code === 'holder_name_too_long') {
+        this.cardError.set(this.t.errHolderTooLong);
+      } else if (code === 'reason_too_long') {
+        this.cardError.set(this.t.errReasonTooLong);
+      } else {
+        this.cardError.set(err?.error?.message ?? this.t.errAddAccount);
+      }
+    } finally {
+      this.cardBusy.set(false);
+    }
+  }
+
+  askRemoveCard(cardId: string) { this.confirmRemoveCardId.set(cardId); }
+  cancelRemoveCard() { this.confirmRemoveCardId.set(null); }
+
+  async removeCard(cardId: string) {
+    const parkId = this.parkCtx.currentParkId();
+    const d = this.selected();
+    if (!parkId || !d || this.removingCardId()) return;
+    this.removingCardId.set(cardId);
+    this.confirmRemoveCardId.set(null);
+    this.cardError.set(null);
+    try {
+      await this.api.removeDriverCard(parkId, d.id, cardId);
+      const keep = d.id;
+      await this.fetchFor(parkId);
+      this.selectedId.set(keep);
+    } catch (err: any) {
+      this.cardError.set(err?.error?.message ?? this.t.errAddAccount);
+    } finally {
+      this.removingCardId.set(null);
+    }
+  }
+
+  /** "admin:ops@swich.dev" → "ops@swich.dev", "driver:…" → the driver. */
+  addedByLabel(v: string | null | undefined): string {
+    if (!v) return '—';
+    if (v.startsWith('driver:')) return this.t.driver;
+    return v.replace(/^admin:/, '');
+  }
+
+  thirdPartyWarningText(): string {
+    const d = this.selected();
+    return this.t.thirdPartyWarning.replace('{name}', d?.hasName ? d.name : '—');
+  }
 
   // ── Export ────────────────────────────────────────────────────────
   exportCsv() {

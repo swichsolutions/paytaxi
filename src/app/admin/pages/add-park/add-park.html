@@ -104,6 +104,7 @@
             <span class="ap-field__label">{{ t.legalEntity }}</span>
             <input type="text" class="ap-input" [value]="form().legalEntityName"
               (input)="setField('legalEntityName', $any($event.target).value)" [placeholder]="t.legalEntityPlaceholder" />
+            <span class="ap-field__note">{{ t.legalEntityHint }}</span>
           </label>
           <label class="ap-field">
             <span class="ap-field__label">{{ t.identificationCode }}</span>

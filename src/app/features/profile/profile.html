@@ -87,6 +87,7 @@
               [value]="newHolder()"
               (input)="newHolder.set($any($event.target).value)"
             />
+            <span class="prof-field__hint">{{ t.holderNameHint }}</span>
           </label>
           <div class="prof-form__actions">
             <button class="btn btn--ghost btn--sm" (click)="cancelAdd()" [disabled]="busy()">{{ t.cancel }}</button>

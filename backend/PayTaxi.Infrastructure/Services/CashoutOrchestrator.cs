@@ -276,6 +276,7 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             Amount = amount,
             Reference = yandexResult.TransactionId,
         });
+        await AdjustBalanceCacheAsync(driver.Id, -amount, ct);
         await _db.SaveChangesAsync(ct);
 
         // ── Step 2: bank payout (net) ─────────────────────────────────
@@ -626,7 +627,22 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             Reference = reversal.TransactionId,
             Notes = "Debit returned to driver's Yandex balance",
         });
+        await AdjustBalanceCacheAsync(cashout.DriverId, cashout.Amount, ct);
         await FailAsync(cashout, code, message, ct);
+    }
+
+    /// <summary>
+    /// Keep the driver's cached Yandex balance honest between sync runs: the app reads
+    /// <c>/me</c> from the cache for up to two minutes, so a debit (or a reversal) must show
+    /// there immediately rather than after the next sync. Best effort — the sync worker and
+    /// any live read overwrite it with Yandex's own figure.
+    /// </summary>
+    private async Task AdjustBalanceCacheAsync(Guid driverId, decimal delta, CancellationToken ct)
+    {
+        var row = await _db.YandexBalanceCaches.FirstOrDefaultAsync(c => c.DriverId == driverId, ct);
+        if (row is null) return;
+        row.Balance += delta;
+        row.UpdatedAt = DateTime.UtcNow;
     }
 
     // ── Terminal helpers ─────────────────────────────────────────────

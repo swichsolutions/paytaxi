@@ -53,7 +53,13 @@ export class ProfileComponent implements OnInit {
 
   setLang(l: Lang) { this.svc.lang.set(l); }
 
-  openAdd() { this.cardError.set(null); this.adding.set(true); }
+  openAdd() {
+    this.cardError.set(null);
+    // Pre-fill with the profile name (as the park registered it) — editable, e.g. for a driver
+    // whose bank account is under a Latin passport name.
+    if (!this.newHolder().trim()) this.newHolder.set(this.session.driver()?.name ?? '');
+    this.adding.set(true);
+  }
   cancelAdd() { this.adding.set(false); this.newIban.set(''); this.cardError.set(null); }
 
   onIbanInput(v: string) {
@@ -131,6 +137,8 @@ export class ProfileComponent implements OnInit {
       return `${t.errBankNotSupported} ${supported || this.supportedBanksLabel()}`;
     }
     if (code === 'iban_already_added') return t.errIbanExists;
+    if (code === 'holder_name_mismatch') return t.errHolderNameMismatch;
+    if (code === 'third_party_account_locked') return t.errThirdPartyLocked;
     if (code === 'card_has_pending_cashout') return t.errCardHasPending;
     return t.errGeneric;
   }

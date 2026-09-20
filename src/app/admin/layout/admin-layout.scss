@@ -67,7 +67,10 @@
   .admin-shell {
     // Single-column layout. The sidebar floats over the content instead
     // of pushing it — same pattern as mobile Gmail / Slack.
-    grid-template-columns: 1fr;
+    // minmax(0, 1fr): a wide top bar or table may never stretch the page past the screen.
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 100vw;
+    overflow-x: hidden;
     grid-template-areas:
       "topbar"
       "content";

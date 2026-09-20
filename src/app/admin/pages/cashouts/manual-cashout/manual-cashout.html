@@ -160,7 +160,9 @@
           >
             <div class="bank-chip" [attr.data-bank]="card.bankType">{{ card.bankType }}</div>
             <span class="mc-card__pan gel">{{ card.maskedPan }}</span>
+            @if (card.holderName) { <span class="mc-card__holder">{{ card.holderName }}</span> }
             @if (card.isDefault) { <span class="mc-card__tag">{{ t.defaultCaps }}</span> }
+            @if (card.isThirdPartyAccount) { <span class="acct-badge acct-badge--third">{{ t.thirdPartyBadge }}</span> }
             <div class="mc-card__check" [class.mc-card__check--on]="selectedCardId() === card.id">
               @if (selectedCardId() === card.id) {
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

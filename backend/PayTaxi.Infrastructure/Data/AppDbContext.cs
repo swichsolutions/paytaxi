@@ -244,6 +244,9 @@ public class AppDbContext : DbContext
             e.Property(b => b.IbanHash).HasMaxLength(64).IsRequired().HasDefaultValue("");
             e.Property(b => b.BankCode).HasMaxLength(2).IsRequired();
             e.Property(b => b.HolderName).HasMaxLength(200);
+            e.Property(b => b.ThirdPartyReason).HasMaxLength(500);
+            e.Property(b => b.AddedBy).HasMaxLength(200);
+            e.Property(b => b.IsThirdPartyAccount).HasDefaultValue(false);
             e.Property(b => b.TokenReferenceEncrypted).HasDefaultValue("").HasConversion(Encrypted);
             e.HasIndex(b => new { b.DriverId, b.IbanHash });
         });

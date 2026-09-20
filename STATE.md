@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-19 (platform review: all blocks A–E fixed — see the newest sections)
+**Last updated:** 2026-09-20 (visual pass fixes + payout-account ownership rule — see the newest section)
 
 ---
 
@@ -11,6 +11,111 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-20 — visual pass fixes, payout-account ownership rule
+
+### Ownership rule for payout accounts (decided with the user)
+Question raised: a driver could add a wife's/friend's IBAN. Facts established: the bank routes by IBAN and
+ignores the beneficiary name; no Georgian bank API tells us who owns an account; any code/test-transfer
+verification is defeated by a cooperating account owner. So ownership cannot be *enforced* in software —
+only documented. Decision: **drivers may only add accounts in their own name; anyone else's account goes
+through the park, with a reason on record.** Whether TBC's mass-payout service rejects a mismatched
+beneficiary name is question #1 for the branch visit — if it does, that closes the gap for real.
+
+Implementation:
+- `PayTaxi.Core/Identity/PersonName.cs` — script-blind name match (Georgian/Cyrillic → Latin, word-set
+  compare, extra/missing middle name and word order tolerated). 13 unit tests in `PersonNameTests`.
+  Deliberately lenient: it catches a different PERSON, not spelling variants.
+- `BankCard` gained `IsThirdPartyAccount`, `ThirdPartyReason`, `AddedBy` (migration `ThirdPartyBankAccounts`).
+- `DestinationHelper.AddAsync(..., allowThirdParty, thirdPartyReason, initiatedBy)`:
+  typed holder vs `driver.Name` → mismatch + `allowThirdParty:false` → `400 holder_name_mismatch`
+  (driver app); mismatch + admin without reason → `400 third_party_reason_required`; admin with reason →
+  saved with the flag. If our own `driver.Name` is empty we cannot judge and do NOT block the driver.
+- Driver app: `holderNameHint` now says "your own name, as on the ID your account was opened with; to be paid
+  to someone else contact your park"; `errHolderNameMismatch` on both add-account forms (profile, cashout).
+- Admin drivers drawer: NEW "Payout accounts" section (was missing entirely — `addDriverCard` was dead code):
+  list with Default / Third party badges, holder, "Added by", Remove with inline confirm; Add form with IBAN,
+  holder (pre-filled with the registered name), live mismatch warning (`namesLookAlike` mirrors the backend),
+  reason textarea shown only on mismatch, Save disabled until reason ≥ 3 chars.
+- Reference name = `Drivers.Name` as the park registered it (not Yandex). The user will ask parks to
+  register drivers in ID script (Georgian, or passport script for foreigners). Onboarding hint TODO if wanted.
+- **Terms of service line for the lawyer**: "Payouts are made only to a bank account held in the driver's own
+  name. A request to pay a third party must be made to the taxi park, which may refuse it; the driver bears
+  responsibility for payments to any account he registers." (No consent/terms screen exists yet — Phase 7.)
+- Suggested park procedure for a third-party request (not code): ask why; get a signed statement naming the
+  payee + copy of payee ID; manager adds the account with the reason; the "Third party" badge then shows in
+  the driver list, cashout queue and (TODO) invoice.
+
+### Visual-pass fixes (user clicking through on desktop + phone)
+- Admin token expiry: `AdminAuthService.isAuthenticated` checks the JWT/`expiresAt`; interceptor turns an
+  admin 401 into sign-out + `/admin/login?reason=expired&next=…`; login shows "session expired". (Root cause of
+  "401 on parks": a 24 h token from the day before was treated as signed-in.)
+- Login footer sentence removed (both languages).
+- Cashout step 1 fits one screen: `.cashout--fit` = exact visible height; keypad rows flex 40–64 px; no filler.
+- Desktop phone frame: fixed height, scrolls inside, bottom nav absolute inside the frame → no white corners.
+- Balance after a cashout: saga adjusts `YandexBalanceCaches` on debit/reversal; app forces `?fresh=true` after
+  the result. Dashboard header: avatar hidden < 600 px, park name and driver name wrap instead of truncating.
+- Legal entity name: "შპს …" placeholder + "as registered with the Revenue Service, in Georgian" hint on
+  settings + add-park; demo parks now carry Georgian registered names, tax IDs and phones (written via a
+  UTF-8 SQL file — psql inline args mangle Georgian into `?`).
+- Holder name pre-filled from the profile name on both driver forms, hint "as on the ID your account was
+  opened with" (works for foreign drivers with Latin passports).
+- Admin CSS on phones: page was 377 px wide on a 360 px screen (top-bar park picker) → picker flexes, shell
+  `minmax(0,1fr)` + `max-width:100vw`; drivers/cashouts toolbars `minmax(0,…)`; status tabs scroll sideways;
+  in-card notes padded like rows; `.btn-admin:disabled` visual; `--danger`/`--sm` moved to shared base.
+- Georgian driver copy: "IBAN" → "ანგარიშის ნომერი" everywhere (that is the mobile-bank wording).
+- Playwright works for visual checks: `.scratch/*.mjs` (gitignored) with
+  `executablePath: C:/Users/Home/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe`.
+  Scripts must live inside the repo (node resolves `playwright` from the project's node_modules).
+
+### Second pass (user asked to "test once more") — flaws found and fixed
+- Holder name > 200 / reason > 500 chars → was a 500 (varchar overflow) → now `400 holder_name_too_long` /
+  `reason_too_long`; admin inputs carry `maxlength`.
+- Drivers imported from Yandex without a name were stored as `"(unnamed)"`, which the matcher treated as a real
+  name → such a driver could never add an account. Import now stores `null`; `DestinationHelper.IsPlaceholderName`
+  also neutralises legacy placeholders ("(unnamed)", "-", "n/a"). No rows in the dev DB had it.
+- Laundering: driver removed an admin-registered third-party IBAN and re-added it under his own name → flag
+  cleared. Now `400 third_party_account_locked` for drivers; only the park can re-register that IBAN.
+- Mismatch error now tells the driver to check spelling against the ID (a typo in the surname is refused —
+  by design, the ID spelling governs).
+- **Known limitation**: Russian given-name forms differ from Georgian ones ("Георгий" ≠ "გიორგი" after
+  transliteration), so a park that registered names in Russian will see those drivers refused until it
+  re-registers them in ID script. Surname-only / initial+surname / extra middle name all pass (lenient by design).
+- Verified OK: whitespace-only reason refused; empty holder defaults to the registered name; admin can re-register
+  a locked IBAN under the driver's own name (flag cleared, by the park); admin drawer has no overflow at 360 px.
+- psql inline arguments mangle Cyrillic AND Georgian into `?` — always test/seed non-Latin text via `-f file.sql`.
+
+### Third pass — flaws found and fixed
+- **Transliteration was too strict for real Latin spellings.** ღვინიაშვილი is written "Gviniashvili" (not
+  "Ghviniashvili"), ყიფიანი "Kipiani" (not "Qipiani"), ჟვანია "Jvania", ხაჩიძე often "Hachidze", ფ as "f"/"ph",
+  doubled letters ("Mikelladze") — all were refused. `PersonName.Fold` now collapses these variants
+  (gh→g, kh→h, zh→j, dz→z, ts/tz/ch→c, sh→s, q→k, y→i, w→v, f/ph→p, th→t, x→ks, doubles→single) on BOTH sides;
+  frontend `namesLookAlike` folds identically. 72 tests (was 60). A one-letter typo that changes a sound still
+  differs ("Kobakhadze"), as does the Russian given-name form ("Георгий" vs "გიორგი" — known limitation).
+- **The invoice named the driver as beneficiary even for a third-party account.** "მიმღები:" now prints the
+  account HOLDER; a third-party account adds "მესამე პირის ანგარიში — თანხა ირიცხება მძღოლის (X) მოთხოვნით,
+  პარკის თანხმობით." Verified by extracting the PDF text (pypdf): holder name + marker present.
+- **"Shown everywhere" was only true in the driver drawer.** The cashout queue row and the manual-cashout account
+  picker now show the "Third party" badge (+ holder name in the picker / badge tooltip). `CashoutsController`
+  list exposes `holderName`, `isThirdPartyAccount`. `.acct-badge` styles moved to `shared/_page-base.scss`.
+- Park-side hint added under the driver name field (onboarding step 2 + drivers edit form): "as on the ID or
+  passport, in that script — payouts are only allowed to an account in this name" (en/ka).
+- E2E verified: admin registers wife's account → driver cashes out to it → Completed; ledger note routes to the
+  right IBAN; queue row flagged; PDF correct. Frontend live matcher agrees with the backend on Latin/surname-only/
+  kh→h variants and flags a different person.
+- Super-admin's default park in the console is Batumi (first alphabetically) — check the park picker before
+  concluding a row is "missing".
+
+### Pitfalls found
+- **`ng serve` can keep a stale compiled template while picking up the new class** (HMR/incremental cache):
+  runtime had `startAddCard` but `ɵcmp.template` lacked the new section. Fix: restart the dev server.
+- **`dotnet ef migrations add` builds BEFORE writing the migration file**, so `dotnet run --no-build` right
+  after it runs a binary without the migration → "column does not exist". Always `dotnet build` after `ef add`.
+- Seeded driver `yp_tb3_005` is Suspended by design; use 001/002/004/007 for driver-side tests.
+- Verification scripts: `verify_thirdparty.py` (own name ✓, wife's name ✗, admin no reason ✗, admin with
+  reason ✓ + flags in list; cleans up after itself).
 
 ---
 

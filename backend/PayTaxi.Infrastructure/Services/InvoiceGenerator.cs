@@ -178,7 +178,15 @@ public class InvoiceGenerator : IInvoiceGenerator
             col.Item().PaddingTop(4);
             col.Item().Element(c => KvRow(c, "ანგარიშის ნომერი (IBAN):", m.DriverIbanOrPan));
             col.Item().PaddingTop(4);
-            col.Item().Element(c => KvRow(c, "მიმღები:", m.DriverName));
+            // The beneficiary is whoever holds the account — normally the driver. When the park
+            // registered someone else's account at the driver's request, the invoice must say so.
+            col.Item().Element(c => KvRow(c, "მიმღები:", m.BeneficiaryName));
+            if (m.IsThirdPartyAccount)
+            {
+                col.Item().PaddingTop(4);
+                col.Item().Text($"მესამე პირის ანგარიში — თანხა ირიცხება მძღოლის ({m.DriverName}) მოთხოვნით, პარკის თანხმობით.")
+                    .FontSize(9).FontColor(Colors.Orange.Darken3);
+            }
             col.Item().PaddingTop(4);
             col.Item().Element(c => KvRow(c, "დანიშნულება:", m.PaymentPurpose));
         });
@@ -229,6 +237,8 @@ public class InvoiceGenerator : IInvoiceGenerator
             NetAmount: net,
             DriverBankName: c.BankCard.BankType,
             DriverIbanOrPan: string.IsNullOrWhiteSpace(c.BankCard.Iban) ? c.BankCard.MaskedPan : c.BankCard.Iban,
+            BeneficiaryName: string.IsNullOrWhiteSpace(c.BankCard.HolderName) ? (c.Driver.Name ?? "(უსახელო)") : c.BankCard.HolderName,
+            IsThirdPartyAccount: c.BankCard.IsThirdPartyAccount,
             PaymentPurpose: purpose,
             Note: note);
     }
@@ -245,6 +255,8 @@ public class InvoiceGenerator : IInvoiceGenerator
         decimal NetAmount,
         string DriverBankName,
         string DriverIbanOrPan,
+        string BeneficiaryName,
+        bool IsThirdPartyAccount,
         string PaymentPurpose,
         string Note);
 }

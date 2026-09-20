@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Banking;
+using PayTaxi.Core.Identity;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
 
@@ -273,6 +274,9 @@ public class AdminParksController : AdminControllerBase
                     iban = b.Iban,
                     holderName = b.HolderName,
                     isDefault = b.IsDefault,
+                    isThirdPartyAccount = b.IsThirdPartyAccount,
+                    thirdPartyReason = b.ThirdPartyReason,
+                    addedBy = b.AddedBy,
                 }),
         });
 
@@ -839,7 +843,7 @@ public class AdminParksController : AdminControllerBase
             var driver = new Core.Entities.Driver
             {
                 ParkId = parkId,
-                Name = profile.Name?.Trim() ?? "(unnamed)",
+                Name = string.IsNullOrWhiteSpace(profile.Name) ? null : profile.Name.Trim(), // null, never a placeholder — the ownership check must know "no name" from a name
                 YandexDriverProfileId = pid,
                 PhoneEncrypted = phone, // plaintext until Phase 8
                 PhoneHash = phoneHash,
@@ -1285,7 +1289,11 @@ public class AdminParksController : AdminControllerBase
     //  Driver payout destinations (operator-side)
     // ═══════════════════════════════════════════════════════════════════
 
-    /// <summary>Add a payout IBAN for a driver on their behalf (onboarding desk).</summary>
+    /// <summary>
+    /// Add a payout IBAN for a driver on their behalf (onboarding desk). Unlike the driver
+    /// app, the park may register an account in someone else's name — but must say why
+    /// (<c>reason</c>); the destination is then flagged as third-party everywhere.
+    /// </summary>
     [HttpPost("drivers/{driverId:guid}/cards")]
     public async Task<IActionResult> AddDriverCard(
         Guid parkId, Guid driverId, [FromBody] AddDestinationRequest body, CancellationToken ct)
@@ -1296,7 +1304,13 @@ public class AdminParksController : AdminControllerBase
         var driver = await _db.Drivers.FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (driver is null) return NotFound(new { error = "driver_not_found" });
 
-        var (result, error, payload) = await DestinationHelper.AddAsync(_db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true, ct);
+        var (result, error, payload) = await DestinationHelper.AddAsync(
+            _db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true,
+            allowThirdParty: true, thirdPartyReason: body.Reason, initiatedBy: ActorLabel, ct);
+
+        if (result == DestinationHelper.Outcome.Created)
+            _log.LogInformation("Payout destination added for driver {DriverId} by {Actor} (third-party: {ThirdParty})",
+                driverId, ActorLabel, PersonName.Words(driver.Name).Count > 0 && !PersonName.LooksLikeSamePerson(driver.Name, body.HolderName ?? driver.Name));
         return result switch
         {
             DestinationHelper.Outcome.Created => Created($"/api/admin/parks/{parkId}/drivers/{driverId}/cards", payload),
@@ -1342,7 +1356,7 @@ public record CreateDriverRequest(
     string? Iban = null,
     string? HolderName = null);
 
-public record AddDestinationRequest(string Iban, string? HolderName, bool? MakeDefault);
+public record AddDestinationRequest(string Iban, string? HolderName, bool? MakeDefault, string? Reason = null);
 
 public record UpsertBankAccountRequest(
     string? Iban,

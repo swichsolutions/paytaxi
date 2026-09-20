@@ -2,14 +2,6 @@
 @import '../../shared/status-pill';
 
 // Danger button (logout) — not in the shared set, scoped here.
-.btn-admin--danger {
-  background: #fff;
-  color: #b91c1c;
-  border-color: var(--admin-border);
-
-  &:hover { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
-}
-
 // ── Cards ─────────────────────────────────────────────────────────
 .set-card {
   background: #fff;
@@ -236,8 +228,10 @@
   line-height: 1.5;
 }
 
+// Notes that sit inside a card align with the card's rows (same horizontal padding as .set-row / .set-card__head).
 .set-note--card {
-  margin-top: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0 var(--space-6) var(--space-4);
 }
 
 @media (max-width: 540px) {

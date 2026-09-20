@@ -109,7 +109,7 @@ export class AdminApiService {
   }
 
   // ── Driver payout destinations (operator-side) ────────────────────
-  addDriverCard(parkId: string, driverId: string, body: { iban: string; holderName?: string; makeDefault?: boolean }): Promise<ApiCard> {
+  addDriverCard(parkId: string, driverId: string, body: { iban: string; holderName?: string; makeDefault?: boolean; reason?: string }): Promise<ApiCard> {
     return firstValueFrom(this.http.post<ApiCard>(
       `${this.base}/parks/${parkId}/drivers/${driverId}/cards`, body));
   }
@@ -576,6 +576,11 @@ export interface ApiCard {
   iban?: string;
   holderName?: string | null;
   isDefault: boolean;
+  /** Holder name does not match the driver's registered name; park added it with a reason. */
+  isThirdPartyAccount?: boolean;
+  thirdPartyReason?: string | null;
+  /** "driver:{id}" or "admin:{email}". */
+  addedBy?: string | null;
 }
 
 /** The server records the initiating admin from the bearer token — never from the body. */
@@ -626,4 +631,7 @@ export interface ApiCashout {
   maskedPan: string;
   destinationIban?: string;
   sourceIban?: string | null;
+  /** Account holder as registered on the destination; differs from the driver for third-party accounts. */
+  holderName?: string | null;
+  isThirdPartyAccount?: boolean;
 }

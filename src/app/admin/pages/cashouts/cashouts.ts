@@ -28,6 +28,8 @@ interface DisplayCashout {
   initiatedBy: 'driver' | 'manager';
   bankType: string;
   maskedPan: string;
+  holderName: string | null;
+  isThirdPartyAccount: boolean;
   attemptCount: number;
   nextAttemptAt: Date | null;
   createdAt: Date;
@@ -150,6 +152,8 @@ export class CashoutsComponent {
     initiatedBy: (c.initiatedBy ?? '').startsWith('driver') ? 'driver' : 'manager',
     bankType: c.bankType,
     maskedPan: c.maskedPan,
+    holderName: c.holderName ?? null,
+    isThirdPartyAccount: c.isThirdPartyAccount === true,
     attemptCount: c.attemptCount ?? 0,
     nextAttemptAt: c.nextAttemptAt ? new Date(c.nextAttemptAt) : null,
     createdAt: new Date(c.createdAt),

@@ -245,6 +245,8 @@ export class CashoutComponent implements OnInit, OnDestroy {
       return `${t.errBankNotSupported} ${supported || this.supportedBanksLabel()}`;
     }
     if (code === 'iban_already_added') return t.errIbanExists;
+    if (code === 'holder_name_mismatch') return t.errHolderNameMismatch;
+    if (code === 'third_party_account_locked') return t.errThirdPartyLocked;
     return t.errGeneric;
   }
 
@@ -265,14 +267,15 @@ export class CashoutComponent implements OnInit, OnDestroy {
           idempotencyKey: this.idempotencyKey(),
         }));
       this.showResult(result);
-      await this.session.refresh();
+      // Live read: the Yandex debit just happened, the server's 2-minute balance cache is stale.
+      await this.session.refresh(true);
       this.scheduleRedirect(result.status === 'Completed' ? 2200 : 4500);
     } catch (err: any) {
       const body = err?.error;
       // 422 Failed comes back as an error response carrying the saga result body.
       if (body && typeof body.status === 'string' && body.cashoutId) {
         this.showResult(body as CashoutSagaResult);
-        await this.session.refresh();
+        await this.session.refresh(true);
         return;
       }
       // 400 pre-check rejection: { error: 'cashout_rejected', code, params }.

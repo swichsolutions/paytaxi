@@ -163,6 +163,7 @@
             <span class="set-field__label">{{ t.legalEntity }}</span>
             <input type="text" class="set-field__input" [value]="form().legalEntityName"
               (input)="setField('legalEntityName', $any($event.target).value)" [placeholder]="t.legalEntityPlaceholder" />
+            <span class="set-field__note">{{ t.legalEntityHint }}</span>
           </label>
           <label class="set-field">
             <span class="set-field__label">{{ t.identificationCode }}</span>

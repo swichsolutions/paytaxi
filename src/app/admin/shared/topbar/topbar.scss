@@ -497,8 +497,13 @@
     justify-content: flex-start;
   }
 
+  // The park picker is the only flexible item in the bar: it shrinks to whatever is left
+  // after the menu button, language pills and avatar, instead of forcing the page wider
+  // than the screen (a 360px phone used to render a 377px page).
   .topbar__park-picker,
   .topbar__park-badge {
+    flex: 1 1 auto;
+    min-width: 0;
     max-width: 100%;
     font-size: 0.78rem;
     padding-left: 8px;
@@ -509,11 +514,15 @@
 
   .topbar__park-picker-select,
   .topbar__park-badge {
-    max-width: 50vw;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
+
+  .topbar__lang-btn { padding: 5px 7px; }
 
   // Hide notification bell on phone (notifications are admin's anyway)
   .topbar__icon-btn { display: none; }

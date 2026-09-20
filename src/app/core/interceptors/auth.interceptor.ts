@@ -32,9 +32,23 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   }
 
   // ── Admin scope: plain bearer, no refresh flow (yet) ─────────────
+  // A 401 means the token is expired or revoked: drop it and send the admin back to the
+  // login page (keeping where they were), instead of leaving every page erroring.
   if (req.url.includes('/api/admin/')) {
-    const token = inject(AdminAuthService).token();
-    return next(token ? withBearer(req, token) : req);
+    const adminAuth = inject(AdminAuthService);
+    const adminRouter = inject(Router);
+    const token = adminAuth.token();
+    return next(token ? withBearer(req, token) : req).pipe(
+      catchError((err: unknown) => {
+        if (err instanceof HttpErrorResponse && err.status === 401 && adminAuth.token() !== null) {
+          adminAuth.expire();
+          const here = adminRouter.url;
+          const next = here.startsWith('/admin') && !here.startsWith('/admin/login') ? here : '/admin/overview';
+          adminRouter.navigate(['/admin/login'], { queryParams: { reason: 'expired', next } });
+        }
+        return throwError(() => err);
+      }),
+    );
   }
 
   // ── Driver scope: refresh-before-send, retry-once-on-401 ─────────

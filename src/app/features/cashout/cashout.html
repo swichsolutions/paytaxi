@@ -1,4 +1,4 @@
-<div class="cashout">
+<div class="cashout" [class.cashout--fit]="!confirmed() && step() === 1">
   <!-- Header — back button and step dots disappear once a result is showing -->
   <header class="co-header" [class.co-header--result]="confirmed()">
     @if (!confirmed()) {
@@ -170,7 +170,9 @@
                   autocomplete="name"
                   [value]="newHolder()"
                   (input)="newHolder.set($any($event.target).value)"
+                  [attr.aria-describedby]="'holder-hint'"
                 />
+                <span class="acct-field__hint" id="holder-hint">{{ t.holderNameHint }}</span>
               </label>
 
               @if (addError()) {

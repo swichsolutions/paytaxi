@@ -53,7 +53,7 @@ public static class SeedData
             BuildPark(
                 name: "Tbilisi Auto Park #3",
                 yandexParkId: "yx_park_tb3",
-                legalEntityName: "Tbilisi Taxi Service LLC",
+                legalEntityName: "შპს თბილისი თაქსი სერვისი",
                 taxId: "405123456",
                 phone: "+995 322 12 34 56",
                 tbcIban: GeorgianIban.Build("TB", "7000000001234567"),
@@ -73,7 +73,7 @@ public static class SeedData
             BuildPark(
                 name: "Tbilisi Auto Park #5",
                 yandexParkId: "yx_park_tb5",
-                legalEntityName: "Park-5 Operations Ltd.",
+                legalEntityName: "შპს პარკი-5 ოპერეიშენს",
                 taxId: "404987654",
                 phone: "+995 322 55 88 99",
                 tbcIban: GeorgianIban.Build("TB", "7000000987654321"),
@@ -93,7 +93,7 @@ public static class SeedData
             BuildPark(
                 name: "Batumi Auto Park #1",
                 yandexParkId: "yx_park_bt1",
-                legalEntityName: "Batumi Taxi Co.",
+                legalEntityName: "შპს ბათუმი თაქსი",
                 taxId: "402555111",
                 phone: "+995 422 77 22 11",
                 tbcIban: GeorgianIban.Build("TB", "7000000555111222"),
@@ -404,6 +404,7 @@ public static class SeedData
             BankType = GeorgianIban.BankLabel(bankCode),
             MaskedPan = GeorgianIban.Mask(iban),
             HolderName = holderName,
+            AddedBy = "seed",
             TokenReferenceEncrypted = "",
             IsDefault = isDefault,
             IsActive = true,

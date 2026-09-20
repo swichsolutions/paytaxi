@@ -1,7 +1,19 @@
 .cashout {
-  min-height: 100dvh;
+  // Exactly the visible area above the bottom nav (the scroll area reserves --nav-h): the
+  // amount step sizes its keypad to this, the success screen centres in it. Steps 2–3 may be
+  // taller than the screen (long account lists) and simply scroll.
+  min-height: calc(100dvh - var(--nav-h));
   display: flex;
   flex-direction: column;
+
+  @media (min-width: 600px) {
+    min-height: calc(100dvh - 56px - var(--nav-h));
+  }
+
+  &--fit {
+    height: calc(100dvh - var(--nav-h));
+    @media (min-width: 600px) { height: calc(100dvh - 56px - var(--nav-h)); }
+  }
 }
 
 // ── Header ───────────────────────────────────────────────────────
@@ -80,6 +92,7 @@
 // ── Body ──────────────────────────────────────────────────────────
 .co-body {
   flex: 1;
+  min-height: 0;
   padding: var(--space-5) var(--space-5);
   display: flex;
   flex-direction: column;
@@ -195,21 +208,27 @@
 }
 
 // ── Keypad ────────────────────────────────────────────────────────
-// Fixed key height (not aspect-ratio) so four rows + Next always fit a 360×640 viewport.
+// The keypad soaks up whatever height is left between the amount and the Next button:
+// keys shrink to 40px on short screens and grow to 64px on tall ones, so Next never needs a
+// scroll and there is no blank filler either.
 .keypad {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-top: auto;
 
   &__row {
+    flex: 1 1 0;
+    min-height: 40px;
+    max-height: 64px;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: var(--space-2);
   }
 
   &__key {
-    height: 56px;
+    height: 100%;
     width: 100%;
     border-radius: var(--radius-lg);
     background: var(--color-surface);
@@ -241,14 +260,11 @@
     }
   }
 
-  // Roomier keys when the screen has the height for them.
-  @media (min-height: 760px) {
-    &__key { height: 64px; }
-  }
 }
 
-// Step 1 stacks amount → messages → keypad → Next; tighten vertical rhythm on short screens.
+// Step 1 stacks amount → messages → keypad → Next with no filler between them.
 .co-body--amount { gap: var(--space-3); }
+.co-body--amount .btn--primary { margin-top: var(--space-1); }
 
 @media (max-height: 680px) {
   .co-header { padding-top: var(--space-4); padding-bottom: var(--space-4); }
@@ -538,3 +554,11 @@
 }
 
 .co-success .btn { width: auto; min-width: 160px; margin-top: var(--space-2); }
+
+.acct-field__hint {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--color-text-3);
+}

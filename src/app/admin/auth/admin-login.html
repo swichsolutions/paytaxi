@@ -81,6 +81,9 @@
           />
         </label>
 
+        @if (sessionExpired() && !error()) {
+          <div class="login__notice" role="status">{{ t.sessionExpired }}</div>
+        }
         @if (error()) {
           <div class="login__error">{{ error() }}</div>
         }
@@ -98,9 +101,6 @@
         </button>
       </form>
 
-      <p class="login__legal">
-        {{ t.loginLegal }}
-      </p>
     </div>
   </main>
 </div>
