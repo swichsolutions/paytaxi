@@ -4,6 +4,7 @@ import { AdminApiService, ApiRecDiscrepancy, ApiRecRun } from '../../services/ad
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
+import { AdminAuthService } from '../../services/admin-auth.service';
 
 interface DisplayRun extends ApiRecRun {
   windowFromDate: Date;
@@ -20,8 +21,32 @@ interface DisplayRun extends ApiRecRun {
 export class ReconciliationComponent {
   private api = inject(AdminApiService);
   private parkCtx = inject(AdminParkContextService);
+  private auth = inject(AdminAuthService);
   svc = inject(AdminMockService); // formatters
   private i18n = inject(AdminI18nService);
+
+  readonly canRunNow = computed(() => { const r = this.auth.admin()?.role; return r === 'super_admin' || r === 'operator'; });
+  running = signal(false);
+  runError = signal<string | null>(null);
+  /** Discrepancy count of the run just triggered, shown briefly as feedback. */
+  lastRunResult = signal<number | null>(null);
+
+  async runNow() {
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.running()) return;
+    this.running.set(true);
+    this.runError.set(null);
+    this.lastRunResult.set(null);
+    try {
+      const run = await this.api.runReconciliation(parkId);
+      this.lastRunResult.set(run.discrepanciesFound ?? 0);
+      await this.fetchFor(parkId);
+    } catch (err: any) {
+      this.runError.set(err?.error?.message ?? this.t.errLoadReconciliation);
+    } finally {
+      this.running.set(false);
+    }
+  }
 
   get t() { return this.i18n.t; }
 

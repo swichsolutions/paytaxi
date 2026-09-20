@@ -26,7 +26,9 @@ so repeated local runs do not trip it. Production keeps the default.
 ## Conventions
 
 - Integration tests live in `backend/PayTaxi.Tests/Integration`, share one `ApiFixture` (collection
-  `"api"`, so they run sequentially) and mint driver tokens directly; only the auth tests go through OTP.
+  `"api"`) and mint driver tokens directly; only the auth/session tests go through OTP. A second host with
+  different startup settings is an `ApiFixture.Secondary` subclass in its own collection (see
+  `FlakyBankFixture`). Collections run one at a time; the encryption key is a fixed test constant.
 - Tests create their own destinations with unique IBAN tails and delete them afterwards, so the seed
   stays clean for the next test.
 - Seeded drivers used by tests: `yp_tb3_001..008` (see `SeedData.cs`); `yp_tb3_005` is reserved for the

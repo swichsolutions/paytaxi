@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PayTaxi.Infrastructure.Data;
+using PayTaxi.Infrastructure.Services;
 
 namespace PayTaxi.Api.Controllers;
 
@@ -11,12 +12,50 @@ namespace PayTaxi.Api.Controllers;
 public class ReconciliationController : AdminControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly ReconciliationWorker _worker;
     private readonly ILogger<ReconciliationController> _log;
 
-    public ReconciliationController(AppDbContext db, ILogger<ReconciliationController> log)
+    public ReconciliationController(AppDbContext db, ReconciliationWorker worker, ILogger<ReconciliationController> log)
     {
         _db = db;
+        _worker = worker;
         _log = log;
+    }
+
+    /// <summary>
+    /// Run reconciliation for this park now (no grace period, so anything already final is compared).
+    /// Swich and the operator only — it hits the bank and Yandex APIs for the whole window.
+    /// Returns the run that was just written.
+    /// </summary>
+    [HttpPost("run")]
+    public async Task<IActionResult> RunNow(Guid parkId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (!SeesAllParks) return Forbid();
+
+        var reconciled = await _worker.RunAsync(parkId, graceMinutes: 0, ct);
+        if (reconciled == 0) return NotFound(new { error = "park_not_found_or_inactive" });
+
+        var run = await _db.ReconciliationRuns.AsNoTracking()
+            .Where(r => r.ParkId == parkId)
+            .OrderByDescending(r => r.StartedAt)
+            .Select(r => new
+            {
+                id = r.Id,
+                status = r.Status.ToString(),
+                windowFrom = r.WindowFrom,
+                windowTo = r.WindowTo,
+                cashoutsScanned = r.CashoutsScanned,
+                bankTransfersScanned = r.BankTransfersScanned,
+                yandexTxScanned = r.YandexTxScanned,
+                discrepanciesFound = r.DiscrepanciesFound,
+                error = r.Error,
+                startedAt = r.StartedAt,
+                finishedAt = r.FinishedAt,
+            })
+            .FirstAsync(ct);
+        _log.LogInformation("Reconciliation run {RunId} for park {ParkId} triggered by {Actor}", run.id, parkId, ActorLabel);
+        return Ok(run);
     }
 
     /// <summary>Recent reconciliation runs for the park, newest-first.</summary>

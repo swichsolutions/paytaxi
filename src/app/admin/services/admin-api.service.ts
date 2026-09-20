@@ -132,6 +132,11 @@ export class AdminApiService {
   }
 
   // ── Reconciliation ────────────────────────────────────────────────
+  /** Run reconciliation for a park now (Swich + operator). Resolves to the run that was written. */
+  runReconciliation(parkId: string): Promise<ApiRecRun> {
+    return firstValueFrom(this.http.post<ApiRecRun>(`${this.base}/parks/${parkId}/reconciliation/run`, {}));
+  }
+
   listRecRuns(parkId: string, take = 20): Promise<ApiRecRunsResponse> {
     return firstValueFrom(this.http.get<ApiRecRunsResponse>(
       `${this.base}/parks/${parkId}/reconciliation/runs?take=${take}`));
@@ -388,6 +393,8 @@ export interface CreateDriverBody {
   consentGiven: boolean;
   iban?: string;
   holderName?: string;
+  /** Required when holderName is not the driver (third-party account). */
+  reason?: string;
 }
 
 export interface ApiBankAccount {

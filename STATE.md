@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-20 (CI + regression tests — see the newest section)
+**Last updated:** 2026-09-20 (fifth test pass: sessions/settlement/reconciliation/onboarding — see the newest section)
 
 ---
 
@@ -11,6 +11,52 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-20 (part 3) — fifth test pass (areas never touched before)
+
+Targets this time: trusted-device sessions, settlement through the API, reconciliation, notifications,
+rides, onboarding, the payout queue under a flaky bank. Every probe went in as a permanent test.
+
+### Bugs found and fixed
+- **Logout on one phone signed the driver out everywhere.** `Logout` revoked the session with reason
+  "logout"; the phone's app then fired one more refresh from its cache (normal), and the replay detector
+  treated ANY revoked token as theft → revoked every session of the driver. Replay detection now fires only
+  for tokens revoked by *rotation* (`RevokedReason == "rotated"`); a logged-out token is simply refused.
+- **Onboarding bypassed the ownership rule.** `CreateDriver` built the IBAN destination itself: no name
+  check, no reason, no flag, no `AddedBy`. A manager could register a wife's IBAN at the desk unflagged.
+  Now routed through `DestinationHelper.AddAsync` inside ONE transaction (refused destination → no driver
+  row either); `CreateDriverRequest.Reason` added; onboarding UI shows the live warning + reason field
+  (`shared/names.ts` holds the matcher, moved out of drivers.ts).
+- **Reconciliation had no manual trigger**, so the settlement-orphan fix from the review could only be
+  verified by waiting for the nightly worker. `POST /api/admin/parks/{id}/reconciliation/run` (Swich +
+  operator; grace 0) + "Run now" button on the reconciliation page with a result line. Worker registered as
+  singleton + hosted service so the controller reaches the same instance (`RunAsync(parkId?, grace?)`).
+
+### Verified for the first time (now tests)
+- Settlement via API: Levan's park (phase 1) → Swich share = 100% of fees, park share 0; Batumi → 50/50 to
+  the tetri; idempotent per (park, day); operator gets 403 on run, 200 on list.
+- Reconciliation ignores settlement transfers (no `orphaned_bank_send`) and finds every fresh cashout in the
+  mock bank (no `missing_in_bank`); park admins cannot trigger a run.
+- Sessions: two devices get distinct 90-day tokens; rotation invalidates the old one; replay of a ROTATED
+  token revokes all; logout kills one device; garbage/empty tokens → 401/400.
+- Notifications: structured `data` (`amount` = net, `destination` label), read / read-all endpoints.
+- Rides: `days` clamped to 30; unlinked driver → empty list + `driver_not_linked_to_yandex`.
+- Onboarding: own-name IBAN → default, unflagged, `AddedBy` admin; third-party without reason → refused and
+  NO driver created; with reason → flagged; duplicate phone / Yandex id → 409; `allowed` statuses list.
+- Payout queue with `TransientFailureRate=1` (second API host, `FlakyBankFixture : ApiFixture.Secondary`):
+  saga → 202 Queued with Yandex debit done; worker keeps retrying (attempts climb), no reversal.
+
+### Test-harness lessons (written into the code)
+- xunit collection fixtures need a parameterless ctor → `ApiFixture` + nested `Secondary` subclass.
+- `FieldEncryptor` is process-wide AND the test DB can outlive a process → one FIXED test key (never random).
+- Collections run sequentially (`[assembly: CollectionBehavior(DisableTestParallelization = true)]`) because
+  the hosts pass settings through environment variables.
+- A "two concurrent requests" test with zero-latency mocks can serialise fully; assert the invariant that
+  matters (never more than the balance is paid; exactly one Completed), not the interleaving.
+- Playwright: type into masked inputs with `pressSequentially`; pick inputs by label, not by index.
+- Totals: 112 backend tests (~15 s), 10 e2e tests (~30 s).
 
 ---
 

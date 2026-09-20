@@ -40,6 +40,40 @@ test.describe('admin console', () => {
     await expect(drawer.locator('.acct-row--third')).toHaveCount(0, { timeout: 15_000 });
   });
 
+  test('onboarding: the IBAN collected at the desk obeys the same ownership rule', async ({ page }) => {
+    await adminLogin(page, 'swich');
+    await page.goto('/admin/onboarding');
+    await page.locator('.topbar__park-picker-select').selectOption({ label: 'Tbilisi Auto Park #5' });
+    // Step 1: a phone nobody has, and a Yandex profile the mock roster knows but the park has not linked.
+    await page.locator('input.field__input--phone').pressSequentially('5' + String(Date.now()).slice(-8), { delay: 20 });
+    await page.getByPlaceholder(/Profile ID/i).fill('yp_tb5_new1');
+    await expect(page.locator('button.ob-submit')).toBeEnabled();
+    await page.locator('button.ob-submit').click();
+
+    const nameField = page.locator('.ob-form input.field__input').first();
+    await expect(nameField, 'step 2 opens for a known, unlinked Yandex profile').toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.field__hint', { hasText: /passport/i })).toBeVisible();   // park-side name hint
+
+    await nameField.fill('გია ლომიძე');
+    await page.locator('.ob-form input.field__input--mono').last().fill(tbcIban(freshTail()));
+    const holder = page.locator('.ob-form label.field', { has: page.locator('.field__label', { hasText: /holder/i }) }).locator('input');
+    await expect(holder).toBeVisible();
+    await holder.fill('ნინო ბერიძე');
+    await expect(page.locator('.ob-banner--warn')).toBeVisible();              // live third-party warning
+    await expect(page.locator('.ob-banner--warn')).toContainText('გია ლომიძე');
+    await expect(page.locator('.ob-form textarea')).toBeVisible();              // reason field revealed
+    // We stop before creating: the integration tests cover the backend outcome.
+  });
+
+  test('reconciliation: Run now is available to Swich and reports a result', async ({ page }) => {
+    await adminLogin(page, 'swich');
+    await page.goto('/admin/reconciliation');
+    const run = page.getByRole('button', { name: 'Run now' });
+    await expect(run).toBeVisible({ timeout: 20_000 });
+    await run.click();
+    await expect(page.locator('.recon-run-note')).toContainText(/Reconciliation finished/, { timeout: 60_000 });
+  });
+
   test('settings: fee is read-only for the operator and editable for Swich', async ({ page }) => {
     await adminLogin(page, 'operator');
     await page.goto('/admin/settings');

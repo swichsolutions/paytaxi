@@ -186,7 +186,8 @@ builder.Services.AddHostedService<BalanceSyncWorker>();
 // ── Reconciliation worker ────────────────────────────────────────
 builder.Services.Configure<ReconciliationOptions>(
     builder.Configuration.GetSection(ReconciliationOptions.SectionName));
-builder.Services.AddHostedService<ReconciliationWorker>();
+builder.Services.AddSingleton<ReconciliationWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ReconciliationWorker>()); // also reachable for "Run now"
 
 // ── Auth ─────────────────────────────────────────────────────────
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();

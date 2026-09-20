@@ -805,3 +805,17 @@
   color: var(--color-text-3);
   line-height: 1.4;
 }
+
+.ob-banner--warn {
+  background: #fff4e0;
+  border: 1px solid #f5c26b;
+  color: #6b4400;
+}
+
+textarea.field__input {
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  padding-top: 8px;
+}

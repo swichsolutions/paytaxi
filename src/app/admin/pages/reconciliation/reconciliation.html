@@ -14,8 +14,24 @@
         </svg>
         <span>{{ t.refresh }}</span>
       </button>
+      @if (canRunNow()) {
+        <button class="btn-admin btn-admin--brand" (click)="runNow()" [disabled]="running() || loading()">
+          @if (running()) { {{ t.reconRunning }} } @else { {{ t.reconRunNow }} }
+        </button>
+      }
     </div>
   </header>
+
+  @if (runError()) {
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ runError() }}</span>
+    </div>
+  }
+  @if (lastRunResult() !== null) {
+    <p class="recon-run-note" role="status">
+      {{ lastRunResult() === 0 ? t.reconRunClean : t.reconRunFound.replace('{n}', '' + lastRunResult()) }}
+    </p>
+  }
 
   @if (loadError()) {
     <div class="load-banner" role="alert">

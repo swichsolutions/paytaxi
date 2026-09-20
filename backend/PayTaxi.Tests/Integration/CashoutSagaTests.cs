@@ -44,20 +44,31 @@ public class CashoutSagaTests
     }
 
     [Fact]
-    public async Task Two_concurrent_requests_pay_once()
+    public async Task Two_concurrent_requests_never_pay_more_than_the_balance()
     {
+        // Each request asks for more than half the balance. However the two interleave — serialised by
+        // the per-driver lock (second sees "cashout_in_flight") or fully sequential (second sees
+        // "insufficient_balance" because the first debit already landed) — exactly one may complete.
         var (driver, _, _) = await _f.DriverClientAsync("yp_tb3_004");
+        var fresh = await driver.GetFromJsonAsync<JsonElement>("/api/driver/me?fresh=true");
+        var balance = fresh.GetProperty("driver").GetProperty("balance").GetDecimal();
+        var max = fresh.GetProperty("park").GetProperty("maxCashoutAmount");
         var (cardId, _) = await DefaultCardAsync(driver);
+        var amount = Math.Round(balance * 0.6m, 2);
+        if (max.ValueKind == JsonValueKind.Number) Assert.True(amount <= max.GetDecimal(), "test needs 60% of balance within the park max");
+        Assert.True(amount >= 5m, "seeded balance too small for this test");
 
-        var a = CashoutAsync(driver, cardId, 5m);
-        var b = CashoutAsync(driver, cardId, 5m);
-        var results = await Task.WhenAll(a, b);
+        var results = await Task.WhenAll(CashoutAsync(driver, cardId, amount), CashoutAsync(driver, cardId, amount));
         var bodies = await Task.WhenAll(results.Select(r => r.Content.ReadFromJsonAsync<JsonElement>()));
 
-        var completed = bodies.Count(x => x.TryGetProperty("status", out var s) && s.GetString() == "Completed");
-        var inFlight = bodies.Count(x => x.TryGetProperty("code", out var c) && c.GetString() == "cashout_in_flight");
+        var completed = bodies.Count(x => x.TryGetProperty("status", out var st) && st.GetString() == "Completed");
+        var refused = bodies.Where(x => x.TryGetProperty("code", out _)).Select(x => x.GetProperty("code").GetString()).ToList();
         Assert.Equal(1, completed);
-        Assert.Equal(1, inFlight);
+        Assert.Single(refused);
+        Assert.Contains(refused[0], new[] { "cashout_in_flight", "insufficient_balance" });
+
+        var after = await driver.GetFromJsonAsync<JsonElement>("/api/driver/me?fresh=true");
+        Assert.Equal(balance - amount, after.GetProperty("driver").GetProperty("balance").GetDecimal());
     }
 
     [Fact]

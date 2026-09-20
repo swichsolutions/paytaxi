@@ -269,11 +269,26 @@
               <input
                 type="text"
                 class="field__input"
+                maxlength="200"
                 [ngModel]="holderName()"
                 (ngModelChange)="holderName.set($event)"
                 [placeholder]="driverName()"
               />
+              <span class="field__hint">{{ t.holderNameAdminHint }}</span>
             </label>
+
+            @if (holderIsThirdParty() || needsReason()) {
+              <div class="ob-banner ob-banner--warn" role="alert">
+                <div>{{ thirdPartyWarningText() }}</div>
+              </div>
+              <label class="field">
+                <span class="field__label">{{ t.thirdPartyReasonLabel }}</span>
+                <textarea class="field__input" rows="2" maxlength="500"
+                  [ngModel]="reason()" (ngModelChange)="reason.set($event)"
+                  [placeholder]="t.thirdPartyReasonPlaceholder"></textarea>
+                <span class="field__hint">{{ t.thirdPartyReasonHint }}</span>
+              </label>
+            }
           }
 
           @if (createError()) {

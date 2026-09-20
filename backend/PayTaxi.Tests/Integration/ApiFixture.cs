@@ -25,9 +25,30 @@ namespace PayTaxi.Tests.Integration;
 /// the nightly/periodic workers are off, and the auth rate limits are raised so tests can log
 /// in freely. Everything else is the production wiring.
 /// </summary>
-public sealed class ApiFixture : IAsyncLifetime
+public class ApiFixture : IAsyncLifetime
 {
     public const string TestDbName = "paytaxi_test";
+
+    /// <summary>
+    /// Fixed (non-secret) key for the test database. Deterministic on purpose: a host that reuses a
+    /// database left by an earlier run must still be able to decrypt it. Never used outside tests.
+    /// </summary>
+    private const string ProcessEncryptionKey = "dGVzdC1vbmx5LWtleS1mb3ItcGF5dGF4aS10ZXN0cyE=";
+
+    /// <summary>The primary host drops and recreates the database; a secondary host (see <see cref="Secondary"/>) reuses it.</summary>
+    protected virtual bool RecreateDatabase => true;
+
+    /// <summary>Extra environment settings a derived fixture wants (applied before the host starts).</summary>
+    protected virtual IEnumerable<KeyValuePair<string, string>> ExtraSettings => Array.Empty<KeyValuePair<string, string>>();
+
+    /// <summary>A second, differently configured API host sharing the same test database.</summary>
+    public class Secondary : ApiFixture
+    {
+        private readonly Dictionary<string, string> _extra;
+        protected Secondary(Dictionary<string, string> extra) => _extra = extra;
+        protected override bool RecreateDatabase => false;
+        protected override IEnumerable<KeyValuePair<string, string>> ExtraSettings => _extra;
+    }
 
     private WebApplicationFactory<Program>? _factory;
     public HttpClient Client { get; private set; } = default!;
@@ -39,9 +60,11 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await RecreateDatabaseAsync();
+        if (RecreateDatabase) await RecreateDatabaseAsync();
+        else await EnsureDatabaseExistsAsync();
 
-        var encryptionKey = FieldEncryptor.NewKeyBase64();
+        // FieldEncryptor is process-wide and the database may outlive a test process: one fixed key.
+        var encryptionKey = ProcessEncryptionKey;
 
         // Program.cs reads several settings eagerly (Jwt:Key into the bearer validation key, the
         // rate-limit permit, the Encryption key). WebApplicationFactory's in-memory overrides are
@@ -85,6 +108,7 @@ public sealed class ApiFixture : IAsyncLifetime
             ["Auth__OtpMaxPerWindow"] = "5",   // the 4-spelling login theory needs 4 codes for one phone
             ["Auth__OtpWindowMinutes"] = "10",
         };
+        foreach (var (k, v) in ExtraSettings) settings[k] = v;
         foreach (var (k, v) in settings) Environment.SetEnvironmentVariable(k, v);
 
         _factory = new WebApplicationFactory<Program>()
@@ -94,10 +118,27 @@ public sealed class ApiFixture : IAsyncLifetime
         Client.Timeout = TimeSpan.FromSeconds(60);
     }
 
-    public async Task DisposeAsync()
+    public virtual async Task DisposeAsync()
     {
         Client.Dispose();
         if (_factory is not null) await _factory.DisposeAsync();
+    }
+
+    /// <summary>A secondary host reuses the database if it is there, or creates an empty one for the app to migrate + seed.</summary>
+    private static async Task EnsureDatabaseExistsAsync()
+    {
+        var csb = new NpgsqlConnectionStringBuilder(ConnectionString);
+        var dbName = csb.Database ?? TestDbName;
+        csb.Database = "postgres";
+        await using var conn = new NpgsqlConnection(csb.ConnectionString);
+        await conn.OpenAsync();
+        await using var exists = new NpgsqlCommand("SELECT 1 FROM pg_database WHERE datname = @n", conn);
+        exists.Parameters.AddWithValue("n", dbName);
+        if (await exists.ExecuteScalarAsync() is null)
+        {
+            await using var create = new NpgsqlCommand($"CREATE DATABASE \"{dbName}\"", conn);
+            await create.ExecuteNonQueryAsync();
+        }
     }
 
     private static async Task RecreateDatabaseAsync()

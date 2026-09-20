@@ -203,13 +203,22 @@ public class AuthController : ControllerBase
 
         if (session.RevokedAt is not null)
         {
-            // Replay of a rotated/revoked token: assume compromise, kill everything for this driver.
-            var all = await _db.DriverSessions
-                .Where(s => s.DriverId == session.DriverId && s.RevokedAt == null)
-                .ToListAsync(ct);
-            foreach (var s in all) { s.RevokedAt = DateTime.UtcNow; s.RevokedReason = "refresh_reuse_detected"; }
-            await _db.SaveChangesAsync(ct);
-            _log.LogWarning("Refresh token reuse for driver {DriverId} — revoked {Count} session(s)", session.DriverId, all.Count);
+            // A token that was ROTATED and comes back is a replay: only a copy could still hold it,
+            // so assume compromise and kill every session of this driver.
+            //
+            // A token revoked by a normal logout (or a suspension) is different: the app that just
+            // logged out may well fire one more refresh from its cache, and a stale tab can too.
+            // Treating that as theft would sign the driver out of every other phone — refuse this
+            // token only.
+            if (session.RevokedReason == "rotated")
+            {
+                var all = await _db.DriverSessions
+                    .Where(s => s.DriverId == session.DriverId && s.RevokedAt == null)
+                    .ToListAsync(ct);
+                foreach (var s in all) { s.RevokedAt = DateTime.UtcNow; s.RevokedReason = "refresh_reuse_detected"; }
+                await _db.SaveChangesAsync(ct);
+                _log.LogWarning("Refresh token reuse for driver {DriverId} — revoked {Count} session(s)", session.DriverId, all.Count);
+            }
             return Unauthorized(new { error = "session_revoked", message = "Please sign in again." });
         }
 

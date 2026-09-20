@@ -730,35 +730,31 @@ public class AdminParksController : AdminControllerBase
         };
         _db.Drivers.Add(driver);
 
-        // Optional payout destination collected at onboarding. Otherwise the driver
-        // adds their own IBAN in the app before the first cashout.
-        if (!string.IsNullOrWhiteSpace(body.Iban))
-        {
-            if (!GeorgianIban.TryParse(body.Iban, out var iban, out var bankCode, out var ibanError))
-                return BadRequest(new { error = ibanError });
-            var supported = await _db.ParkBankAccounts.AsNoTracking()
-                .AnyAsync(a => a.ParkId == parkId && a.IsActive && a.BankCode == bankCode, ct);
-            if (!supported)
-                return BadRequest(new { error = "bank_not_supported", bankCode, bankLabel = GeorgianIban.BankLabel(bankCode) });
-            _db.BankCards.Add(new Core.Entities.BankCard
-            {
-                DriverId = driver.Id,
-                Iban = iban,
-                IbanHash = PayTaxi.Infrastructure.Security.FieldEncryptor.Hash(iban),
-                BankCode = bankCode,
-                BankType = GeorgianIban.BankLabel(bankCode),
-                MaskedPan = GeorgianIban.Mask(iban),
-                HolderName = Blank(body.HolderName ?? "") ?? driver.Name,
-                TokenReferenceEncrypted = "",
-                IsDefault = true,
-                IsActive = true,
-            });
-        }
-
+        // Optional payout destination collected at onboarding — through the SAME rules as every
+        // other destination (ownership check, third-party reason, audit fields). Otherwise the
+        // driver adds their own IBAN in the app before the first cashout. One transaction: if the
+        // destination is refused, the driver is not created either.
+        await using var tx = await _db.Database.BeginTransactionAsync(ct);
         await _db.SaveChangesAsync(ct);
 
-        _log.LogInformation("Onboarded driver {DriverId} ({Name}) in park {ParkId}",
-            driver.Id, driver.Name, parkId);
+        if (!string.IsNullOrWhiteSpace(body.Iban))
+        {
+            var (outcome, error, payload) = await DestinationHelper.AddAsync(
+                _db, parkId, driver, body.Iban, body.HolderName, makeDefault: true,
+                allowThirdParty: true, thirdPartyReason: body.Reason, initiatedBy: ActorLabel, ct);
+            if (outcome != DestinationHelper.Outcome.Created)
+            {
+                await tx.RollbackAsync(ct);
+                return outcome == DestinationHelper.Outcome.Conflict
+                    ? Conflict(new { error })
+                    : BadRequest(payload ?? new { error });
+            }
+        }
+
+        await tx.CommitAsync(ct);
+
+        _log.LogInformation("Onboarded driver {DriverId} ({Name}) in park {ParkId} by {Actor}",
+            driver.Id, driver.Name, parkId, ActorLabel);
 
         return Created($"/api/admin/parks/{parkId}/drivers", new
         {
@@ -1354,7 +1350,8 @@ public record CreateDriverRequest(
     string Name,
     bool ConsentGiven,
     string? Iban = null,
-    string? HolderName = null);
+    string? HolderName = null,
+    string? Reason = null);   // required when HolderName is not the driver (third-party account)
 
 public record AddDestinationRequest(string Iban, string? HolderName, bool? MakeDefault, string? Reason = null);
 

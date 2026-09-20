@@ -5,6 +5,7 @@ import { AdminMockService } from '../../services/admin-mock.service';
 import { AdminApiService, ApiYandexLookup, YandexRosterDriver } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
+import { namesLookAlike } from '../../shared/names';
 
 interface OnboardingLookup {
   found: boolean;
@@ -41,6 +42,22 @@ export class OnboardingComponent {
   carPlate   = signal('');
   iban       = signal('');
   holderName = signal('');
+  /** Why the park pays a third party — required when the holder is not the driver. */
+  reason     = signal('');
+  /** Backend said the holder is not the driver and no reason was given. */
+  needsReason = signal(false);
+
+  /** Live hint: the typed holder does not look like the driver → this will be a third-party account. */
+  holderIsThirdParty = computed(() => {
+    const typed = this.holderName().trim();
+    const name = this.driverName().trim();
+    if (!this.iban().trim() || !typed || !name) return false;
+    return !namesLookAlike(name, typed);
+  });
+
+  thirdPartyWarningText(): string {
+    return this.t['thirdPartyWarning'].replace('{name}', this.driverName().trim() || '—');
+  }
   creating   = signal(false);
   createError = signal<string | null>(null);
 
@@ -178,7 +195,9 @@ export class OnboardingComponent {
         consentGiven: true, // operator confirms on driver's behalf at this step
         iban: this.iban().replace(/\s+/g, '') || undefined,
         holderName: this.holderName().trim() || undefined,
+        reason: this.reason().trim() || undefined,
       });
+      this.needsReason.set(false);
       this.step.set(3);
     } catch (err: any) {
       const code = err?.error?.error;
@@ -187,7 +206,11 @@ export class OnboardingComponent {
       : code === 'yandex_profile_already_linked' ? this.t['obErrYandexLinked']
       : code === 'bank_not_supported' ? this.t['obErrBankNotSupported']
       : (code === 'invalid_iban_format' || code === 'invalid_iban_checksum') ? this.t['obErrInvalidIban']
+      : code === 'third_party_reason_required' ? this.t['errThirdPartyReasonRequired']
+      : code === 'holder_name_too_long' ? this.t['errHolderTooLong']
+      : code === 'reason_too_long' ? this.t['errReasonTooLong']
       : err?.error?.message ?? this.t['obErrCreate'];
+      if (code === 'third_party_reason_required') this.needsReason.set(true);
       this.createError.set(msg);
     } finally {
       this.creating.set(false);
@@ -204,6 +227,8 @@ export class OnboardingComponent {
     this.carPlate.set('');
     this.iban.set('');
     this.holderName.set('');
+    this.reason.set('');
+    this.needsReason.set(false);
     this.createError.set(null);
   }
 

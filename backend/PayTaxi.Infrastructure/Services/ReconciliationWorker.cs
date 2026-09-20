@@ -80,7 +80,14 @@ public class ReconciliationWorker : BackgroundService
         _log.LogInformation("Reconciliation worker stopped");
     }
 
-    private async Task TickAsync(CancellationToken ct)
+    private Task TickAsync(CancellationToken ct) => RunAsync(onlyParkId: null, graceMinutes: _opts.GracePeriodMinutes, ct);
+
+    /// <summary>
+    /// One reconciliation pass — every active park, or a single one. Also the "Run now" button in the
+    /// admin console (<paramref name="graceMinutes"/> = 0 there, so a transfer made a minute ago counts).
+    /// Returns the number of parks reconciled.
+    /// </summary>
+    public async Task<int> RunAsync(Guid? onlyParkId, int? graceMinutes, CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -88,12 +95,12 @@ public class ReconciliationWorker : BackgroundService
         var bankResolver = scope.ServiceProvider;
 
         var now = DateTime.UtcNow;
-        var windowTo = now.AddMinutes(-_opts.GracePeriodMinutes);
+        var windowTo = now.AddMinutes(-(graceMinutes ?? _opts.GracePeriodMinutes));
         var windowFrom = windowTo.AddHours(-_opts.WindowHours);
 
         var parks = await db.Parks
             .AsNoTracking()
-            .Where(p => p.Status == ParkStatus.Active)
+            .Where(p => p.Status == ParkStatus.Active && (onlyParkId == null || p.Id == onlyParkId))
             .Select(p => new { p.Id, p.Name, p.LegalEntityName })
             .ToListAsync(ct);
 
@@ -113,6 +120,7 @@ public class ReconciliationWorker : BackgroundService
                 CredentialsJson: a.CredentialsEncrypted)).ToList();
             await ReconcileParkAsync(db, yandex, bankResolver, park.Id, park.Name, contexts, windowFrom, windowTo, ct);
         }
+        return parks.Count;
     }
 
     private async Task ReconcileParkAsync(
