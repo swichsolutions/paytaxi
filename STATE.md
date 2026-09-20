@@ -108,6 +108,17 @@ Implementation:
 - Super-admin's default park in the console is Batumi (first alphabetically) — check the park picker before
   concluding a row is "missing".
 
+### Fourth pass (after push) — clean
+- `ng build --configuration production` green (only the pre-existing 12 kB style-budget warnings).
+- Authorization on `POST/DELETE /drivers/{id}/cards`: other park's URL → 403; own park URL with a foreign driver id →
+  404; no token → 401; driver token → 403; operator may register third-party accounts (`addedBy` = his email).
+- Cashout to a card the driver REMOVED returned a bare 403 → now `400 cashout_rejected / destination_removed`
+  (a card that is not his at all is still 403). Verified.
+- Cashout page inline add-account in Georgian: labels/hint/refusal render; Save button clears the bottom nav
+  when scrolled (an earlier screenshot mid-scroll made it look hidden — it is not).
+- Test hygiene: the per-phone OTP cap (3 / 10 min) bites automated logins; rotate seeded drivers (001, 002,
+  004, 006, 007, 008 are Active; 005 is Suspended) or wait out the window.
+
 ### Pitfalls found
 - **`ng serve` can keep a stale compiled template while picking up the new class** (HMR/incremental cache):
   runtime had `startAddCard` but `ɵcmp.template` lacked the new section. Fix: restart the dev server.

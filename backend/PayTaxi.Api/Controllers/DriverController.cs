@@ -304,10 +304,17 @@ public class DriverController : ControllerBase
             return BadRequest(new { error = "idempotency_key_required" });
 
         // Guard against tampered card IDs — a driver may only pay out to their own destinations.
-        var cardBelongsToDriver = await _db.BankCards.AsNoTracking()
-            .AnyAsync(b => b.Id == body.CardId && b.DriverId == driverId && b.IsActive, ct);
-        if (!cardBelongsToDriver)
+        // A destination the driver owns but has removed (stale tab) gets a typed rejection the app can
+        // translate; a destination that is not his at all is a plain 403.
+        var ownedCard = await _db.BankCards.AsNoTracking()
+            .Where(b => b.Id == body.CardId && b.DriverId == driverId)
+            .Select(b => new { b.IsActive })
+            .FirstOrDefaultAsync(ct);
+        if (ownedCard is null)
             return Forbid();
+        if (!ownedCard.IsActive)
+            return BadRequest(new { error = "cashout_rejected", code = CashoutRejectionCodes.DestinationRemoved,
+                                    message = "Payout destination has been removed", @params = new { } });
 
         try
         {
