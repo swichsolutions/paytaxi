@@ -61,3 +61,6 @@ backend/PayTaxi.Api/appsettings.Development.json
 # Playwright
 test-results/
 playwright-report/
+
+# test runner output
+backend/**/TestResults/
