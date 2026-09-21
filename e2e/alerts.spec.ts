@@ -66,7 +66,11 @@ test.describe('alert banner', () => {
     try {
       const run = await json(request.post(`${API}/api/admin/settlements/run?parkId=${park.id}`, { headers: auth }));
       test.skip(run.status === 'Completed', 'this park was already settled today — nothing left to fail');
-      expect(run.status).toBe('Failed');
+      expect(run.status, `settlement run: ${JSON.stringify(run).slice(0, 300)}`).toBe('Failed');
+      // The engine checks the Swich IBAN before the park's accounts; CI sets a placeholder so we get
+      // the code this test is about. Fail loudly on anything else rather than on a wrong advice text.
+      const code = String(run.failureReason ?? '').split(':')[0];
+      expect(code, `expected NO_PARK_ACCOUNT (is Settlement:SwichIban configured on the API?) but got: ${run.failureReason}`).toBe('NO_PARK_ACCOUNT');
 
       // 3. Swich opens the console: danger banner, the failing park, Swich-side advice, badge.
       await adminLogin(page, 'swich');

@@ -101,6 +101,9 @@ jobs:
           BalanceSync__Enabled: "false"
           Reconciliation__Enabled: "false"
           Settlement__Enabled: "false"
+          # Placeholder Swich IBAN (same one the backend test fixture uses) so a manual settlement run
+          # gets past the "not configured" guard and the alerts e2e can provoke NO_PARK_ACCOUNT.
+          Settlement__SwichIban: GE12TB7100000000000001
           RateLimit__AuthPerMinute: "100000"
           Auth__OtpMaxPerWindow: "50"
         run: |
