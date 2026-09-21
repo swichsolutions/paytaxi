@@ -50,6 +50,13 @@ buttons. Phone layout stacks each line with a full-width Open.
 NO_PARK_ACCOUNT; asserts banner/advice/badge/Open/dismiss/reload/other-session; leaves the Failed row for the
 worker). Locally the banner spec skips once the park is settled for the day.
 
+**CI follow-up (e1ca68d).** The first CI run of the banner spec failed: the CI API had no `Settlement:SwichIban`,
+so the manual settlement run failed with `SWICH_IBAN_NOT_CONFIGURED` before it ever looked at the park's
+accounts, and the banner showed that advice instead. CI now sets the same placeholder IBAN the backend test
+fixture uses (Development only — the production guard still refuses it), and the spec asserts the run's
+`failureReason` code before checking advice text. Job logs need repo-admin rights, but the check-run
+*annotations* (which the Playwright `github` reporter writes) are public — that is how to read a CI failure.
+
 ---
 
 ## Session 2026-09-20 (part 3) — fifth test pass (areas never touched before)
