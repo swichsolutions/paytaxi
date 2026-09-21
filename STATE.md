@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-20 (fifth test pass: sessions/settlement/reconciliation/onboarding — see the newest section)
+**Last updated:** 2026-09-21 (N2 danger banner + saga lock fix + reconciliation dedupe — see the newest section)
 
 ---
 
@@ -11,6 +11,44 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-21 — N2: the danger banner (no e-mail channel yet)
+
+**What it is.** `GET /api/admin/alerts` (`AlertsController`) computes, on demand, everything that needs a human:
+`settlement_failed`, `settlement_stuck` (Processing > 15 min with no bank id, or > 6 h pending), `cashout_review`
+(ReviewRequired), `reconciliation_open` (unresolved discrepancies — severity *warning*, the rest *danger*).
+Grouped per park × kind with count, amount, since, failure code, and a console link. Scoped by role: Swich and
+the operator see all parks, a park manager only theirs. A `signature` (hash of the alerting ids) lets the client
+hide a dismissed set until something NEW appears.
+
+**Console.** `AdminAlertsService` polls every 60 s while signed in and on every navigation. `AdminAlertBannerComponent`
+sits above the router outlet in the shell: red for danger, amber for warnings, one line per park × kind with a
+headline, plain-language advice by failure code (park managers get "your account had no money at 00:30 — top up,
+it retries tonight"; Swich gets "tell the park if it keeps failing"), a relative time and an **Open** link
+(`/admin/settlements`, `/admin/cashouts?status=review` — the cashouts page now honours `?status=`, `/admin/reconciliation`).
+Dismiss stores the signature in sessionStorage (per tab, per session). Sidebar items get a count badge
+(`.sidebar__alert`) that stays even while the banner is dismissed. Warning lines inside a danger banner keep amber
+buttons. Phone layout stacks each line with a full-width Open.
+
+**Found while building it**
+- **Concurrency race in the saga, for real this time.** The balance read happened BEFORE the per-driver lock:
+  two simultaneous requests both saw the pre-debit balance; the second acquired the lock after the first had
+  fully completed, found nothing in flight, reserved and debited. The mock Yandex refused the overdraft; real
+  Yandex would have paid twice. Balance read moved INSIDE the locked transaction. The concurrency test now
+  fails on any `Failed` saga row (the fingerprint of that race) and passed 5/5 runs.
+- **Reconciliation re-created open discrepancies on every run** (2,091 open `missing_in_bank` rows for 33
+  cashouts in dev). Nightly runs in prod would have done the same → banner counts climbing forever. The worker now
+  keeps one open row per (kind, subject), refreshes its `UpdatedAt`/`RunId`, and counts only NEW findings.
+  Dev DB deduped (4,124 rows removed; `.scratch/dedupe_discrepancies.sql`). Test added.
+- Fixture lessons: Npgsql pools per connection string process-wide → `ClearAllPools()` after recreating the
+  test DB; `Settlements.Status` is stored lowercase; one settlement per (park, day) unique index.
+
+**Tests**: 116 backend (3 alerts tests: role scope, signature tracks the set, review/recon kinds, auth), 11 e2e
+(banner spec manufactures a real failure: driver cashout → deactivate payout accounts → run settlement →
+NO_PARK_ACCOUNT; asserts banner/advice/badge/Open/dismiss/reload/other-session; leaves the Failed row for the
+worker). Locally the banner spec skips once the park is settled for the day.
 
 ---
 

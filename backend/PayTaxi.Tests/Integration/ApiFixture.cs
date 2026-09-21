@@ -120,7 +120,7 @@ public class ApiFixture : IAsyncLifetime
 
     public virtual async Task DisposeAsync()
     {
-        Client.Dispose();
+        Client?.Dispose();
         if (_factory is not null) await _factory.DisposeAsync();
     }
 
@@ -152,6 +152,11 @@ public class ApiFixture : IAsyncLifetime
             await drop.ExecuteNonQueryAsync();
         await using (var create = new NpgsqlCommand($"CREATE DATABASE \"{dbName}\"", conn))
             await create.ExecuteNonQueryAsync();
+
+        // Npgsql pools connections per connection string, process-wide. A host that ran before us
+        // (the flaky-bank fixture) leaves pooled connections to the OLD database, which the drop
+        // just killed — reusing one yields "connection forcibly closed". Start from an empty pool.
+        NpgsqlConnection.ClearAllPools();
     }
 
     // ── Helpers used by every test class ────────────────────────────

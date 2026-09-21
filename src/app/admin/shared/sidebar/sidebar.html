@@ -59,6 +59,9 @@
           }
         </span>
         <span class="sidebar__link-label">{{ t[item.key] }}</span>
+        @if (alerts.countFor(item.path); as n) {
+          <span class="sidebar__alert" [attr.data-severity]="alerts.severityFor(item.path)" [attr.aria-label]="n + ' ' + t.alertBadgeLabel">{{ n > 99 ? '99+' : n }}</span>
+        }
       </a>
     }
   </nav>
@@ -123,6 +126,9 @@
           }
         </span>
         <span class="sidebar__link-label">{{ t[item.key] }}</span>
+        @if (alerts.countFor(item.path); as n) {
+          <span class="sidebar__alert" [attr.data-severity]="alerts.severityFor(item.path)" [attr.aria-label]="n + ' ' + t.alertBadgeLabel">{{ n > 99 ? '99+' : n }}</span>
+        }
         @if (item.tag) {
           <span class="sidebar__link-tag">{{ t.tagSoon }}</span>
         }

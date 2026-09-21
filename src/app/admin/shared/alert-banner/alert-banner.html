@@ -1,0 +1,34 @@
+@if (alerts.bannerVisible()) {
+  <aside class="alert-banner" [attr.data-severity]="severity()" role="alert" aria-live="assertive">
+    <div class="alert-banner__icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    </div>
+
+    <div class="alert-banner__body">
+      <p class="alert-banner__title">
+        {{ severity() === 'danger' ? t.alertTitleDanger : t.alertTitleWarning }}
+      </p>
+      <ul class="alert-banner__list">
+        @for (a of alerts.alerts(); track a.kind + a.parkId) {
+          <li class="alert-banner__item" [attr.data-severity]="a.severity">
+            <span class="alert-banner__text">
+              @if (showParkName()) { <b class="alert-banner__park">{{ a.parkName }}</b> · }
+              {{ headline(a) }}
+              @if (advice(a); as tip) { <span class="alert-banner__advice">{{ tip }}</span> }
+              <span class="alert-banner__since">{{ since(a) }}</span>
+            </span>
+            <a class="alert-banner__link" [routerLink]="linkParts(a).path" [queryParams]="linkParts(a).query">{{ t.alertOpen }}</a>
+          </li>
+        }
+      </ul>
+    </div>
+
+    <button class="alert-banner__dismiss" (click)="alerts.dismiss()" [attr.aria-label]="t.alertDismiss" [title]="t.alertDismissTitle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+    </button>
+  </aside>
+}

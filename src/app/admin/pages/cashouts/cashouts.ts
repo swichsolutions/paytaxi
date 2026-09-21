@@ -76,6 +76,13 @@ export class CashoutsComponent {
       if (parkId) this.fetchFor(parkId);
     });
 
+    // Alert banner deep link: /admin/cashouts?status=review
+    const wanted = this.route.snapshot.queryParamMap.get('status');
+    if (wanted && ['queued', 'processing', 'completed', 'failed', 'review'].includes(wanted)) {
+      this.status.set(wanted as StatusTab);
+      this.range.set('all');
+    }
+
     // "New cashout for {driver}" deep link from the Drivers drawer.
     const driverId = this.route.snapshot.queryParamMap.get('driverId');
     if (driverId) {

@@ -136,26 +136,13 @@ public class CashoutOrchestrator : ICashoutOrchestrator
                 ("bankCode", card.BankCode),
                 ("supported", park.BankAccounts.Select(a => a.BankCode).Distinct().ToArray()));
 
-        // ── Yandex balance: never debit more than the driver has ───────
-        // Yandex Fleet accepts transactions that push a balance negative; only our check
-        // stands between a driver and the park's money.
-        decimal balance;
-        try
-        {
-            balance = await _yandex.GetDriverBalanceAsync(park.Id, driver.YandexDriverProfileId, ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _log.LogWarning(ex, "Balance read failed for driver {Driver}; refusing cashout", driver.Id);
-            throw CashoutRejectedException.Of(BalanceUnavailable, "Could not read the Yandex balance right now — try again in a minute");
-        }
-        if (amount > balance)
-            throw CashoutRejectedException.Of(InsufficientBalance,
-                $"Amount {amount:F2} GEL exceeds the available balance {balance:F2} GEL", ("balance", balance));
-
         // ── Reserve (Processing) under a per-driver lock ──────────────
         // The advisory lock serialises concurrent requests for the same driver (double tap,
-        // two devices) so the in-flight and daily-limit checks can't both pass.
+        // two devices). EVERYTHING that decides whether this driver may be paid — the in-flight
+        // check, the balance read, the daily limit — runs inside it. Reading the balance before
+        // the lock let two simultaneous requests both see the pre-debit balance; the second one
+        // then found nothing in flight (the first had already completed) and would have been paid
+        // too — real Yandex accepts a negative balance, only the mock refused it.
         Cashout cashout;
         await using (var tx = await _db.Database.BeginTransactionAsync(ct))
         {
@@ -174,6 +161,24 @@ public class CashoutOrchestrator : ICashoutOrchestrator
                             && (c.Status == CashoutStatus.Processing || c.Status == CashoutStatus.Queued), ct);
             if (inFlight)
                 throw CashoutRejectedException.Of(CashoutInFlight, "A previous cashout is still being processed — wait for it to finish");
+
+            // ── Yandex balance: never debit more than the driver has ───────
+            // Yandex Fleet accepts transactions that push a balance negative; only our check
+            // stands between a driver and the park's money. Read here, after the lock, so it
+            // already reflects any cashout that finished while we were waiting.
+            decimal balance;
+            try
+            {
+                balance = await _yandex.GetDriverBalanceAsync(park.Id, driver.YandexDriverProfileId, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _log.LogWarning(ex, "Balance read failed for driver {Driver}; refusing cashout", driver.Id);
+                throw CashoutRejectedException.Of(BalanceUnavailable, "Could not read the Yandex balance right now — try again in a minute");
+            }
+            if (amount > balance)
+                throw CashoutRejectedException.Of(InsufficientBalance,
+                    $"Amount {amount:F2} GEL exceeds the available balance {balance:F2} GEL", ("balance", balance));
 
             if (park.DailyCashoutLimitPerDriver is { } dailyLimit)
             {

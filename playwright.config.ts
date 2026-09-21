@@ -33,7 +33,7 @@ export default defineConfig({
     // Driver app + admin-on-a-phone checks at 360 px.
     { name: 'phone', testMatch: /(driver|admin-phone)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 360, height: 780 } } },
     // Admin console proper.
-    { name: 'desktop', testMatch: /admin\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } },
+    { name: 'desktop', testMatch: /(admin|alerts)\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } },
   ],
   webServer: [
     {

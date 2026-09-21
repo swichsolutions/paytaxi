@@ -3,6 +3,7 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AdminI18nService } from '../../services/admin-i18n.service';
 import { AdminAuthService } from '../../services/admin-auth.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
+import { AdminAlertsService } from '../../services/admin-alerts.service';
 
 interface NavItem {
   path: string;
@@ -23,6 +24,7 @@ export class AdminSidebarComponent {
   private i18n = inject(AdminI18nService);
   private auth = inject(AdminAuthService);
   private parkCtx = inject(AdminParkContextService);
+  readonly alerts = inject(AdminAlertsService);
   get t() { return this.i18n.t; }
 
   readonly isSuperAdmin = computed(() => this.auth.admin()?.role === 'super_admin');

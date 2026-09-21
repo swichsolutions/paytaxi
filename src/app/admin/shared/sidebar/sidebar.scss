@@ -222,3 +222,21 @@
   .sidebar--collapsed & { display: none; }
 }
 
+
+// Alert count on a nav item (settlements / cashouts / reconciliation) while something needs a human.
+.sidebar__alert {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+  color: #fff;
+  background: #b42318;
+  &[data-severity="warning"] { background: #c77700; }
+}
+.sidebar--collapsed .sidebar__alert,
+.admin-shell--collapsed .sidebar__alert { position: absolute; top: 6px; right: 6px; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; font-size: 9.5px; }

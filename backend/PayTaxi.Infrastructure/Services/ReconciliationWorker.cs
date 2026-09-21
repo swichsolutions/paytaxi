@@ -329,20 +329,40 @@ public class ReconciliationWorker : BackgroundService
                 });
             }
 
-            db.ReconciliationDiscrepancies.AddRange(discrepancies);
+            // A mismatch that is still open from an earlier run is the SAME problem, not a new one.
+            // Re-adding it every night would multiply the open count (and the console alert) without
+            // adding information. Keep one open row per (kind, subject); refresh its timestamp so
+            // "last seen" is honest, and only count genuinely new findings for this run.
+            var openExisting = await db.ReconciliationDiscrepancies
+                .Where(d => d.ParkId == parkId && !d.IsResolved)
+                .ToListAsync(ct);
+            string KeyOf(ReconciliationDiscrepancy d) =>
+                d.Kind + "|" + (d.CashoutId?.ToString() ?? d.BankTransferId ?? d.YandexTransactionId ?? "");
+            var openKeys = openExisting.ToDictionary(KeyOf, d => d);
+            var fresh = new List<ReconciliationDiscrepancy>();
+            foreach (var d in discrepancies)
+            {
+                if (openKeys.TryGetValue(KeyOf(d), out var existing))
+                {
+                    existing.UpdatedAt = DateTime.UtcNow;   // still there tonight
+                    existing.RunId = run.Id;                // points at the latest run that saw it
+                }
+                else fresh.Add(d);
+            }
+            db.ReconciliationDiscrepancies.AddRange(fresh);
 
             run.CashoutsScanned = cashouts.Count;
             run.BankTransfersScanned = bankTransfers.Count;
             run.YandexTxScanned = yandexTxByRef.Count;
-            run.DiscrepanciesFound = discrepancies.Count;
+            run.DiscrepanciesFound = fresh.Count;
             run.Status = ReconciliationStatus.Completed;
             run.FinishedAt = DateTime.UtcNow;
 
             await db.SaveChangesAsync(ct);
 
             _log.LogInformation(
-                "Reconciliation: park={Park} cashouts={Cashouts} bank={Bank} yandex={Yandex} discrepancies={Discrepancies}",
-                parkName, cashouts.Count, bankTransfers.Count, yandexTxByRef.Count, discrepancies.Count);
+                "Reconciliation: park={Park} cashouts={Cashouts} bank={Bank} yandex={Yandex} discrepancies={Discrepancies} (new; {StillOpen} still open from earlier runs)",
+                parkName, cashouts.Count, bankTransfers.Count, yandexTxByRef.Count, fresh.Count, discrepancies.Count - fresh.Count);
         }
         catch (Exception ex)
         {

@@ -5,12 +5,14 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter, fromEvent } from 'rxjs';
 import { AdminSidebarComponent } from '../shared/sidebar/sidebar';
 import { AdminTopbarComponent } from '../shared/topbar/topbar';
+import { AdminAlertBannerComponent } from '../shared/alert-banner/alert-banner';
+import { AdminAlertsService } from '../services/admin-alerts.service';
 import { AdminParkContextService } from '../services/admin-park-context.service';
 import { AdminI18nService } from '../services/admin-i18n.service';
 
 @Component({
   selector: 'app-admin-layout',
-  imports: [RouterOutlet, AdminSidebarComponent, AdminTopbarComponent],
+  imports: [RouterOutlet, AdminSidebarComponent, AdminTopbarComponent, AdminAlertBannerComponent],
   templateUrl: './admin-layout.html',
   styleUrl: './admin-layout.scss',
 })
@@ -20,6 +22,8 @@ export class AdminLayoutComponent implements OnInit {
   private destroyRef = inject(DestroyRef);
   readonly parkCtx = inject(AdminParkContextService);
   private i18n = inject(AdminI18nService);
+  // Instantiated here so polling starts the moment the console shell exists.
+  readonly alerts = inject(AdminAlertsService);
 
   get t() { return this.i18n.t; }
 

@@ -1,0 +1,98 @@
+:host { display: block; }
+
+.alert-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+  border-radius: 14px;
+  border: 1px solid;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+
+  &[data-severity="danger"] {
+    background: #fff1f0;
+    border-color: #f5a3a3;
+    color: #7a1212;
+    .alert-banner__icon { background: #b42318; color: #fff; }
+    .alert-banner__link { background: #b42318; color: #fff; &:hover { background: #9a1c14; } }
+  }
+  &[data-severity="warning"] {
+    background: #fff7e6;
+    border-color: #f5c26b;
+    color: #6b4400;
+    .alert-banner__icon { background: #c77700; color: #fff; }
+    .alert-banner__link { background: #c77700; color: #fff; &:hover { background: #a66300; } }
+  }
+}
+
+.alert-banner__icon {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  svg { width: 20px; height: 20px; }
+}
+
+.alert-banner__body { flex: 1; min-width: 0; }
+
+.alert-banner__title {
+  margin: 4px 0 8px;
+  font-size: 14.5px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.alert-banner__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.alert-banner__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  line-height: 1.45;
+
+  // A warning line inside a danger banner keeps its own (amber) button so the eye lands on the red ones.
+  &[data-severity="warning"] .alert-banner__link { background: #c77700; &:hover { background: #a66300; } }
+}
+
+.alert-banner__text { min-width: 0; }
+.alert-banner__park { font-weight: 800; }
+.alert-banner__advice { display: block; margin-top: 2px; font-size: 12.5px; opacity: 0.9; }
+.alert-banner__since { display: inline-block; margin-left: 6px; font-size: 11.5px; opacity: 0.7; white-space: nowrap; }
+
+.alert-banner__link {
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s;
+}
+
+.alert-banner__dismiss {
+  flex-shrink: 0;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  display: flex; align-items: center; justify-content: center;
+  &:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }
+  svg { width: 16px; height: 16px; }
+}
+
+@media (max-width: 600px) {
+  .alert-banner { padding: var(--space-3); gap: var(--space-2); margin-bottom: var(--space-4); }
+  .alert-banner__icon { width: 30px; height: 30px; svg { width: 16px; height: 16px; } }
+  .alert-banner__item { flex-direction: column; align-items: stretch; gap: 8px; }
+  .alert-banner__link { text-align: center; }
+}

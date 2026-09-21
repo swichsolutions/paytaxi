@@ -122,6 +122,31 @@ public class SettlementAndReconciliationTests
     }
 
     [Fact]
+    public async Task A_second_reconciliation_run_does_not_duplicate_open_discrepancies()
+    {
+        var admin = await _f.SuperAdminAsync();
+        var batumi = await _f.DbAsync(async db => (await db.Parks.AsNoTracking().FirstAsync(p => p.Slug == "batumi-auto-park-1")).Id);
+
+        // Seeded historical cashouts are unknown to this process's mock bank → they show up as
+        // missing_in_bank on every run. That is exactly the "still open tomorrow" case.
+        var run1 = await (await admin.PostAsync($"/api/admin/parks/{batumi}/reconciliation/run", null)).Content.ReadFromJsonAsync<JsonElement>();
+        var openAfter1 = await _f.DbAsync(db => db.ReconciliationDiscrepancies.CountAsync(d => d.ParkId == batumi && !d.IsResolved));
+
+        var run2 = await (await admin.PostAsync($"/api/admin/parks/{batumi}/reconciliation/run", null)).Content.ReadFromJsonAsync<JsonElement>();
+        var openAfter2 = await _f.DbAsync(db => db.ReconciliationDiscrepancies.CountAsync(d => d.ParkId == batumi && !d.IsResolved));
+
+        Assert.Equal(openAfter1, openAfter2);
+        Assert.Equal(0, run2.GetProperty("discrepanciesFound").GetInt32());   // nothing NEW the second time
+        // …and the still-open rows now point at the latest run that saw them.
+        if (openAfter1 > 0)
+        {
+            var latestRunId = run2.GetProperty("id").GetGuid();
+            var pointing = await _f.DbAsync(db => db.ReconciliationDiscrepancies.CountAsync(d => d.ParkId == batumi && !d.IsResolved && d.RunId == latestRunId));
+            Assert.Equal(openAfter2, pointing);
+        }
+    }
+
+    [Fact]
     public async Task Invoice_is_refused_for_a_cashout_that_did_not_complete()
     {
         var admin = await _f.SuperAdminAsync();
