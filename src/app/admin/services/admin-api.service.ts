@@ -189,6 +189,21 @@ export class AdminApiService {
       `${this.base}/settlements/${settlementId}/cashouts`));
   }
 
+  listSettlementMonths(parkId: string): Promise<ApiSettlementMonthsResponse> {
+    return firstValueFrom(this.http.get<ApiSettlementMonthsResponse>(
+      `${this.base}/parks/${parkId}/settlements/months`));
+  }
+
+  /** Open the monthly invoice PT-YYYY-MM (Swich → park) in a new tab; same blob-URL trick as openInvoice. */
+  async openMonthlyInvoice(parkId: string, month: string): Promise<void> {
+    const blob = await firstValueFrom(this.http.get(
+      `${this.base}/parks/${parkId}/settlements/invoice.pdf?month=${encodeURIComponent(month)}`,
+      { responseType: 'blob' }));
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
   retrySettlement(settlementId: string): Promise<ApiSettlement> {
     return firstValueFrom(this.http.post<ApiSettlement>(`${this.base}/settlements/${settlementId}/retry`, {}));
   }
@@ -259,6 +274,26 @@ export interface ApiSettlementSummary {
     settlementStatus: string | null; swichShare: number | null;
   }>;
   asOf: string;
+}
+
+export interface ApiSettlementMonth {
+  month: string;          // "2026-09"
+  invoiceRef: string;     // "PT-2026-09"
+  isCurrent: boolean;     // the month is still running → the PDF is marked interim
+  settlements: number;
+  cashouts: number;
+  feeTotal: number;
+  swichShare: number;
+  transferred: number;    // Completed settlements
+  outstanding: number;    // Failed / Pending / Processing
+  failedCount: number;
+  pendingCount: number;
+}
+
+export interface ApiSettlementMonthsResponse {
+  parkId: string;
+  count: number;
+  months: ApiSettlementMonth[];
 }
 
 export interface ApiSettlementCashoutsResponse {

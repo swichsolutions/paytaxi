@@ -108,6 +108,61 @@
     </section>
   }
 
+  <!-- ── Monthly invoices ─────────────────────────────────────────── -->
+  @if (summary(); as s) {
+    <section class="stl-card stl-card--months">
+      <header class="stl-card__head">
+        <div>
+          <h2>{{ t.monthlyInvoices }} · {{ s.park.name }}</h2>
+          <p class="stl-card__sub">{{ t.monthlyInvoicesSub }}</p>
+        </div>
+      </header>
+      @if (monthError()) { <div class="stl-message stl-message--error">{{ monthError() }}</div> }
+      @if (months().length === 0 && !loading()) {
+        <p class="stl-empty">{{ t.noMonthlyInvoices }}</p>
+      }
+      <div class="stl-months">
+        @for (m of months(); track m.month) {
+          <div class="stl-month" [class.stl-month--attention]="m.outstanding > 0" [attr.data-month]="m.month">
+            <div class="stl-month__main">
+              <span class="stl-month__title">
+                {{ formatMonth(m.month) }}
+                <code class="stl-month__ref">{{ m.invoiceRef }}</code>
+                @if (m.isCurrent) { <span class="stl-pill" data-status="pending">{{ t.interimMonth }}</span> }
+              </span>
+              <span class="stl-month__desc">
+                {{ m.settlements }} {{ t.settlementsLabel }} · {{ m.cashouts }} {{ t.cashoutsLabel }} · {{ t.colFees }} <b class="gel">{{ formatGel(m.feeTotal, 2) }}</b>
+              </span>
+            </div>
+            <div class="stl-month__figures">
+              <span class="stl-month__figure">
+                <span class="stl-month__figure-label">{{ t.colSwichShare }}</span>
+                <span class="stl-month__figure-value gel">{{ formatGel(m.swichShare, 2) }}</span>
+              </span>
+              <span class="stl-month__figure">
+                <span class="stl-month__figure-label">{{ t.transferredLabel }}</span>
+                <span class="stl-month__figure-value gel">{{ formatGel(m.transferred, 2) }}</span>
+              </span>
+              <span class="stl-month__figure" [class.stl-month__figure--warn]="m.outstanding > 0">
+                <span class="stl-month__figure-label">{{ t.outstandingLabel }}</span>
+                <span class="stl-month__figure-value gel">{{ formatGel(m.outstanding, 2) }}</span>
+              </span>
+            </div>
+            <div class="stl-month__action">
+              <button class="btn-admin btn-admin--secondary" (click)="openMonthly(m, $event)" [disabled]="openingMonth() !== null">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                  <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
+                </svg>
+                <span>@if (openingMonth() === m.month) { {{ t.openingPdf }} } @else { {{ t.openPdf }} }</span>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
+    </section>
+  }
+
   <!-- ── History ──────────────────────────────────────────────────── -->
   <section class="stl-card">
     <header class="stl-card__head">

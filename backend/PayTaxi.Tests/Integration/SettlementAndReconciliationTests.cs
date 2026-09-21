@@ -147,6 +147,64 @@ public class SettlementAndReconciliationTests
     }
 
     [Fact]
+    public async Task Monthly_invoice_lists_the_month_and_renders_a_pdf_for_everyone_who_sees_the_park()
+    {
+        var admin = await _f.SuperAdminAsync();
+        var levan = await _f.DbAsync(db => db.Parks.AsNoTracking().FirstAsync(p => p.Slug == "tbilisi-auto-park-3"));
+
+        // At least one settlement this month: a cashout today, then settle today (idempotent if already done).
+        await CompleteCashoutAsync("yp_tb3_002", 5m);
+        var run = await (await admin.PostAsync($"/api/admin/settlements/run?parkId={levan.Id}&date={Today()}", null))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Completed", run.GetProperty("status").GetString());
+        var month = Today()[..7]; // yyyy-MM
+
+        // The month list carries the invoice figures; they must equal the settlement rows for that month.
+        var months = await admin.GetFromJsonAsync<JsonElement>($"/api/admin/parks/{levan.Id}/settlements/months");
+        var row = months.GetProperty("months").EnumerateArray().Single(m => m.GetProperty("month").GetString() == month);
+        Assert.Equal($"PT-{month}", row.GetProperty("invoiceRef").GetString());
+        Assert.True(row.GetProperty("isCurrent").GetBoolean());
+        var (expectedShare, expectedRows) = await _f.DbAsync(async db =>
+        {
+            var first = DateOnly.ParseExact(month + "-01", "yyyy-MM-dd");
+            var rows = await db.Settlements.AsNoTracking()
+                .Where(s => s.ParkId == levan.Id && s.SettlementDate >= first && s.SettlementDate < first.AddMonths(1))
+                .ToListAsync();
+            return (rows.Sum(s => s.SwichShare), rows.Count);
+        });
+        Assert.Equal(expectedRows, row.GetProperty("settlements").GetInt32());
+        Assert.Equal(expectedShare, row.GetProperty("swichShare").GetDecimal());
+        Assert.Equal(row.GetProperty("transferred").GetDecimal() + row.GetProperty("outstanding").GetDecimal(),
+            row.GetProperty("swichShare").GetDecimal());
+
+        // The PDF itself.
+        var pdf = await admin.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf?month={month}");
+        Assert.Equal(HttpStatusCode.OK, pdf.StatusCode);
+        Assert.Equal("application/pdf", pdf.Content.Headers.ContentType!.MediaType);
+        Assert.Contains($"PT-{month}-tbilisi-auto-park-3.pdf", pdf.Content.Headers.ContentDisposition!.ToString());
+        var bytes = await pdf.Content.ReadAsByteArrayAsync();
+        Assert.True(bytes.Length > 5_000, $"pdf too small: {bytes.Length}");
+        Assert.Equal("%PDF", System.Text.Encoding.ASCII.GetString(bytes, 0, 4));
+
+        // No settlement in that month → 404 with a typed code; garbage → 400.
+        var none = await admin.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf?month=2020-01");
+        Assert.Equal(HttpStatusCode.NotFound, none.StatusCode);
+        Assert.Equal("no_settlements_in_month", (await none.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf?month=sept")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf")).StatusCode);
+
+        // The operator and the park's own manager may download it; another park's manager may not.
+        var op = await _f.OperatorAsync();
+        Assert.Equal(HttpStatusCode.OK, (await op.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf?month={month}")).StatusCode);
+        var own = await _f.ParkAdminAsync("tbilisi-auto-park-3");
+        Assert.Equal(HttpStatusCode.OK, (await own.GetAsync($"/api/admin/parks/{levan.Id}/settlements/months")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await own.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf?month={month}")).StatusCode);
+        var other = await _f.ParkAdminAsync("batumi-auto-park-1");
+        Assert.Equal(HttpStatusCode.Forbidden, (await other.GetAsync($"/api/admin/parks/{levan.Id}/settlements/months")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await other.GetAsync($"/api/admin/parks/{levan.Id}/settlements/invoice.pdf?month={month}")).StatusCode);
+    }
+
+    [Fact]
     public async Task Invoice_is_refused_for_a_cashout_that_did_not_complete()
     {
         var admin = await _f.SuperAdminAsync();

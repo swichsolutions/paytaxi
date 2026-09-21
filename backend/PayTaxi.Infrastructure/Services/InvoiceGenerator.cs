@@ -15,19 +15,22 @@ namespace PayTaxi.Infrastructure.Services;
 /// QuestPDF-based renderer for cashout invoices. Modelled after the paypro
 /// reference (Georgian only, A4 portrait, faint label color + bold value).
 /// </summary>
-public class InvoiceGenerator : IInvoiceGenerator
+public partial class InvoiceGenerator : IInvoiceGenerator
 {
     private readonly AppDbContext _db;
     private readonly InvoiceOptions _opts;
+    private readonly SettlementOptions _settlement;
     private readonly ILogger<InvoiceGenerator> _log;
 
     public InvoiceGenerator(
         AppDbContext db,
         IOptions<InvoiceOptions> opts,
+        IOptions<SettlementOptions> settlement,
         ILogger<InvoiceGenerator> log)
     {
         _db = db;
         _opts = opts.Value;
+        _settlement = settlement.Value;
         _log = log;
 
         // Community licence — set once per process.

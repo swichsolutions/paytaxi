@@ -74,6 +74,52 @@ test.describe('admin console', () => {
     await expect(page.locator('.recon-run-note')).toContainText(/Reconciliation finished/, { timeout: 60_000 });
   });
 
+  test('settlements: the monthly invoice card lists the month and opens the PDF', async ({ page, request }) => {
+    await adminLogin(page, 'swich');
+    await page.goto('/admin/settlements');
+    const card = page.locator('.stl-card--months');
+    await expect(card).toBeVisible({ timeout: 20_000 });
+
+    // Make sure the park shown on the page has a settlement this month: Swich runs it on demand
+    // (idempotent per park/day). Only THIS park — the alerts spec relies on another park being unsettled.
+    const parkName = (await card.locator('h2').textContent())!.split('·').pop()!.trim();
+    const token = await page.evaluate(() => localStorage.getItem('paytaxi.admin.token'));
+    const auth = { Authorization: `Bearer ${token}` };
+    const parks = await (await request.get('http://localhost:5196/api/admin/parks', { headers: auth })).json();
+    const park = (Array.isArray(parks) ? parks : parks.parks).find((p: any) => p.name === parkName);
+    expect(park, `park "${parkName}" from the card header`).toBeTruthy();
+    const run = await (await request.post(`http://localhost:5196/api/admin/settlements/run?parkId=${park.id}`, { headers: auth })).json();
+    if (run.created === false) {
+      // Nothing to settle: give the park one cashout worth of fees, then settle.
+      const roster = await (await request.get(`http://localhost:5196/api/admin/parks/${park.id}/drivers`, { headers: auth })).json();
+      const driver = roster.drivers.find((d: any) => d.status === 'Active' && d.cards?.some((c: any) => c.isDefault));
+      expect(driver, 'an active driver with a default account').toBeTruthy();
+      const otp = await (await request.post('http://localhost:5196/api/driver/auth/request-otp', { data: { phone: driver.phone } })).json();
+      const v = await (await request.post('http://localhost:5196/api/driver/auth/verify-otp', { data: { phone: driver.phone, code: otp.devCode, deviceLabel: 'e2e' } })).json();
+      const me = await (await request.get('http://localhost:5196/api/driver/me', { headers: { Authorization: `Bearer ${v.token}` } })).json();
+      const supported = new Set(me.park.supportedBanks.map((b: any) => b.bankCode));
+      const cardToUse = me.cards.find((c: any) => c.isDefault && supported.has(c.bankCode)) ?? me.cards.find((c: any) => supported.has(c.bankCode));
+      const saga = await (await request.post('http://localhost:5196/api/driver/cashouts', {
+        headers: { Authorization: `Bearer ${v.token}` }, data: { cardId: cardToUse.id, amount: 5, idempotencyKey: crypto.randomUUID() },
+      })).json();
+      expect(saga.status, JSON.stringify(saga).slice(0, 300)).toBe('Completed');
+      const again = await (await request.post(`http://localhost:5196/api/admin/settlements/run?parkId=${park.id}`, { headers: auth })).json();
+      expect(again.status, JSON.stringify(again).slice(0, 300)).toBeTruthy();
+    }
+
+    await page.reload();
+    const row = card.locator('.stl-month').first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row.locator('.stl-month__ref')).toHaveText(/^PT-\d{4}-\d{2}$/);
+
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup', { timeout: 20_000 }),
+      row.getByRole('button', { name: 'Open PDF' }).click(),
+    ]);
+    expect(popup.url().startsWith('blob:'), `popup url ${popup.url()}`).toBeTruthy();
+    await expect(card.locator('.stl-message--error')).toHaveCount(0);
+  });
+
   test('settings: fee is read-only for the operator and editable for Swich', async ({ page }) => {
     await adminLogin(page, 'operator');
     await page.goto('/admin/settings');

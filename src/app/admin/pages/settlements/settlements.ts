@@ -1,6 +1,6 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import {
-  AdminApiService, ApiSettlement, ApiSettlementSummary, ApiSettlementCashoutsResponse,
+  AdminApiService, ApiSettlement, ApiSettlementSummary, ApiSettlementCashoutsResponse, ApiSettlementMonth,
 } from '../../services/admin-api.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminAuthService } from '../../services/admin-auth.service';
@@ -38,6 +38,11 @@ export class SettlementsComponent {
   totals = signal<{ completedSwichShare: number; failedCount: number; failedSwichShare: number } | null>(null);
   scopeAll = signal(false);
 
+  /** Monthly invoices PT-YYYY-MM of the current park (one row per month with a settlement). */
+  months = signal<ApiSettlementMonth[]>([]);
+  openingMonth = signal<string | null>(null);
+  monthError = signal<string | null>(null);
+
   expanded = signal<string | null>(null);
   expandedCashouts = signal<ApiSettlementCashoutsResponse | null>(null);
   expandedLoading = signal(false);
@@ -70,13 +75,15 @@ export class SettlementsComponent {
     this.loading.set(true);
     this.loadError.set(null);
     try {
-      const [summary, list] = await Promise.all([
+      const [summary, list, months] = await Promise.all([
         this.api.getSettlementSummary(parkId, 14),
         this.api.listSettlements(all ? null : parkId, 90),
+        this.api.listSettlementMonths(parkId),
       ]);
       this.summary.set(summary);
       this.settlements.set(list.settlements);
       this.totals.set(list.totals);
+      this.months.set(months.months);
     } catch (err: any) {
       this.loadError.set(err?.error?.message ?? this.t.errLoadSettlements);
     } finally {
@@ -159,6 +166,28 @@ export class SettlementsComponent {
   }
 
   setScopeAll(all: boolean) { this.scopeAll.set(all); }
+
+  /** Open the PDF for one month in a new tab (fetched with the bearer token, opened as a blob URL). */
+  async openMonthly(m: ApiSettlementMonth, e: Event) {
+    e.stopPropagation();
+    const parkId = this.parkCtx.currentParkId();
+    if (!parkId || this.openingMonth()) return;
+    this.openingMonth.set(m.month);
+    this.monthError.set(null);
+    try {
+      await this.api.openMonthlyInvoice(parkId, m.month);
+    } catch (err: any) {
+      this.monthError.set(err?.status === 404 ? this.t.errNoMonthlyInvoice : this.t.errOpenInvoice);
+    } finally {
+      this.openingMonth.set(null);
+    }
+  }
+
+  /** "Sep 2026" from "2026-09" — the invoice ref stays as the machine label next to it. */
+  formatMonth(month: string): string {
+    const d = new Date(month + '-01T00:00:00');
+    return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+  }
 
   statusKey(s: string): string { return s.toLowerCase(); }
   statusLabel(s: string): string { return (this.t as Record<string, string>)[s.toLowerCase()] ?? s; }

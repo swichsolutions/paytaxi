@@ -4,7 +4,7 @@ Three layers, all run by GitHub Actions on every push (`.github/workflows/ci.yml
 
 | Layer | What | Command | Needs |
 |---|---|---|---|
-| Unit | Pure logic: IBAN, phone, name matching, settlement split, encryption, TBC/Yandex client parsing | `dotnet test backend/PayTaxi.sln` (also runs the layer below) | nothing |
+| Unit | Pure logic: IBAN, phone, name matching, settlement split, encryption, TBC/Yandex client parsing (monthly invoice PDF is covered by the integration layer) | `dotnet test backend/PayTaxi.sln` (also runs the layer below) | nothing |
 | Integration | The real API booted in-process against a fresh `paytaxi_test` Postgres DB with the Development seed: ownership rule, cashout saga, auth, authorization | same command | Postgres on localhost (`postgres`/`postgres`) or `PAYTAXI_TEST_DB` |
 | End-to-end | Driver app + admin console in a real browser at phone and desktop widths | `npm run e2e` | API running on :5196 in Development; Angular started automatically |
 

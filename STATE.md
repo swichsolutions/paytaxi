@@ -2,15 +2,56 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-21 (N2 danger banner + saga lock fix + reconciliation dedupe — see the newest section)
+**Last updated:** 2026-09-21 (monthly PT-YYYY-MM invoice; N2 danger banner; saga lock fix — see the newest sections)
 
 ---
 
 ## TL;DR
 
-The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout, and the whole admin console is mobile-responsive.
+The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout and a monthly PT-YYYY-MM invoice per park, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-21 (part 2) — the monthly invoice PT-YYYY-MM
+
+**What it is.** PAYTAXI-CONTEXT.md §4: "monthly invoice from Swich to park documents the already-settled amounts
+(paperwork follows money)". Every nightly transfer already carries `inv ref PT-YYYY-MM` in its bank description;
+this is the document that reference points to. One PDF per park per calendar month, Georgian, A4, same fonts and
+look as the per-cashout invoice (`InvoiceGenerator.Monthly.cs`, a partial of the same class):
+header `ინვოისი PT-2026-09` + period, **supplier** (Swich Solutions LLC, s/k, receiving IBAN from
+`Settlement:SwichIban`, holder) and **customer** (park legal entity, s/k, phone, PayTaxi park name), one service
+line (Swich's share of the cashout fees; cashout count, total fees, what stays with the park), totals split into
+*already transferred* and *outstanding* (failed/pending settlements), a table of the month's settlements
+(date, cashouts, fees, phase 1/2 split, Swich share, status with the transfer date or a translated failure code,
+bank transfer id), the split terms (phase-1 cap progress at month end, or the steady share), and a note that says
+the money already moved and that any outstanding amount goes with the next nightly run. The current month is
+marked **interim**. Filename `PT-2026-09-tbilisi-auto-park-3.pdf`.
+
+**API** (`SettlementsController`, anyone who can see the park — Swich, operator, the park's own manager):
+- `GET /api/admin/parks/{id}/settlements/months` → one row per month with a settlement: `month`, `invoiceRef`,
+  `isCurrent`, `settlements`, `cashouts`, `feeTotal`, `swichShare`, `transferred`, `outstanding`, `failedCount`, `pendingCount`.
+- `GET /api/admin/parks/{id}/settlements/invoice.pdf?month=YYYY-MM` → the PDF; 400 `invalid_month`,
+  404 `no_settlements_in_month`; the download is logged with the actor.
+
+**Console.** Settlements page → new **Monthly invoices** card between the daily fees and the history: one row per
+month (month name, `PT-…` ref, Interim pill, settlements/cashouts/fees, To Swich / Transferred / Outstanding
+figures — amber background when something is outstanding) with **Open PDF** (bearer fetch → blob URL → new tab,
+like the cashout invoice). Phone layout stacks it. en/ka keys added.
+
+**Design notes.** The invoice ref is per month, not per park (the same `PT-2026-09` appears on every park's
+document) — that is what the bank descriptions already say, and each document names its customer; change both
+together if an accountant wants unique numbers. A Failed settlement retried in a later month keeps its original
+`SettlementDate`, so it stays on the month it belongs to and simply flips to "transferred on dd.MM" — the
+document is regenerated from data on every download, never stored. Phase-1 progress on the document is
+"cumulative before the last settlement + its fees" (what has been *settled*), while the console tile counts every
+completed cashout fee (settled or not) — the two can differ by the fees waiting for tonight.
+
+**Tests**: 117 backend (new: month list figures equal the rows, PDF content type / filename / `%PDF`, 404/400
+codes, operator + own manager 200, other park's manager 403), 12 e2e (new: card shows the month row and
+Open PDF opens a `blob:` tab; the spec settles only the park shown, so the alerts spec's park stays untouched).
+Rendered locally for Levan's park and checked page by page (`pypdfium2` rasteriser in the scratchpad).
 
 ---
 
@@ -45,7 +86,7 @@ buttons. Phone layout stacks each line with a full-width Open.
 - Fixture lessons: Npgsql pools per connection string process-wide → `ClearAllPools()` after recreating the
   test DB; `Settlements.Status` is stored lowercase; one settlement per (park, day) unique index.
 
-**Tests**: 116 backend (3 alerts tests: role scope, signature tracks the set, review/recon kinds, auth), 11 e2e
+**Tests** (at the time): 116 backend (3 alerts tests: role scope, signature tracks the set, review/recon kinds, auth), 11 e2e
 (banner spec manufactures a real failure: driver cashout → deactivate payout accounts → run settlement →
 NO_PARK_ACCOUNT; asserts banner/advice/badge/Open/dismiss/reload/other-session; leaves the Failed row for the
 worker). Locally the banner spec skips once the park is settled for the day.

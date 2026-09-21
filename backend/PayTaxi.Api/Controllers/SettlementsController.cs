@@ -22,12 +22,14 @@ public class SettlementsController : AdminControllerBase
 {
     private readonly AppDbContext _db;
     private readonly ISettlementService _settlements;
+    private readonly IInvoiceGenerator _invoices;
     private readonly ILogger<SettlementsController> _log;
 
-    public SettlementsController(AppDbContext db, ISettlementService settlements, ILogger<SettlementsController> log)
+    public SettlementsController(AppDbContext db, ISettlementService settlements, IInvoiceGenerator invoices, ILogger<SettlementsController> log)
     {
         _db = db;
         _settlements = settlements;
+        _invoices = invoices;
         _log = log;
     }
 
@@ -191,6 +193,75 @@ public class SettlementsController : AdminControllerBase
             daily,
             asOf = DateTime.UtcNow,
         });
+    }
+
+    /// <summary>
+    /// The park's settlement months — one row per calendar month that has at least one
+    /// settlement, newest first, with the figures the monthly invoice PT-YYYY-MM carries.
+    /// </summary>
+    [HttpGet("parks/{parkId:guid}/settlements/months")]
+    public async Task<IActionResult> Months(Guid parkId, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (!await _db.Parks.AsNoTracking().AnyAsync(p => p.Id == parkId, ct))
+            return NotFound(new { error = "park_not_found" });
+
+        var rows = await _db.Settlements.AsNoTracking()
+            .Where(s => s.ParkId == parkId)
+            .Select(s => new { s.SettlementDate, s.CashoutCount, s.FeeTotal, s.SwichShare, s.Status })
+            .ToListAsync(ct);
+
+        var tz = SettlementService.ResolveTimeZone(null);
+        var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
+
+        var months = rows
+            .GroupBy(r => new { r.SettlementDate.Year, r.SettlementDate.Month })
+            .OrderByDescending(g => g.Key.Year).ThenByDescending(g => g.Key.Month)
+            .Select(g => new
+            {
+                month = $"{g.Key.Year:D4}-{g.Key.Month:D2}",
+                invoiceRef = $"PT-{g.Key.Year:D4}-{g.Key.Month:D2}",
+                isCurrent = g.Key.Year == nowLocal.Year && g.Key.Month == nowLocal.Month,
+                settlements = g.Count(),
+                cashouts = g.Sum(r => r.CashoutCount),
+                feeTotal = g.Sum(r => r.FeeTotal),
+                swichShare = g.Sum(r => r.SwichShare),
+                transferred = g.Where(r => r.Status == SettlementStatus.Completed).Sum(r => r.SwichShare),
+                outstanding = g.Where(r => r.Status != SettlementStatus.Completed).Sum(r => r.SwichShare),
+                failedCount = g.Count(r => r.Status == SettlementStatus.Failed),
+                pendingCount = g.Count(r => r.Status == SettlementStatus.Pending || r.Status == SettlementStatus.Processing),
+            })
+            .ToList();
+
+        return Ok(new { parkId, count = months.Count, months });
+    }
+
+    /// <summary>
+    /// The monthly invoice PT-YYYY-MM (Swich → park) as PDF: every nightly settlement of the
+    /// month, what was transferred and what is still outstanding. 404 when the park has no
+    /// settlement in that month. Anyone who can see the park may download it.
+    /// </summary>
+    [HttpGet("parks/{parkId:guid}/settlements/invoice.pdf")]
+    public async Task<IActionResult> MonthlyInvoice(Guid parkId, [FromQuery] string? month, CancellationToken ct)
+    {
+        if (!CanAccessPark(parkId)) return Forbid();
+        if (string.IsNullOrWhiteSpace(month) ||
+            !DateOnly.TryParseExact(month + "-01", "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var first))
+            return BadRequest(new { error = "invalid_month", message = "month must be YYYY-MM" });
+
+        var park = await _db.Parks.AsNoTracking().Select(p => new { p.Id, p.Slug }).FirstOrDefaultAsync(p => p.Id == parkId, ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        try
+        {
+            var pdf = await _invoices.RenderMonthlyAsync(parkId, first.Year, first.Month, ct);
+            _log.LogInformation("Monthly invoice PT-{Month} for park {Park} downloaded by {Actor}", month, park.Slug, ActorLabel);
+            return File(pdf, "application/pdf", _invoices.MonthlyFileName(park.Slug, first.Year, first.Month));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(new { error = "no_settlements_in_month", message = ex.Message });
+        }
     }
 
     /// <summary>Retry a Failed settlement (Swich only).</summary>
