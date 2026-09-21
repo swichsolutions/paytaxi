@@ -40,4 +40,10 @@ public static class CashoutRejectionCodes
     public const string CashoutInFlight = "cashout_in_flight";
     public const string YandexReadOnly = "yandex_read_only";
     public const string IdempotencyKeyConflict = "idempotency_key_conflict";
+    /// <summary>The driver id is not in this park (manual cashout with a wrong park or driver).</summary>
+    public const string DriverNotFound = "driver_not_found";
+    /// <summary>The destination id does not belong to this driver.</summary>
+    public const string DestinationNotFound = "destination_not_found";
+    /// <summary>More than two decimals — money is tetri-exact, we never round a request.</summary>
+    public const string AmountPrecision = "amount_precision";
 }

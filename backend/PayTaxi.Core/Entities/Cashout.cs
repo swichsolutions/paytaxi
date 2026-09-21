@@ -34,6 +34,12 @@ public class Cashout : BaseEntity
     /// <summary>Who started this cashout: "driver:{id}", "admin", "admin-retry:{id}", "system".</summary>
     public string? InitiatedBy { get; set; }
 
+    /// <summary>
+    /// When this cashout was created by "Retry" on a Failed one, the id of that failed cashout.
+    /// One live (non-Failed) retry per source — a second click must never pay twice.
+    /// </summary>
+    public Guid? RetryOfCashoutId { get; set; }
+
     // ── Payout queue bookkeeping ──────────────────────────────────────
     /// <summary>How many bank payout attempts have been made.</summary>
     public int AttemptCount { get; set; }

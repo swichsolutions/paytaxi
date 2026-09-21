@@ -80,6 +80,15 @@ public class AuthController : ControllerBase
             return StatusCode(429, new { error = "too_many_requests", retryAfterSeconds = OtpWindowMinutes * 60 });
         }
 
+        // A suspended driver is told at this step (the app maps driver_inactive here) and no code is
+        // issued — every code costs an SMS, and verify would refuse it anyway. Unknown phones still get
+        // the generic "sent" below so the endpoint does not enumerate drivers.
+        if (driver is not null && driver.Status != Core.Enums.DriverStatus.Active)
+        {
+            _log.LogInformation("OTP refused for inactive driver {DriverId} (status={Status})", driver.Id, driver.Status);
+            return StatusCode(403, new { error = "driver_inactive", message = "Your account is not active." });
+        }
+
         // We DON'T reveal whether the phone exists — same response either way.
         // The OTP just goes nowhere if there's no driver behind the phone.
         var code = GenerateCode();

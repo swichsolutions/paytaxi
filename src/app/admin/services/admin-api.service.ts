@@ -272,6 +272,7 @@ export interface ApiSettlementSummary {
   daily: Array<{
     date: string; cashouts: number; volume: number; fees: number;
     settlementStatus: string | null; swichShare: number | null;
+    settlementCashouts?: number | null; settlementFees?: number | null;
   }>;
   asOf: string;
 }
@@ -676,4 +677,8 @@ export interface ApiCashout {
   /** Account holder as registered on the destination; differs from the driver for third-party accounts. */
   holderName?: string | null;
   isThirdPartyAccount?: boolean;
+  /** Set on a cashout created by "Retry": the Failed cashout it retries. */
+  retryOfCashoutId?: string | null;
+  /** Set on a Failed cashout that already has a live (non-Failed) retry — the console hides Retry. */
+  retriedByCashoutId?: string | null;
 }

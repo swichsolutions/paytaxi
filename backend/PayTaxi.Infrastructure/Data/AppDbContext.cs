@@ -264,6 +264,7 @@ public class AppDbContext : DbContext
             e.Property(c => c.Amount).HasPrecision(18, 4);
             e.Property(c => c.Fee).HasPrecision(18, 4);
             e.HasIndex(c => c.IdempotencyKey).IsUnique();
+            e.HasIndex(c => c.RetryOfCashoutId);
             e.HasIndex(c => new { c.DriverId, c.Status });
             e.HasIndex(c => new { c.ParkId, c.Status });
             e.HasIndex(c => c.InvoiceNumber).IsUnique();

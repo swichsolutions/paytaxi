@@ -257,6 +257,9 @@ export class ManualCashoutComponent implements OnInit {
         case 'balance_unavailable':     return this.t.rejBalanceUnavailable;
         case 'yandex_read_only':        return this.t.rejYandexReadOnly;
         case 'idempotency_key_conflict':return this.t.rejIdempotencyConflict;
+        case 'driver_not_found':        return this.t.rejDriverNotFound;
+        case 'destination_not_found':   return this.t.rejDestinationNotFound;
+        case 'amount_precision':        return this.t.rejAmountPrecision;
         case 'rejected':                return this.t.rejRejected;
         default:                        return body.message ?? this.t.rejRejected;
       }

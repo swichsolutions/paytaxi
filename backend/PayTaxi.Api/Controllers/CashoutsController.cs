@@ -60,6 +60,14 @@ public class CashoutsController : AdminControllerBase
                 yandexReversalTransactionId = c.YandexReversalTransactionId,
                 failureReason = c.FailureReason,
                 initiatedBy = c.InitiatedBy,
+                // Retry bookkeeping: which failed row this one retries, and — for a Failed row — the
+                // live retry that already exists (so the console hides its Retry button).
+                retryOfCashoutId = c.RetryOfCashoutId,
+                retriedByCashoutId = _db.Cashouts
+                    .Where(r => r.RetryOfCashoutId == c.Id && r.Status != Core.Enums.CashoutStatus.Failed)
+                    .OrderByDescending(r => r.CreatedAt)
+                    .Select(r => (Guid?)r.Id)
+                    .FirstOrDefault(),
                 attemptCount = c.AttemptCount,
                 nextAttemptAt = c.NextAttemptAt,
                 createdAt = c.CreatedAt,
@@ -93,6 +101,8 @@ public class CashoutsController : AdminControllerBase
         if (body.Amount <= 0)            return BadRequest(new { error = "amount_must_be_positive" });
         if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
             return BadRequest(new { error = "idempotency_key_required" });
+        if (body.IdempotencyKey.Length > 128)
+            return BadRequest(new { error = "idempotency_key_too_long", max = 128 });
 
         try
         {
@@ -169,7 +179,26 @@ public class CashoutsController : AdminControllerBase
             });
         }
 
-        var newKey = $"retry:{source.Id:N}:{Guid.NewGuid():N}";
+        // One live retry per source. A second click, a second manager or a stale tab must not pay the
+        // driver again; only when the previous retry itself Failed may another be started.
+        var priorRetries = await _db.Cashouts.AsNoTracking()
+            .Where(c => c.RetryOfCashoutId == source.Id)
+            .Select(c => new { c.Id, c.Status })
+            .ToListAsync(ct);
+        var live = priorRetries.FirstOrDefault(r => r.Status != Core.Enums.CashoutStatus.Failed);
+        if (live is not null)
+        {
+            return Conflict(new
+            {
+                error = "already_retried",
+                retryCashoutId = live.Id,
+                status = live.Status.ToString(),
+                message = $"This cashout was already retried (cashout {live.Id}, status {live.Status}).",
+            });
+        }
+
+        // Deterministic key per attempt: two simultaneous clicks collapse onto the same saga run.
+        var newKey = $"retry:{source.Id:N}:{priorRetries.Count + 1}";
         try
         {
             var result = await _orchestrator.RunAsync(new CashoutSagaRequest(
@@ -178,13 +207,19 @@ public class CashoutsController : AdminControllerBase
                 BankCardId: source.BankCardId,
                 Amount: source.Amount,
                 IdempotencyKey: newKey,
-                InitiatedBy: $"{ActorLabel} retry:{source.Id}"), ct);
+                InitiatedBy: $"{ActorLabel} retry:{source.Id}",
+                RetryOfCashoutId: source.Id), ct);
 
             _log.LogInformation(
                 "Retried cashout {SourceId} → new cashout {NewId} status={Status}",
                 source.Id, result.CashoutId, result.Status);
 
             return SagaResponse(result);
+        }
+        catch (CashoutRejectedException ex)
+        {
+            _log.LogWarning("Cashout retry rejected ({Code}) for source={CashoutId}: {Message}", ex.Code, source.Id, ex.Message);
+            return BadRequest(new { error = "cashout_rejected", code = ex.Code, message = ex.Message, @params = ex.Params });
         }
         catch (InvalidOperationException ex)
         {

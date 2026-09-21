@@ -187,7 +187,9 @@
           </span>
         </div>
         <div class="queue__cell queue__cell--action">
-          @if (c.status === 'failed') {
+          @if (c.status === 'failed' && c.retriedByCashoutId) {
+            <span class="queue__retried" [title]="c.retriedByCashoutId">{{ t.retried }}</span>
+          } @else if (c.status === 'failed') {
             <button class="queue__retry" (click)="askRetry(c.id, $event)" [disabled]="retrying() !== null">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
@@ -221,6 +223,18 @@
                 <span class="detail-label">{{ t.yandexTransaction }}</span>
                 <code class="detail-code">{{ c.yandexTransactionId ?? '—' }}</code>
               </div>
+              @if (c.retryOfCashoutId) {
+                <div class="detail-cell">
+                  <span class="detail-label">{{ t.retryOf }}</span>
+                  <code class="detail-code">{{ c.retryOfCashoutId }}</code>
+                </div>
+              }
+              @if (c.retriedByCashoutId) {
+                <div class="detail-cell">
+                  <span class="detail-label">{{ t.retriedBy }}</span>
+                  <code class="detail-code">{{ c.retriedByCashoutId }}</code>
+                </div>
+              }
               @if (c.rawStatus === 'Queued' || c.attemptCount > 1) {
                 <div class="detail-cell">
                   <span class="detail-label">{{ t.attempts }}</span>

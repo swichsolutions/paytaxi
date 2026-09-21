@@ -101,9 +101,9 @@ public class CashoutOrchestrator : ICashoutOrchestrator
             .FirstOrDefaultAsync(p => p.Id == req.ParkId, ct)
             ?? throw new InvalidOperationException($"Park {req.ParkId} not found");
         var driver = await _db.Drivers.FirstOrDefaultAsync(d => d.Id == req.DriverId && d.ParkId == req.ParkId, ct)
-            ?? throw new InvalidOperationException($"Driver {req.DriverId} not found in park {req.ParkId}");
+            ?? throw CashoutRejectedException.Of(DriverNotFound, $"Driver {req.DriverId} not found in park {req.ParkId}");
         var card = await _db.BankCards.FirstOrDefaultAsync(b => b.Id == req.BankCardId && b.DriverId == req.DriverId, ct)
-            ?? throw new InvalidOperationException($"Payout destination {req.BankCardId} not found for driver {req.DriverId}");
+            ?? throw CashoutRejectedException.Of(DestinationNotFound, $"Payout destination {req.BankCardId} not found for driver {req.DriverId}");
 
         if (park.Status != ParkStatus.Active)
             throw CashoutRejectedException.Of(ParkInactive, $"Park is not active (status={park.Status})", ("status", park.Status.ToString()));
@@ -120,6 +120,10 @@ public class CashoutOrchestrator : ICashoutOrchestrator
 
         // ── Fee & limits (per-park config) ────────────────────────────
         var fee = Math.Round(park.CashoutFee, 2, MidpointRounding.AwayFromZero);
+        // Money is tetri-exact: a request with more than two decimals is refused, never rounded —
+        // 5.005 must not silently become a 5.01 debit.
+        if (req.Amount != Math.Round(req.Amount, 2))
+            throw CashoutRejectedException.Of(AmountPrecision, "Amount must have at most two decimals", ("amount", req.Amount));
         var amount = Math.Round(req.Amount, 2, MidpointRounding.AwayFromZero);
 
         if (amount < park.MinCashoutAmount)
@@ -205,6 +209,7 @@ public class CashoutOrchestrator : ICashoutOrchestrator
                 Status = CashoutStatus.Processing,
                 IdempotencyKey = req.IdempotencyKey,
                 InitiatedBy = req.InitiatedBy ?? "system",
+                RetryOfCashoutId = req.RetryOfCashoutId,
             };
             _db.Cashouts.Add(cashout);
             _db.LedgerEntries.Add(new LedgerEntry

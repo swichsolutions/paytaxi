@@ -123,6 +123,7 @@
   "errVerifyFailed": "Проверка не удалась. Попробуйте ещё раз.",
   "errCashout_park_inactive": "Ваш парк приостановил выводы. Обратитесь в парк.",
   "errCashout_driver_inactive": "Ваш аккаунт приостановлен. Обратитесь в парк.",
+  "errCashout_amount_precision": "Сумма может содержать не более двух знаков после запятой.",
   "errCashout_driver_not_linked": "Ваш аккаунт ещё не привязан к профилю Яндекс. Обратитесь в парк.",
   "errCashout_destination_removed": "Этот банковский счёт удалён. Выберите другой.",
   "errCashout_destination_no_iban": "У этого счёта нет IBAN. Добавьте его заново.",

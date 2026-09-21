@@ -30,6 +30,8 @@ interface DisplayCashout {
   maskedPan: string;
   holderName: string | null;
   isThirdPartyAccount: boolean;
+  retryOfCashoutId: string | null;
+  retriedByCashoutId: string | null;
   attemptCount: number;
   nextAttemptAt: Date | null;
   createdAt: Date;
@@ -161,6 +163,8 @@ export class CashoutsComponent {
     maskedPan: c.maskedPan,
     holderName: c.holderName ?? null,
     isThirdPartyAccount: c.isThirdPartyAccount === true,
+    retryOfCashoutId: c.retryOfCashoutId ?? null,
+    retriedByCashoutId: c.retriedByCashoutId ?? null,
     attemptCount: c.attemptCount ?? 0,
     nextAttemptAt: c.nextAttemptAt ? new Date(c.nextAttemptAt) : null,
     createdAt: new Date(c.createdAt),
@@ -271,6 +275,10 @@ export class CashoutsComponent {
       const sagaResult = err?.error;
       if (sagaResult && typeof sagaResult.status === 'string' && sagaResult.cashoutId) {
         this.retryMessage.set(this.describeRetry(sagaResult));
+        await this.fetchFor(parkId);
+      } else if (err?.status === 409 && err?.error?.error === 'already_retried') {
+        // Someone (or a second click) already retried it — refresh so the button disappears.
+        this.retryMessage.set(this.t.alreadyRetried);
         await this.fetchFor(parkId);
       } else {
         const msg = err?.error?.message ?? err?.error?.error ?? err?.message ?? '';

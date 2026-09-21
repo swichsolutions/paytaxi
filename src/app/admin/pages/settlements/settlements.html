@@ -99,6 +99,9 @@
             <span class="stl-table__cell" [attr.data-label]="t.colSettlement">
               @if (d.settlementStatus) {
                 <span class="stl-pill" [attr.data-status]="statusKey(d.settlementStatus)">{{ statusLabel(d.settlementStatus) }}</span>
+                @if (coversOtherDays(d)) {
+                  <span class="stl-covers">{{ t.settlementCovers }} {{ d.settlementCashouts }} {{ t.cashoutsLabel }} · {{ formatGel(d.settlementFees ?? 0, 2) }}</span>
+                }
               } @else if (d.cashouts > 0) { <span class="stl-muted">{{ t.notSettled }}</span> } @else { — }
             </span>
             <span class="stl-table__cell gel" [attr.data-label]="t.colSwichShare">{{ d.swichShare !== null ? formatGel(d.swichShare, 2) : '—' }}</span>

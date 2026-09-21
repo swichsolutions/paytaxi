@@ -44,6 +44,147 @@ public class CashoutSagaTests
     }
 
     [Fact]
+    public async Task Amounts_with_more_than_two_decimals_are_rejected_not_rounded()
+    {
+        var (driver, driverId, _) = await _f.DriverClientAsync("yp_tb3_002");
+        var (cardId, _) = await DefaultCardAsync(driver);
+        var key = Guid.NewGuid().ToString();
+
+        var res = await CashoutAsync(driver, cardId, 5.005m, key);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("amount_precision", body.GetProperty("code").GetString());
+        // Nothing was reserved: a rounded 5.01 must not exist under that key.
+        Assert.False(await _f.DbAsync(db => db.Cashouts.AnyAsync(c => c.IdempotencyKey == key)));
+        Assert.False(await _f.DbAsync(db => db.Cashouts.AnyAsync(c => c.DriverId == driverId && c.Amount == 5.01m)));
+    }
+
+    [Fact]
+    public async Task Idempotency_key_longer_than_128_chars_is_refused_on_both_endpoints()
+    {
+        var (driver, driverId, parkId) = await _f.DriverClientAsync("yp_tb3_002");
+        var (cardId, _) = await DefaultCardAsync(driver);
+        var longKey = new string('k', 129);
+
+        var res = await CashoutAsync(driver, cardId, 5m, longKey);
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal("idempotency_key_too_long", ApiFixture.Code(await res.Content.ReadFromJsonAsync<JsonElement>()));
+
+        var admin = await _f.SuperAdminAsync();
+        var manual = await admin.PostAsJsonAsync($"/api/admin/parks/{parkId}/cashouts",
+            new { driverId, cardId, amount = 5m, idempotencyKey = longKey });
+        Assert.Equal(HttpStatusCode.BadRequest, manual.StatusCode);
+        Assert.Equal("idempotency_key_too_long", ApiFixture.Code(await manual.Content.ReadFromJsonAsync<JsonElement>()));
+
+        Assert.False(await _f.DbAsync(db => db.Cashouts.AnyAsync(c => c.IdempotencyKey == longKey)));
+    }
+
+    [Fact]
+    public async Task Manual_cashout_lookups_fail_with_typed_codes_not_a_generic_rejection()
+    {
+        var admin = await _f.SuperAdminAsync();
+        var (driverA, driverAId, levanId) = await _f.DriverClientAsync("yp_tb3_002");
+        var (cardA, _) = await DefaultCardAsync(driverA);
+        var (driverB, _, _) = await _f.DriverClientAsync("yp_tb3_004");
+        var (cardB, _) = await DefaultCardAsync(driverB);
+        var batumiId = await _f.DbAsync(async db => (await db.Parks.AsNoTracking().FirstAsync(p => p.Slug == "batumi-auto-park-1")).Id);
+
+        // Levan's driver posted under Batumi's route: the driver is not in that park.
+        var wrongPark = await admin.PostAsJsonAsync($"/api/admin/parks/{batumiId}/cashouts",
+            new { driverId = driverAId, cardId = cardA, amount = 5m, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal(HttpStatusCode.BadRequest, wrongPark.StatusCode);
+        var b1 = await wrongPark.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("cashout_rejected", ApiFixture.Code(b1));
+        Assert.Equal("driver_not_found", b1.GetProperty("code").GetString());
+
+        // Right park, right driver, but another driver's destination.
+        var wrongCard = await admin.PostAsJsonAsync($"/api/admin/parks/{levanId}/cashouts",
+            new { driverId = driverAId, cardId = cardB, amount = 5m, idempotencyKey = Guid.NewGuid().ToString() });
+        Assert.Equal(HttpStatusCode.BadRequest, wrongCard.StatusCode);
+        var b2 = await wrongCard.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("destination_not_found", b2.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Retrying_a_failed_cashout_twice_pays_once()
+    {
+        var (driver, driverId, parkId) = await _f.DriverClientAsync("yp_tb3_002");
+        var (cardId, _) = await DefaultCardAsync(driver);
+
+        // A Failed cashout as the abandon path leaves it (Yandex reversed, bank never paid).
+        var sourceId = await _f.DbAsync(async db =>
+        {
+            var c = new PayTaxi.Core.Entities.Cashout
+            {
+                DriverId = driverId, ParkId = parkId, BankCardId = cardId, Amount = 7m, Fee = 0.5m,
+                Status = PayTaxi.Core.Enums.CashoutStatus.Failed, FailureReason = "test: planted failure",
+                IdempotencyKey = $"planted:{Guid.NewGuid():N}", InitiatedBy = "test", AttemptCount = 1,
+            };
+            db.Cashouts.Add(c); await db.SaveChangesAsync(); return c.Id;
+        });
+
+        var manager = await _f.ParkAdminAsync("tbilisi-auto-park-3");
+        var first = await manager.PostAsync($"/api/admin/parks/{parkId}/cashouts/{sourceId}/retry", null);
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var r1 = await first.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Completed", r1.GetProperty("status").GetString());
+        var retryId = r1.GetProperty("cashoutId").GetGuid();
+
+        // A second click (double tap, second manager, stale tab) must NOT pay the driver again.
+        var second = await manager.PostAsync($"/api/admin/parks/{parkId}/cashouts/{sourceId}/retry", null);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        var r2 = await second.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("already_retried", ApiFixture.Code(r2));
+        Assert.Equal(retryId, r2.GetProperty("retryCashoutId").GetGuid());
+
+        var retries = await _f.DbAsync(db => db.Cashouts.Where(c => c.RetryOfCashoutId == sourceId).ToListAsync());
+        Assert.Single(retries);
+        Assert.Equal(retryId, retries[0].Id);
+
+        // The list tells the console which failed row has already been retried (so the button goes away)
+        // and which row is the retry.
+        var list = await manager.GetFromJsonAsync<JsonElement>($"/api/admin/parks/{parkId}/cashouts?take=200");
+        var rows = list.GetProperty("cashouts").EnumerateArray().ToList();
+        var src = rows.Single(c => c.GetProperty("id").GetGuid() == sourceId);
+        Assert.Equal(retryId, src.GetProperty("retriedByCashoutId").GetGuid());
+        var rty = rows.Single(c => c.GetProperty("id").GetGuid() == retryId);
+        Assert.Equal(sourceId, rty.GetProperty("retryOfCashoutId").GetGuid());
+    }
+
+    [Fact]
+    public async Task A_retry_that_failed_too_may_be_retried_again()
+    {
+        var (driver, driverId, parkId) = await _f.DriverClientAsync("yp_tb3_002");
+        var (cardId, _) = await DefaultCardAsync(driver);
+        var (sourceId, firstRetryId) = await _f.DbAsync(async db =>
+        {
+            var src = new PayTaxi.Core.Entities.Cashout
+            {
+                DriverId = driverId, ParkId = parkId, BankCardId = cardId, Amount = 6m, Fee = 0.5m,
+                Status = PayTaxi.Core.Enums.CashoutStatus.Failed, FailureReason = "test", IdempotencyKey = $"planted:{Guid.NewGuid():N}", InitiatedBy = "test",
+            };
+            db.Cashouts.Add(src); await db.SaveChangesAsync();
+            var retry = new PayTaxi.Core.Entities.Cashout
+            {
+                DriverId = driverId, ParkId = parkId, BankCardId = cardId, Amount = 6m, Fee = 0.5m,
+                Status = PayTaxi.Core.Enums.CashoutStatus.Failed, FailureReason = "test: retry failed too",
+                IdempotencyKey = $"retry:{src.Id:N}:1", InitiatedBy = "test", RetryOfCashoutId = src.Id,
+            };
+            db.Cashouts.Add(retry); await db.SaveChangesAsync();
+            return (src.Id, retry.Id);
+        });
+
+        var admin = await _f.SuperAdminAsync();
+        var res = await admin.PostAsync($"/api/admin/parks/{parkId}/cashouts/{sourceId}/retry", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("Completed", body.GetProperty("status").GetString());
+        Assert.NotEqual(firstRetryId, body.GetProperty("cashoutId").GetGuid());
+        var live = await _f.DbAsync(db => db.Cashouts.CountAsync(c => c.RetryOfCashoutId == sourceId && c.Status == PayTaxi.Core.Enums.CashoutStatus.Completed));
+        Assert.Equal(1, live);
+    }
+
+    [Fact]
     public async Task Two_concurrent_requests_never_pay_more_than_the_balance()
     {
         // Each request asks for more than half the balance. However the two interleave — serialised by

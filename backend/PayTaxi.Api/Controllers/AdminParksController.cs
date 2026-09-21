@@ -820,6 +820,9 @@ public class AdminParksController : AdminControllerBase
 
         var created = new List<object>();
         var skipped = new List<object>();
+        // Phones added in THIS request: two Yandex profiles sharing a number would both pass the
+        // database check and the save would then hit the unique phone index (a 500 instead of a skip).
+        var phonesInRequest = new HashSet<string>();
 
         foreach (var pid in body.YandexProfileIds.Distinct())
         {
@@ -833,7 +836,7 @@ public class AdminParksController : AdminControllerBase
             { skipped.Add(new { yandexProfileId = pid, reason = "no_phone" }); continue; }
 
             var phoneHash = HashPhone(phone);
-            if (await _db.Drivers.AsNoTracking().AnyAsync(d => d.PhoneHash == phoneHash, ct))
+            if (!phonesInRequest.Add(phoneHash) || await _db.Drivers.AsNoTracking().AnyAsync(d => d.PhoneHash == phoneHash, ct))
             { skipped.Add(new { yandexProfileId = pid, reason = "phone_taken" }); continue; }
 
             var driver = new Core.Entities.Driver
@@ -1177,6 +1180,9 @@ public class AdminParksController : AdminControllerBase
         var provider = (Blank(body.Provider ?? "") ?? ProviderForBankCode(bankCode)).ToLowerInvariant();
         if (provider is not ("tbc" or "bog" or "mock"))
             return BadRequest(new { error = "invalid_provider", allowed = new[] { "tbc", "bog", "mock" } });
+        var credentials = Blank(body.CredentialsJson ?? "");
+        if (credentials is not null && !IsJsonObject(credentials))
+            return BadRequest(new { error = "invalid_credentials_json", message = "credentialsJson must be a JSON object" });
 
         var hasAny = await _db.ParkBankAccounts.AnyAsync(a => a.ParkId == parkId && a.IsActive, ct);
         var makePrimary = body.IsPrimary ?? !hasAny;
@@ -1195,7 +1201,7 @@ public class AdminParksController : AdminControllerBase
             Iban = iban,
             HolderName = Blank(body.HolderName ?? "") ?? park.LegalEntityName ?? park.Name,
             Label = Blank(body.Label ?? "") ?? $"{GeorgianIban.BankLabel(bankCode)} account",
-            CredentialsEncrypted = Blank(body.CredentialsJson ?? "") ?? "{}",
+            CredentialsEncrypted = credentials ?? "{}",
             IsActive = true,
             IsPrimary = makePrimary,
         };
@@ -1243,7 +1249,14 @@ public class AdminParksController : AdminControllerBase
 
         if (body.HolderName is not null) account.HolderName = Blank(body.HolderName);
         if (body.Label is not null) account.Label = Blank(body.Label);
-        if (!string.IsNullOrWhiteSpace(body.CredentialsJson)) account.CredentialsEncrypted = body.CredentialsJson.Trim();
+        if (!string.IsNullOrWhiteSpace(body.CredentialsJson))
+        {
+            // Stored as-is and parsed by the bank adapter at payout time — garbage here would surface
+            // as a failed payout at 3 a.m., so refuse anything that is not a JSON object now.
+            if (!IsJsonObject(body.CredentialsJson))
+                return BadRequest(new { error = "invalid_credentials_json", message = "credentialsJson must be a JSON object" });
+            account.CredentialsEncrypted = body.CredentialsJson.Trim();
+        }
         if (body.Provider is not null)
         {
             var provider = body.Provider.Trim().ToLowerInvariant();
@@ -1259,11 +1272,31 @@ public class AdminParksController : AdminControllerBase
                 .ExecuteUpdateAsync(s => s.SetProperty(a => a.IsPrimary, false), ct);
             account.IsPrimary = true;
         }
-        if (account.IsPrimary)
+
+        // "Primary" must point at an account that can actually pay. Deactivating the primary hands the
+        // flag to another active account when there is one; with none left it stays, so re-activating
+        // later restores the old state without anyone having to remember which account it was.
+        var mirror = account;
+        if (!account.IsActive && account.IsPrimary)
         {
-            park.BankAccountIban = account.Iban;
-            park.BankProvider = account.Provider;
-            park.BankType = account.Provider.ToUpperInvariant();
+            var successor = await _db.ParkBankAccounts
+                .Where(a => a.ParkId == parkId && a.Id != accountId && a.IsActive)
+                .OrderBy(a => a.BankCode == "TB" ? 0 : 1).ThenBy(a => a.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+            if (successor is not null)
+            {
+                account.IsPrimary = false;
+                successor.IsPrimary = true;
+                mirror = successor;
+                _log.LogInformation("Park {ParkId}: primary payout account moved {From} → {To} because the primary was deactivated",
+                    parkId, account.Id, successor.Id);
+            }
+        }
+        if (mirror.IsPrimary)
+        {
+            park.BankAccountIban = mirror.Iban;
+            park.BankProvider = mirror.Provider;
+            park.BankType = mirror.Provider.ToUpperInvariant();
         }
 
         await _db.SaveChangesAsync(ct);
@@ -1332,6 +1365,27 @@ public class AdminParksController : AdminControllerBase
         "BG" => "bog",
         _ => "mock",
     };
+
+    /// <summary>True when the text parses as a JSON object (what every bank adapter expects for credentials).</summary>
+
+    private static bool IsJsonObject(string text)
+
+    {
+
+        try
+
+        {
+
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object;
+
+        }
+
+        catch (System.Text.Json.JsonException) { return false; }
+
+    }
+
 
     private static string? Blank(string s)
     {

@@ -123,6 +123,7 @@
   "errVerifyFailed": "დადასტურება ვერ მოხერხდა. სცადეთ თავიდან.",
   "errCashout_park_inactive": "თქვენმა პარკმა გამოტანები შეაჩერა. დაუკავშირდით პარკს.",
   "errCashout_driver_inactive": "თქვენი ანგარიში შეჩერებულია. დაუკავშირდით პარკს.",
+  "errCashout_amount_precision": "თანხას მაქსიმუმ ორი ათწილადი აქვს.",
   "errCashout_driver_not_linked": "თქვენი ანგარიში ჯერ არ არის დაკავშირებული იანდექსის პროფილთან. დაუკავშირდით პარკს.",
   "errCashout_destination_removed": "ეს საბანკო ანგარიში წაშლილია. აირჩიეთ სხვა.",
   "errCashout_destination_no_iban": "ამ ანგარიშს ნომერი არ აქვს. დაამატეთ თავიდან.",

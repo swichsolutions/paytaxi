@@ -189,6 +189,16 @@ export class SettlementsComponent {
     return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
   }
 
+  /**
+   * The settlement dated this day covers a different set than the day's own columns show — an
+   * on-demand run left later cashouts for the next day, or the first run swept older history.
+   * Shown so "0 cashouts · Completed · ₾1.35" has its explanation right there.
+   */
+  coversOtherDays(d: { cashouts: number; fees: number; settlementCashouts?: number | null; settlementFees?: number | null }): boolean {
+    if (d.settlementCashouts == null || d.settlementFees == null) return false;
+    return d.settlementCashouts !== d.cashouts || Math.abs(d.settlementFees - d.fees) >= 0.005;
+  }
+
   statusKey(s: string): string { return s.toLowerCase(); }
   statusLabel(s: string): string { return (this.t as Record<string, string>)[s.toLowerCase()] ?? s; }
 

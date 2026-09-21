@@ -58,14 +58,21 @@ public class AuthAndAuthorizationTests
     {
         var phone = await PhoneOfAsync("yp_tb3_004");
         var driverId = await _f.DbAsync(async db => (await db.Drivers.AsNoTracking().FirstAsync(d => d.YandexDriverProfileId == "yp_tb3_004")).Id);
+        var phoneHash = await _f.DbAsync(async db => (await db.Drivers.AsNoTracking().FirstAsync(d => d.Id == driverId)).PhoneHash);
+        var codesBefore = await _f.DbAsync(db => db.OtpCodes.CountAsync(o => o.PhoneHash == phoneHash));
         await SetStatusAsync(driverId, Core.Enums.DriverStatus.Suspended);
         try
         {
-            var otp = await (await _f.Client.PostAsJsonAsync("/api/driver/auth/request-otp", new { phone })).Content.ReadFromJsonAsync<JsonElement>();
-            Assert.True(otp.TryGetProperty("devCode", out var code) && code.ValueKind == JsonValueKind.String);
-            var verify = await _f.Client.PostAsJsonAsync("/api/driver/auth/verify-otp", new { phone, code = code.GetString(), deviceLabel = "test" });
+            // No SMS for a suspended driver: the request step already says so (the app maps it), and
+            // no code is stored — so nothing to verify either.
+            var req = await _f.Client.PostAsJsonAsync("/api/driver/auth/request-otp", new { phone });
+            Assert.Equal(HttpStatusCode.Forbidden, req.StatusCode);
+            Assert.Equal("driver_inactive", ApiFixture.Code(await req.Content.ReadFromJsonAsync<JsonElement>()));
+            Assert.Equal(codesBefore, await _f.DbAsync(db => db.OtpCodes.CountAsync(o => o.PhoneHash == phoneHash)));
+
+            var verify = await _f.Client.PostAsJsonAsync("/api/driver/auth/verify-otp", new { phone, code = "123456", deviceLabel = "test" });
             Assert.Equal(HttpStatusCode.Unauthorized, verify.StatusCode);
-            Assert.Equal("driver_inactive", ApiFixture.Code(await verify.Content.ReadFromJsonAsync<JsonElement>()));
+            Assert.Equal("no_active_code", ApiFixture.Code(await verify.Content.ReadFromJsonAsync<JsonElement>()));
         }
         finally
         {

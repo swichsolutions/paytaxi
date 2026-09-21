@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-21 (monthly PT-YYYY-MM invoice; N2 danger banner; saga lock fix — see the newest sections)
+**Last updated:** 2026-09-21 (sixth test pass: double-retry paid twice, fixed; monthly invoice; N2 banner — newest sections first)
 
 ---
 
@@ -11,6 +11,63 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout and a monthly PT-YYYY-MM invoice per park, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-09-21 (part 3) — sixth test pass (lifecycle, limits, roles, inputs, visual sweep)
+
+Method: both suites first (green), then a scripted API probe of areas no pass had touched (driver/park
+lifecycle, cashout inputs and limits, manual cashouts, reports, discrepancy and notification scoping, park
+payout accounts, monthly-invoice inputs, auth edges, park creation, retry permissions, card defaults), then
+a browser sweep of every admin page × 3 roles × 2 widths in Georgian and the driver app in ka/ru/en
+(page errors, horizontal overflow, leaked `undefined`/`NaN`/`null`/`{{`). Every bug got its test first.
+
+### Money bug
+- **Retrying a Failed cashout twice paid the driver twice.** `POST …/cashouts/{id}/retry` minted a fresh
+  idempotency key on every call, so a double tap, a second manager or a stale tab created a second Completed
+  cashout for the same failure (probe: two 30 GEL payouts from one Failed row). Fix: `Cashout.RetryOfCashoutId`
+  (migration `CashoutRetryLink`) links a retry to its source; the endpoint refuses with **409 `already_retried`**
+  (+ `retryCashoutId`) while a non-Failed retry exists, and uses a deterministic key `retry:{source}:{n}` so
+  two simultaneous clicks collapse onto one saga run. A retry that itself Failed may be retried again. The
+  cashout list exposes `retryOfCashoutId` / `retriedByCashoutId`; the console shows a green **Retried** marker
+  instead of the button and "Retry of / Retried by" in the row detail. Typed saga rejections on retry now come
+  back as `cashout_rejected` + code instead of a generic 400.
+
+### Other fixes
+- **request-otp issued a code (in production an SMS) to a suspended driver**; only verify refused. Now the
+  request step answers 403 `driver_inactive` — which the login screen already mapped — and stores nothing.
+- **Amounts with more than two decimals were rounded, not refused** (5.005 → a 5.01 debit). Saga rejects with
+  `amount_precision`; mapped in the driver app (en/ka/ru) and the manual-cashout modal.
+- Idempotency keys over 128 chars → 400 `idempotency_key_too_long` on both cashout endpoints (column is text).
+- Manual-cashout lookups (`driver_not_found`, `destination_not_found`) are typed codes now, not `rejected`
+  with a GUID soup; modal maps them.
+- **Park payout account `credentialsJson` accepted any string** → stored garbage would have failed at 3 a.m.
+  when the adapter parsed it. Create and update now require a JSON object (400 `invalid_credentials_json`).
+- **Deactivating the primary payout account left an inactive account flagged primary.** Routing already
+  skipped inactive accounts, but the console lied. The flag now moves to another active account (TBC first),
+  the park mirror follows; with no other active account it stays so re-activation restores the old state.
+- Bulk onboarding: two Yandex profiles sharing a phone in one request both passed the DB check and the save
+  hit the unique index (500). In-request phone set → second is skipped as `phone_taken`. (No test — the mock
+  roster cannot produce the case.)
+- **Driver login on a 360px phone: the logo covered the EN language button** — taps landed on the logo.
+  Language bar lifted above the logo (z-index) and the header padded so the logo starts below it. e2e test
+  taps EN/RU at 360 and was confirmed to fail on the old stylesheet ("logo intercepts pointer events").
+- Georgian relative times in the banner read "10სთ წინ" — templates (`{n} სთ წინ`) now carry the spacing.
+- Settlements daily table said "0 cashouts · ₾0.00 fees" next to a completed settlement of ₾1.35 (an on-demand
+  "Settle now" leaves later cashouts to roll into the next day's settlement; the first run swept history).
+  The summary now returns what the settlement dated that day covers; a muted "მოიცავს 3 გამოტანა · ₾1.50"
+  line appears under the pill whenever it differs from the day's own columns.
+
+### Held (no change)
+- Park status cannot be changed through the API or console (only in the DB). Suspending a park is a
+  candidate feature, not a bug — the saga, workers and settlement already respect the status.
+- A suspended driver keeps a live 60-minute access token for reads (`/me`); cashouts, refresh and login refuse.
+- Reports accept any window (10 years) — per park, cheap enough for now.
+- Park managers may deactivate their own payout accounts (intended: they own them).
+- Dev-server quirk again: `ng serve` served a stale compiled `cashouts.html` (badge missing while the API
+  returned the field) — restarted the dev server, then it rendered. CI builds fresh, so CI is the referee.
+
+**Tests**: 125 backend (+8), 13 e2e (+1). Probe scripts: `.scratch/probe6*.py`, `.scratch/sweep6.mjs` (gitignored).
 
 ---
 

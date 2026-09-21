@@ -26,10 +26,12 @@ export class AdminMockService {
   formatRelTime(d: Date): string {
     const t = this.i18n.t;
     const diffSec = Math.max(0, (Date.now() - d.getTime()) / 1000);
-    if (diffSec < 60)      return `${Math.round(diffSec)}${t.relSec}`;
-    if (diffSec < 3600)    return `${Math.round(diffSec / 60)}${t.relMin}`;
-    if (diffSec < 86_400)  return `${Math.round(diffSec / 3600)}${t.relHour}`;
-    return `${Math.round(diffSec / 86_400)}${t.relDay}`;
+    // Templates carry the spacing: English "10h ago" is idiomatic, Georgian needs "10 სთ წინ".
+    const fill = (tpl: string, n: number) => tpl.replace('{n}', String(n));
+    if (diffSec < 60)      return fill(t.relSec, Math.round(diffSec));
+    if (diffSec < 3600)    return fill(t.relMin, Math.round(diffSec / 60));
+    if (diffSec < 86_400)  return fill(t.relHour, Math.round(diffSec / 3600));
+    return fill(t.relDay, Math.round(diffSec / 86_400));
   }
 
   initials(name: string): string {

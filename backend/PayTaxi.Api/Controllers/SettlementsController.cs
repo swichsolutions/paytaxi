@@ -137,7 +137,7 @@ public class SettlementsController : AdminControllerBase
 
         var settlements = await _db.Settlements.AsNoTracking()
             .Where(s => s.ParkId == parkId)
-            .Select(s => new { s.Status, s.SwichShare, s.FeeTotal, s.Phase1Fees, s.SettlementDate })
+            .Select(s => new { s.Status, s.SwichShare, s.FeeTotal, s.Phase1Fees, s.SettlementDate, s.CashoutCount })
             .ToListAsync(ct);
 
         var cumulativeFees = completed.Sum(c => c.Fee);
@@ -167,6 +167,11 @@ public class SettlementsController : AdminControllerBase
                     fees = inDay.Sum(c => c.Fee),
                     settlementStatus = s?.Status.ToString(),
                     swichShare = s?.SwichShare,
+                    // What the settlement dated this day actually covers. Differs from the day's own
+                    // columns when an on-demand run left later cashouts to roll into the next day, or
+                    // when the first settlement swept older history.
+                    settlementCashouts = s?.CashoutCount,
+                    settlementFees = s?.FeeTotal,
                 };
             })
             .ToList();

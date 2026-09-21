@@ -2,6 +2,20 @@ import { test, expect } from '@playwright/test';
 import { DRIVERS, driverLogin, tbcIban, freshTail } from './helpers';
 
 test.describe('driver app', () => {
+  test('login: the language switch is tappable on a 360px phone (the logo used to cover it)', async ({ page }) => {
+    await page.goto('/login');
+    await page.evaluate(() => localStorage.setItem('paytaxi.lang', 'ka'));
+    await page.reload();
+    const title = page.locator('.login__body h2').first();
+    await expect(title).toContainText('შეიყვანეთ ნომერი');
+    // EN is the leftmost button — the one the logo's glow reached under at 360px. A real tap, not a
+    // forced click: Playwright refuses when another element is on top.
+    await page.locator('.lang-btn', { hasText: 'EN' }).click({ timeout: 5_000 });
+    await expect(title).toContainText('Enter your number');
+    await page.locator('.lang-btn', { hasText: 'RU' }).click({ timeout: 5_000 });
+    await expect(title).toContainText('Введите номер');
+  });
+
   test('login, dashboard balance, cashout step fits one screen, own-name rule', async ({ page }) => {
     await driverLogin(page, DRIVERS.giorgi.phone, 'ka');
 

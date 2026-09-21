@@ -302,6 +302,8 @@ public class DriverController : ControllerBase
         if (body.Amount <= 0) return BadRequest(new { error = "amount_must_be_positive" });
         if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
             return BadRequest(new { error = "idempotency_key_required" });
+        if (body.IdempotencyKey.Length > 128)
+            return BadRequest(new { error = "idempotency_key_too_long", max = 128 });
 
         // Guard against tampered card IDs — a driver may only pay out to their own destinations.
         // A destination the driver owns but has removed (stale tab) gets a typed rejection the app can

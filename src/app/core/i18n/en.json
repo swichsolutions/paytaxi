@@ -123,6 +123,7 @@
   "errVerifyFailed": "Verification failed. Please try again.",
   "errCashout_park_inactive": "Your park has paused cashouts. Contact your park.",
   "errCashout_driver_inactive": "Your account is suspended. Contact your park.",
+  "errCashout_amount_precision": "Amounts have at most two decimals.",
   "errCashout_driver_not_linked": "Your account isn't linked to a Yandex profile yet. Contact your park.",
   "errCashout_destination_removed": "That bank account was removed. Pick another one.",
   "errCashout_destination_no_iban": "That bank account has no IBAN. Add it again.",

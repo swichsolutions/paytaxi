@@ -34,7 +34,8 @@ public record CashoutSagaRequest(
     Guid BankCardId,
     decimal Amount,
     string IdempotencyKey,
-    string? InitiatedBy = null);
+    string? InitiatedBy = null,
+    Guid? RetryOfCashoutId = null);
 
 public record CashoutSagaResult(
     Guid CashoutId,
