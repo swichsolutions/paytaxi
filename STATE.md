@@ -53,6 +53,11 @@ codes, operator + own manager 200, other park's manager 403), 12 e2e (new: card 
 Open PDF opens a `blob:` tab; the spec settles only the park shown, so the alerts spec's park stays untouched).
 Rendered locally for Levan's park and checked page by page (`pypdfium2` rasteriser in the scratchpad).
 
+**Also this session:** `docs/TBC-BRANCH-VISIT.md` — the consolidated question list for the TBC branch visit
+(21 questions, Georgian wording to read aloud + why + what we need; beneficiary-name check first; a
+"leave the branch with" checklist and a table of what changes in the code per answer). It replaces the notes
+scattered across STATE.md sessions 2026-09-17/20 and PAYTAXI-CONTEXT §8.
+
 ---
 
 ## Session 2026-09-21 — N2: the danger banner (no e-mail channel yet)

@@ -112,11 +112,16 @@ test.describe('admin console', () => {
     await expect(row).toBeVisible({ timeout: 20_000 });
     await expect(row.locator('.stl-month__ref')).toHaveText(/^PT-\d{4}-\d{2}$/);
 
-    const [popup] = await Promise.all([
-      page.waitForEvent('popup', { timeout: 20_000 }),
+    // The button fetches the PDF with the bearer token and opens it as a blob URL in a new tab. Headless
+    // Chromium may download a PDF instead of showing it, so assert on the request, not on the popup.
+    const [res] = await Promise.all([
+      page.waitForResponse(r => r.url().includes('/settlements/invoice.pdf?month='), { timeout: 20_000 }),
       row.getByRole('button', { name: 'Open PDF' }).click(),
     ]);
-    expect(popup.url().startsWith('blob:'), `popup url ${popup.url()}`).toBeTruthy();
+    expect(res.status(), `invoice response ${res.status()} ${await res.text().catch(() => '')}`).toBe(200);
+    expect(res.headers()['content-type']).toContain('application/pdf');
+    expect(res.headers()['content-disposition'] ?? '').toMatch(/PT-\d{4}-\d{2}-.+\.pdf/);
+    await expect(row.getByRole('button', { name: 'Open PDF' })).toBeEnabled({ timeout: 10_000 });
     await expect(card.locator('.stl-message--error')).toHaveCount(0);
   });
 
