@@ -51,9 +51,12 @@ export const LEGAL_DETAILS = {
   /** Country/region of the hosting data centre. */
   hostingLocation: null as Localized | null,
   /**
-   * Country of the Yandex company that receives the Fleet API data (lawyer: Yandex's contracting entity).
+   * Country of the Yandex company that receives the Fleet API data. The Fleet API terms the platform works under
+   * (yandex.ru/legal/taxi_api_partners, checked 17.10.2026) are an offer of ООО «Яндекс.Такси» (Yandex.Taxi LLC)
+   * governed by the law of the Russian Federation (clause 2.4). Lawyer to confirm against the park's own Yandex contract
+   * (LAWYER-NOTES item 22).
    */
-  yandexCountry: null as Localized | null,
+  yandexCountry: { ka: 'რუსეთი', en: 'Russia', ru: 'Россия' } as Localized | null,
   /**
    * The Art. 37 ground and safeguards of each transfer abroad (Yandex, Google, the host if abroad), e.g.
    * "the country is on the State Audit Office's list of countries with adequate safeguards" — lawyer.

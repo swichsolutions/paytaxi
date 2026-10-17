@@ -131,3 +131,12 @@ settings in the platform (`Incidents:*`, `Settlement:*`), not code.
 21. **Park identity.** A park can only become active with its legal name, identification code and phone recorded,
     because the driver's privacy notice names the park as controller through "Profile → Your park". Please confirm this is
     enough to identify the controller.
+
+22. **Transfers outside Georgia (privacy policy §05, Art. 37).** The platform's servers call the Yandex Fleet API for
+    every balance read and every cashout, sending the driver's Yandex profile ID, the amount and a description. The API
+    terms the platform works under (yandex.ru/legal/taxi_api_partners) are an offer of ООО «Яндекс.Такси» governed by
+    Russian law, so the policy names Russia as the receiving country; please confirm against the park's own Yandex
+    contract (the Georgian service may be contracted through a different Yandex company). Data-subject requests reach a
+    Google mailbox (USA). Please give the Art. 37 ground and safeguards of each transfer in one sentence for the policy
+    ({transferBasis}), or say that the Yandex exchange is the park's own transfer and not the platform's, in which case
+    the sentence will be reworded. The hosting country is filled in once the host is chosen.
