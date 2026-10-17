@@ -19,6 +19,7 @@ namespace PayTaxi.Api.Controllers;
 [ApiController]
 [Authorize(Roles = "driver")]
 [Route("api/driver")]
+[Microsoft.AspNetCore.RateLimiting.EnableRateLimiting("driver")]
 public class DriverController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -73,10 +74,20 @@ public class DriverController : ControllerBase
                 .FirstOrDefaultAsync(c => c.DriverId == driverId, ct);
             var isFresh = cached is not null && now - cached.UpdatedAt < TimeSpan.FromSeconds(BalanceFreshSeconds);
 
-            if (isFresh && !fresh)
+            // A live read pulls the park's whole roster from Yandex through the park's single 0.5 s call slot — the
+            // one the payout debits wait in. So a driver gets at most one live read per LiveReadMinSeconds, however
+            // often (or how many times at once) the app asks with fresh=true; in between the last value is served.
+            var live = (!isFresh || fresh) && TryClaimLiveRead(driverId, now);
+            if (!live && cached is not null)
             {
-                balance = cached!.Balance;
+                balance = cached.Balance;
                 balanceAsOf = cached.UpdatedAt;
+                balanceStale = !isFresh;
+            }
+            else if (!live)
+            {
+                // Another request of this driver is reading Yandex right now and nothing is cached yet.
+                balanceError = "yandex_unavailable";
             }
             else
             {
@@ -110,6 +121,12 @@ public class DriverController : ControllerBase
             }
         }
 
+        // The same order the saga refuses in: a revoked authorisation first, then a park that is not active.
+        var cashoutsPausedReason =
+            Infrastructure.Services.ParkAuthorisation.IsRevoked(park, Infrastructure.Services.SettlementService.TodayLocal())
+                ? CashoutRejectionCodes.AuthorisationRevoked
+                : park.Status != Core.Enums.ParkStatus.Active ? CashoutRejectionCodes.ParkInactive : null;
+
         var supportedBanks = park.BankAccounts
             .Select(a => a.BankCode)
             .Distinct()
@@ -135,12 +152,25 @@ public class DriverController : ControllerBase
             {
                 id = park.Id,
                 name = park.Name,
+                // The park is the controller of the driver's personal data: the privacy policy sends the
+                // driver to Profile → Your park for its legal name, identification code and phone
+                // (Law on Personal Data Protection, Art. 24(1)(a)). The admin API requires all three before a
+                // park is Active, so null only for parks created before that rule.
+                legalEntityName = park.LegalEntityName,
+                taxId = park.TaxId,
+                phone = park.Phone,
                 operatingModel = park.OperatingModel.ToString(),
                 cashoutFee = park.CashoutFee,
                 minCashoutAmount = park.MinCashoutAmount,
                 maxCashoutAmount = park.MaxCashoutAmount,
                 dailyCashoutLimitPerDriver = park.DailyCashoutLimitPerDriver,
                 supportedBanks,
+                // The app says "paused" up front instead of letting the driver key in an amount the
+                // saga will refuse. A suspension's reason stays between Swich and the park; the app only
+                // tells a park that revoked the platform's authorisation (Annex 3 §7 — lasting, unlike a
+                // suspension) apart from one that paused cashouts.
+                cashoutsPaused = cashoutsPausedReason is not null,
+                cashoutsPausedReason,
             },
             cards = driver.BankCards
                 .OrderByDescending(b => b.IsDefault)
@@ -172,9 +202,14 @@ public class DriverController : ControllerBase
         if (driver is null) return NotFound(new { error = "driver_not_found" });
 
         // Drivers may only add accounts in their own name; anything else goes through the park.
-        var (outcome, err, payload) = await DestinationHelper.AddAsync(
+        var (outcome, err, payload, card) = await DestinationHelper.AddAsync(
             _db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true,
             allowThirdParty: false, thirdPartyReason: null, initiatedBy: $"driver:{driverId}", ct);
+        if (card is not null)
+        {
+            await DriverLanguage.RememberAsync(_db, driverId, Request);
+            await DestinationHelper.NotifyAsync(HttpContext.RequestServices, card, PayoutAccountChange.Added, byPark: false);
+        }
 
         return outcome switch
         {
@@ -196,8 +231,11 @@ public class DriverController : ControllerBase
             (c.Status == Core.Enums.CashoutStatus.Queued || c.Status == Core.Enums.CashoutStatus.Processing), ct);
         if (inFlight) return Conflict(new { error = "card_has_pending_cashout" });
 
-        var ok = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
-        return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+        var removed = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
+        if (removed is null) return NotFound(new { error = "card_not_found" });
+        await DriverLanguage.RememberAsync(_db, driverId, Request);
+        await DestinationHelper.NotifyAsync(HttpContext.RequestServices, removed, PayoutAccountChange.Removed, byPark: false);
+        return NoContent();
     }
 
     [HttpPost("me/cards/{cardId:guid}/default")]
@@ -205,8 +243,15 @@ public class DriverController : ControllerBase
     {
         if (!TryGetClaims(out var driverId, out _, out var error))
             return Unauthorized(new { error });
-        var ok = await DestinationHelper.SetDefaultAsync(_db, driverId, cardId, ct);
-        return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+        var (card, changed) = await DestinationHelper.SetDefaultAsync(_db, driverId, cardId, ct);
+        if (card is null) return NotFound(new { error = "card_not_found" });
+        // A tap on the account that already is the default changes nothing — and tells the driver nothing.
+        if (changed)
+        {
+            await DriverLanguage.RememberAsync(_db, driverId, Request);
+            await DestinationHelper.NotifyAsync(HttpContext.RequestServices, card, PayoutAccountChange.MadeDefault, byPark: false);
+        }
+        return NoContent();
     }
 
     // ── Rides (Yandex orders) ────────────────────────────────────────
@@ -272,7 +317,8 @@ public class DriverController : ControllerBase
                 status = c.Status.ToString(),
                 bankTransferId = c.BankTransferId,
                 yandexTransactionId = c.YandexTransactionId,
-                failureReason = c.FailureReason,
+                // Code only: the stored reason can carry an admin's note and e-mail (a cancellation) or bank internals.
+                failureReason = FailureCodeOf(c.FailureReason),
                 attemptCount = c.AttemptCount,
                 nextAttemptAt = c.NextAttemptAt,
                 createdAt = c.CreatedAt,
@@ -283,6 +329,14 @@ public class DriverController : ControllerBase
             .ToListAsync(ct);
 
         return Ok(new { count = rows.Count, cashouts = rows });
+    }
+
+    /// <summary>"CANCELLED: reason (by admin:x@y)" → "CANCELLED"; null stays null. What the driver may see of a failure.</summary>
+    private static string? FailureCodeOf(string? failureReason)
+    {
+        if (string.IsNullOrWhiteSpace(failureReason)) return null;
+        var i = failureReason.IndexOf(':');
+        return (i > 0 ? failureReason[..i] : failureReason).Trim();
     }
 
     /// <summary>
@@ -300,10 +354,8 @@ public class DriverController : ControllerBase
         if (body is null) return BadRequest(new { error = "missing_body" });
         if (body.CardId == Guid.Empty) return BadRequest(new { error = "card_id_required" });
         if (body.Amount <= 0) return BadRequest(new { error = "amount_must_be_positive" });
-        if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
-            return BadRequest(new { error = "idempotency_key_required" });
-        if (body.IdempotencyKey.Length > 128)
-            return BadRequest(new { error = "idempotency_key_too_long", max = 128 });
+        if (IdempotencyKeys.Problem(body.IdempotencyKey) is { } keyProblem)
+            return BadRequest(new { error = keyProblem, max = IdempotencyKeys.MaxLength });
 
         // Guard against tampered card IDs — a driver may only pay out to their own destinations.
         // A destination the driver owns but has removed (stale tab) gets a typed rejection the app can
@@ -328,13 +380,17 @@ public class DriverController : ControllerBase
                 IdempotencyKey: body.IdempotencyKey,
                 InitiatedBy: $"driver:{driverId}"), ct);
 
-            return result.Status switch
+            // Whatever the saga returns — a fresh result or the stored row behind a repeated key — the driver
+            // sees the failure CODE only. The stored reason is internal: a cancellation carries the admin's
+            // note and e-mail, a bank failure the bank's detail, a wait the park account's balance.
+            var mine = result with { FailureReason = FailureCodeOf(result.FailureReason) };
+            return mine.Status switch
             {
-                "Completed"      => Ok(result),
-                "Queued"         => StatusCode(202, result),
-                "ReviewRequired" => StatusCode(202, result),
-                "Failed"         => UnprocessableEntity(result),
-                _                => Ok(result),
+                "Completed"      => Ok(mine),
+                "Queued"         => StatusCode(202, mine),
+                "ReviewRequired" => StatusCode(202, mine),
+                "Failed"         => UnprocessableEntity(mine),
+                _                => Ok(mine),
             };
         }
         catch (CashoutRejectedException ex)
@@ -344,8 +400,9 @@ public class DriverController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
+            // The text is internal (framework or bank detail): the log keeps it, the driver gets the code.
             _log.LogWarning(ex, "Driver cashout rejected for {DriverId}", driverId);
-            return BadRequest(new { error = "cashout_rejected", code = "rejected", message = ex.Message });
+            return BadRequest(new { error = "cashout_rejected", code = "rejected" });
         }
     }
 
@@ -444,6 +501,28 @@ public class DriverController : ControllerBase
 
     /// <summary>How old the sync worker's cached balance may be before /me goes live to Yandex.</summary>
     private const int BalanceFreshSeconds = 120;
+
+    /// <summary>At most one live Yandex read per driver per this many seconds, fresh=true or not (see <see cref="Me"/>).</summary>
+    private const int LiveReadMinSeconds = 30;
+
+    /// <summary>When each driver last went live (one entry per driver; this instance only — the API runs as one).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, DateTime> LastLiveRead = new();
+
+    /// <summary>Takes this driver's live-read slot if the last live read is older than the window — atomically, so N
+    /// simultaneous requests get one live read between them, not N.</summary>
+    private static bool TryClaimLiveRead(Guid driverId, DateTime now)
+    {
+        while (true)
+        {
+            if (!LastLiveRead.TryGetValue(driverId, out var last))
+            {
+                if (LastLiveRead.TryAdd(driverId, now)) return true;
+                continue;
+            }
+            if (now - last < TimeSpan.FromSeconds(LiveReadMinSeconds)) return false;
+            if (LastLiveRead.TryUpdate(driverId, now, last)) return true;
+        }
+    }
 
     private async Task UpsertBalanceCacheAsync(Guid driverId, Guid parkId, decimal balance, string currency, DateTime now, CancellationToken ct)
     {

@@ -73,7 +73,7 @@ public class ResilientYandexFleetClient : IYandexFleetClient
 
     public Task<YandexTransactionResult> PostCashoutTransactionAsync(
         Guid parkId, string driverProfileId, decimal amount, string idempotencyKey, CancellationToken ct = default) =>
-        ExecuteAsync(parkId,
+        ExecuteWriteAsync(parkId,
             endpoint: "POST /v2/parks/driver-profile/transactions",
             paramsObj: new { parkId, driverProfileId, amount, idempotencyKey },
             action: () => _inner.PostCashoutTransactionAsync(parkId, driverProfileId, amount, idempotencyKey, ct),
@@ -81,11 +81,31 @@ public class ResilientYandexFleetClient : IYandexFleetClient
 
     public Task<YandexTransactionResult> PostReversalTransactionAsync(
         Guid parkId, string driverProfileId, decimal amount, string idempotencyKey, CancellationToken ct = default) =>
-        ExecuteAsync(parkId,
+        ExecuteWriteAsync(parkId,
             endpoint: "POST /v2/parks/driver-profile/transactions (reversal)",
             paramsObj: new { parkId, driverProfileId, amount, idempotencyKey, reversal = true },
             action: () => _inner.PostReversalTransactionAsync(parkId, driverProfileId, amount, idempotencyKey, ct),
             ct: ct);
+
+    /// <summary>
+    /// A balance write, retried after transient failures under the SAME idempotency token. If an earlier attempt failed
+    /// without an answer and a later one is declined, the decline proves nothing: a repeat of an applied token is declined
+    /// too. That is "outcome unknown" (<see cref="YandexOutcomeUnknownException"/>), never "rejected".
+    /// </summary>
+    private async Task<YandexTransactionResult> ExecuteWriteAsync(
+        Guid parkId, string endpoint, object paramsObj, Func<Task<YandexTransactionResult>> action, CancellationToken ct)
+    {
+        var attempts = 0;
+        var result = await ExecuteAsync(parkId, endpoint, paramsObj, () => { attempts++; return action(); }, ct);
+        if (!result.Success && attempts > 1)
+        {
+            _log.LogWarning("{Endpoint}: declined ({Code}) on attempt {Attempt} after an unanswered attempt — outcome unknown",
+                endpoint, result.ErrorCode, attempts);
+            throw new YandexOutcomeUnknownException(
+                $"An attempt of {endpoint} got no answer and the retry with the same token was declined ({result.ErrorCode}); the first may have been applied.");
+        }
+        return result;
+    }
 
     // ── Core execution path ───────────────────────────────────────────
     private async Task<T> ExecuteAsync<T>(

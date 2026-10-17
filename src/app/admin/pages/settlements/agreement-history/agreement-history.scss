@@ -1,0 +1,59 @@
+// The change history card — the same card shape as the Settlements page's other cards.
+:host { display: block; min-width: 0; --px: var(--space-5); }
+@media (max-width: 560px) { :host { --px: var(--space-4); } }
+
+.hist {
+  background: #fff; border: 1px solid var(--admin-border); border-radius: 16px; overflow: hidden; min-width: 0;
+
+  &__head {
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3);
+    padding: var(--space-4) var(--px); border-bottom: 1px solid var(--admin-border);
+    h2 { font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  }
+  &__intro { min-width: 0; flex: 1 1 260px; }
+  &__sub { margin-top: 2px; font-size: 12px; color: var(--color-text-2); line-height: 1.45; }
+
+  &__filter {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 0 1 220px;
+    @media (max-width: 560px) { flex: 1 1 100%; }
+  }
+  &__label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; color: var(--color-text-3); }
+  &__select {
+    height: 38px; width: 100%; min-width: 0; padding: 0 var(--space-3);
+    border: 1px solid var(--admin-border); border-radius: 10px; background: #fff;
+    font-size: 14px; font-weight: 600; color: var(--color-text);
+  }
+
+  &__error {
+    margin: var(--space-3) var(--px) 0; padding: 10px 14px; border-radius: 8px; font-size: 13px;
+    background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+  }
+  &__empty { padding: var(--space-5) var(--px); color: var(--color-text-2); font-size: 13px; }
+  &__list { list-style: none; margin: 0; padding: 0; }
+}
+
+.hist-event {
+  display: grid; grid-template-columns: minmax(0, 170px) minmax(0, 1fr); gap: var(--space-3);
+  padding: 10px var(--px); border-top: 1px solid var(--admin-border);
+  &:first-child { border-top: none; }
+
+  &__when { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 12px; overflow-wrap: anywhere; }
+  &__stamp { font-weight: 700; color: var(--color-text); }
+  &__actor { color: var(--color-text-3); }
+  &__what { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; font-size: 13px; }
+  &__kind {
+    display: inline-flex; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 800;
+    letter-spacing: 0.04em; text-transform: uppercase; background: var(--admin-surface-2); color: var(--color-text-2);
+    &[data-kind="launch_date"], &[data-kind="terms"] { background: var(--color-info-bg); color: var(--color-info); }
+    &[data-kind="cost_deleted"], &[data-kind="cost_held"] { background: rgba(229, 57, 53, 0.1); color: #b91c1c; }
+    &[data-kind="cost_released"], &[data-kind="correction_added"] { background: rgba(0, 200, 150, 0.12); color: #008A60; }
+  }
+  &__ref { font-weight: 700; overflow-wrap: anywhere; }
+  &__change { color: var(--color-text); overflow-wrap: anywhere; }
+  &__why { flex-basis: 100%; color: var(--color-text-2); font-style: italic; overflow-wrap: anywhere; }
+
+  @media (max-width: 640px) {
+    grid-template-columns: 1fr; gap: 4px;
+    &__when { flex-direction: row; flex-wrap: wrap; gap: 2px 8px; }
+  }
+}

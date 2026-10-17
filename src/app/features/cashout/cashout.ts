@@ -32,6 +32,13 @@ interface CashoutRejection {
   params?: Record<string, unknown> | null;
 }
 
+/** "CANCELLED" (what the server sends the driver) — and, defensively, "CANCELLED: …" → "CANCELLED". */
+function failureCode(reason: string | null | undefined): string | null {
+  if (!reason) return null;
+  const i = reason.indexOf(':');
+  return (i > 0 ? reason.slice(0, i) : reason).trim() || null;
+}
+
 /**
  * RFC 4122 v4 id. `crypto.randomUUID` only exists in secure contexts (https / localhost) — a phone
  * opening the dev server over plain http on the LAN does not have it, so fall back to getRandomValues.
@@ -126,7 +133,7 @@ export class CashoutComponent implements OnInit, OnDestroy {
   });
 
   /** Keypad and Next are locked until we know what the driver can withdraw. */
-  amountLocked = computed(() => this.balanceState() !== 'ok');
+  amountLocked = computed(() => this.balanceState() !== 'ok' || this.session.cashoutsPaused());
 
   async retryBalance() {
     if (this.session.refreshing()) return;
@@ -149,7 +156,7 @@ export class CashoutComponent implements OnInit, OnDestroy {
     return b !== null && this.amount() > b;
   });
   canProceed = computed(() =>
-    this.balance() !== null && this.amount() > 0 && !this.belowMin() && !this.aboveMax() && !this.exceedsBalance());
+    !this.session.cashoutsPaused() && this.balance() !== null && this.amount() > 0 && !this.belowMin() && !this.aboveMax() && !this.exceedsBalance());
 
   selectedCard = computed<SessionCard | null>(() =>
     this.cards.find(c => c.id === this.selectedCardId()) ?? this.cards[0] ?? null);
@@ -329,9 +336,18 @@ export class CashoutComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Failed result copy: the bank's reason when we have one, otherwise a translated explanation. */
+  /**
+   * Failed result copy, always translated from the failure CODE. The server sends the driver the code
+   * only, and even a stray longer reason is never shown: it could be a bank's internal text or an
+   * admin's note.
+   */
   failureText(r: CashoutSagaResult): string {
-    return r.failureReason?.trim() || this.t.cashoutFailedGeneric;
+    return this.isCancelled(r) ? this.t.cashoutCancelledDesc : this.t.cashoutFailedGeneric;
+  }
+
+  /** Cancelled from the console while it waited: the amount is back on the driver's Yandex balance. */
+  isCancelled(r: CashoutSagaResult): boolean {
+    return r.status === 'Failed' && failureCode(r.failureReason) === 'CANCELLED';
   }
 
   goHistory() {

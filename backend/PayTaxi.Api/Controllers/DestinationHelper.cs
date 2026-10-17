@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Banking;
 using PayTaxi.Core.Entities;
 using PayTaxi.Core.Identity;
+using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
 using PayTaxi.Infrastructure.Security;
 
@@ -20,25 +21,29 @@ namespace PayTaxi.Api.Controllers;
 /// then flagged <see cref="BankCard.IsThirdPartyAccount"/> for every later screen and invoice.
 /// The bank routes by IBAN and ignores the name, so this is documentation, not prevention —
 /// which is why the admin path exists and is recorded.
+///
+/// Every add, change of default and removal — the driver's own or the park side's — is told to the driver
+/// (<see cref="NotifyAsync"/>: an in-app notice and an SMS), after it is saved and without ever failing it: where the
+/// money goes is the driver's to know, and a change they did not make is how a stolen session or a rogue manager shows.
 /// </summary>
 public static class DestinationHelper
 {
     public enum Outcome { Created, BadRequest, Conflict }
 
-    public static async Task<(Outcome, string? error, object? payload)> AddAsync(
+    public static async Task<(Outcome, string? error, object? payload, BankCard? card)> AddAsync(
         AppDbContext db, Guid parkId, Driver driver, string? rawIban, string? holderName, bool makeDefault,
         bool allowThirdParty, string? thirdPartyReason, string initiatedBy, CancellationToken ct)
     {
         if (!GeorgianIban.TryParse(rawIban, out var iban, out var bankCode, out var ibanError))
-            return (Outcome.BadRequest, ibanError, new { error = ibanError });
+            return (Outcome.BadRequest, ibanError, new { error = ibanError }, null);
 
         // ── Input bounds (the columns are varchar(200)/varchar(500); a DB error would be a 500) ──
         holderName = string.IsNullOrWhiteSpace(holderName) ? null : holderName.Trim();
         thirdPartyReason = string.IsNullOrWhiteSpace(thirdPartyReason) ? null : thirdPartyReason.Trim();
         if (holderName is { Length: > 200 })
-            return (Outcome.BadRequest, "holder_name_too_long", new { error = "holder_name_too_long", max = 200 });
+            return (Outcome.BadRequest, "holder_name_too_long", new { error = "holder_name_too_long", max = 200 }, null);
         if (thirdPartyReason is { Length: > 500 })
-            return (Outcome.BadRequest, "reason_too_long", new { error = "reason_too_long", max = 500 });
+            return (Outcome.BadRequest, "reason_too_long", new { error = "reason_too_long", max = 500 }, null);
 
         // ── Ownership: does the typed holder look like this driver? ──────
         // A driver imported without a name may carry a placeholder — that is no name at all.
@@ -56,7 +61,7 @@ public static class DestinationHelper
                 error = "holder_name_mismatch",
                 registeredName = driver.Name,
                 typedName = typedHolder,
-            });
+            }, null);
         }
         if (isThirdParty && string.IsNullOrWhiteSpace(thirdPartyReason))
         {
@@ -65,7 +70,7 @@ public static class DestinationHelper
                 error = "third_party_reason_required",
                 registeredName = driver.Name,
                 typedName = typedHolder,
-            });
+            }, null);
         }
 
         var supportedCodes = await db.ParkBankAccounts.AsNoTracking()
@@ -82,14 +87,14 @@ public static class DestinationHelper
                 bankCode,
                 bankLabel = GeorgianIban.BankLabel(bankCode),
                 supported = supportedCodes.Select(c => new { bankCode = c, bankLabel = GeorgianIban.BankLabel(c) }),
-            });
+            }, null);
         }
 
-        var ibanHash = FieldEncryptor.Hash(iban);
+        var ibanHash = LookupHash.Iban(iban);
         var existing = await db.BankCards
             .FirstOrDefaultAsync(b => b.DriverId == driver.Id && b.IbanHash == ibanHash, ct);
         if (existing is not null && existing.IsActive)
-            return (Outcome.Conflict, "iban_already_added", null);
+            return (Outcome.Conflict, "iban_already_added", null, null);
 
         // An IBAN the park once registered as a third party's stays a third party's. A driver
         // may not remove it and re-add it under his own name to shed the flag; only the park can.
@@ -99,7 +104,7 @@ public static class DestinationHelper
             {
                 error = "third_party_account_locked",
                 holderName = existing.HolderName,
-            });
+            }, null);
         }
 
         var hasActive = await db.BankCards.AnyAsync(b => b.DriverId == driver.Id && b.IsActive, ct);
@@ -158,7 +163,7 @@ public static class DestinationHelper
             isThirdPartyAccount = card.IsThirdPartyAccount,
             thirdPartyReason = card.ThirdPartyReason,
             addedBy = card.AddedBy,
-        });
+        }, card);
     }
 
     /// <summary>Values that mean "no name was recorded", not a name: legacy import placeholder, dashes, empty.</summary>
@@ -169,10 +174,11 @@ public static class DestinationHelper
         return t is "(unnamed)" or "unnamed" or "-" or "—" or "n/a" or "N/A";
     }
 
-    public static async Task<bool> DeactivateAsync(AppDbContext db, Guid driverId, Guid cardId, CancellationToken ct)
+    /// <summary>The removed destination, or null when the driver has no such active one.</summary>
+    public static async Task<BankCard?> DeactivateAsync(AppDbContext db, Guid driverId, Guid cardId, CancellationToken ct)
     {
         var card = await db.BankCards.FirstOrDefaultAsync(b => b.Id == cardId && b.DriverId == driverId && b.IsActive, ct);
-        if (card is null) return false;
+        if (card is null) return null;
 
         card.IsActive = false;
         var wasDefault = card.IsDefault;
@@ -192,18 +198,32 @@ public static class DestinationHelper
                 await db.SaveChangesAsync(ct);
             }
         }
-        return true;
+        return card;
     }
 
-    public static async Task<bool> SetDefaultAsync(AppDbContext db, Guid driverId, Guid cardId, CancellationToken ct)
+    /// <summary>The destination made default (null when the driver has no such active one) and whether it was not already.</summary>
+    public static async Task<(BankCard? card, bool changed)> SetDefaultAsync(AppDbContext db, Guid driverId, Guid cardId, CancellationToken ct)
     {
         var card = await db.BankCards.FirstOrDefaultAsync(b => b.Id == cardId && b.DriverId == driverId && b.IsActive, ct);
-        if (card is null) return false;
+        if (card is null) return (null, false);
+        var changed = !card.IsDefault;
         await db.BankCards
             .Where(b => b.DriverId == driverId && b.IsDefault && b.Id != cardId)
             .ExecuteUpdateAsync(s => s.SetProperty(b => b.IsDefault, false), ct);
         card.IsDefault = true;
         await db.SaveChangesAsync(ct);
-        return true;
+        return (card, changed);
     }
+
+    /// <summary>
+    /// Tells the driver about a saved change of <paramref name="card"/> (in-app notice + SMS, masked as the app shows it).
+    /// <paramref name="byPark"/>: made from the console — the park's manager, the operator or Swich ("your taxi park").
+    /// An account added as the default is told as such: the payouts go there from now on (a console add is the default
+    /// unless it says otherwise), and "added" alone hid that. Not cancellable by the request: the change is already saved,
+    /// and an aborted request must not swallow its notice. Never throws (the notifier logs its own failures).
+    /// </summary>
+    public static Task NotifyAsync(IServiceProvider services, BankCard card, PayoutAccountChange change, bool byPark) =>
+        services.GetRequiredService<INotificationService>().NotifyPayoutAccountChangedAsync(
+            card.DriverId, change == PayoutAccountChange.Added && card.IsDefault ? PayoutAccountChange.AddedAsDefault : change,
+            $"{card.BankType} {card.MaskedPan}", byPark, CancellationToken.None);
 }

@@ -61,7 +61,7 @@ public class PayoutQueueTests
         // Every attempt fails once, so the second attempt (worker, ~1–2 s later) should succeed
         // only if the mock is per-call… with rate 1 it ALWAYS fails, so the worker keeps re-queuing.
         // Verify the retry loop is alive and honest: attempts climb, status stays Queued/Processing,
-        // no reversal, no Failed while attempts remain.
+        // no reversal, no Failed — a bank that keeps saying "not now" is waited out, however long.
         string? status = null; int attempts = 0;
         for (var i = 0; i < 15; i++)
         {

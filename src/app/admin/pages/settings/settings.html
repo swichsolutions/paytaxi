@@ -59,6 +59,12 @@
         </div>
       </header>
       <p class="set-note set-note--card">{{ t.settingsContactNote }}</p>
+      @if (legalMissing().length) {
+        <!-- A park created before the legal details were required: drivers' privacy notice would name nobody. -->
+        <p class="set-legal-warn" role="status" data-testid="park-legal-missing">
+          {{ t.setLegalMissing.replace('{fields}', legalFieldsText(legalMissing())) }}
+        </p>
+      }
 
       <!-- Read-only view -->
       @if (!editing()) {
@@ -123,18 +129,52 @@
           </div>
 
           <div class="set-rows__divider">{{ t.secRevenueSplit }}</div>
-          <div class="set-row">
-            <span class="set-row__label">{{ t.swichShareLabel }}</span>
-            <span class="set-row__value gel">{{ p.swichSharePercent }}%</span>
-          </div>
-          <div class="set-row">
-            <span class="set-row__label">{{ t.phase1Label }}</span>
-            <span class="set-row__value gel" [class.set-row__value--muted]="p.phase1CapGel === null">
-              @if (p.phase1CapGel !== null) {
-                {{ p.phase1SharePercent }}% {{ t.untilCap }} {{ formatGel(p.phase1CapGel, 0) }}
-              } @else { {{ t.noPhase1 }} }
+          <div class="set-row set-row--settlement">
+            <span class="set-row__label">{{ t.setSettlementMode }}</span>
+            <span class="set-row__value">
+              @if (p.licenseeId) { {{ t.setViaLicensee.replace('{name}', p.licenseeName ?? '') }} } @else { {{ t.setSwichDirect }} }
+              @if (isSuperAdmin() && !assignEditing()) {
+                <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm set-assign-btn" (click)="startAssign()">{{ t.setChangeAssignment }}</button>
+              }
             </span>
           </div>
+          @if (assignEditing()) {
+            <div class="set-assign">
+              <label class="set-field">
+                <span class="set-field__label">{{ t.setAssignTo }}</span>
+                <select class="set-field__input" [value]="assignChoice()" (change)="assignChoice.set($any($event.target).value)">
+                  <option value="" [selected]="assignChoice() === ''">{{ t.setSwichDirect }}</option>
+                  @for (l of licensees(); track l.id) {
+                    <option [value]="l.id" [selected]="assignChoice() === l.id">{{ t.setViaLicensee.replace('{name}', l.name) }}</option>
+                  }
+                </select>
+              </label>
+              @if (assignError()) { <p class="set-assign__error" role="alert">{{ assignError() }}</p> }
+              <div class="set-assign__actions">
+                <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" (click)="cancelAssign()">{{ t.cancel }}</button>
+                <button type="button" class="btn-admin btn-admin--brand btn-admin--sm" (click)="saveAssign()" [disabled]="assignBusy()">
+                  @if (assignBusy()) { {{ t.saving }} } @else { {{ t.save }} }
+                </button>
+              </div>
+            </div>
+          }
+          @if (assignNote()) { <p class="set-assign__note">{{ assignNote() }}</p> }
+          @if (p.licenseeId) {
+            <p class="set-assign__note">{{ t.setViaLicenseeHint }}</p>
+          } @else {
+            <div class="set-row">
+              <span class="set-row__label">{{ t.swichShareLabel }}</span>
+              <span class="set-row__value gel">{{ p.swichSharePercent }}%</span>
+            </div>
+            <div class="set-row">
+              <span class="set-row__label">{{ t.phase1Label }}</span>
+              <span class="set-row__value gel" [class.set-row__value--muted]="p.phase1CapGel === null">
+                @if (p.phase1CapGel !== null) {
+                  {{ p.phase1SharePercent }}% {{ t.untilCap }} {{ formatGel(p.phase1CapGel, 0) }}
+                } @else { {{ t.noPhase1 }} }
+              </span>
+            </div>
+          }
 
           <div class="set-rows__divider">{{ t.secYandex }}</div>
           <div class="set-row">
@@ -159,20 +199,21 @@
       <!-- Edit form -->
       @if (editing()) {
         <div class="set-edit">
+          <p class="set-edit__hint set-edit__hint--top">{{ t.legalDetailsWhy }}</p>
           <label class="set-field">
-            <span class="set-field__label">{{ t.legalEntity }}</span>
-            <input type="text" class="set-field__input" [value]="form().legalEntityName"
+            <span class="set-field__label">{{ t.legalEntity }} <span class="set-req">{{ t.legalRequiredTag }}</span></span>
+            <input type="text" class="set-field__input" [value]="form().legalEntityName" required aria-required="true"
               (input)="setField('legalEntityName', $any($event.target).value)" [placeholder]="t.legalEntityPlaceholder" />
             <span class="set-field__note">{{ t.legalEntityHint }}</span>
           </label>
           <label class="set-field">
-            <span class="set-field__label">{{ t.identificationCode }}</span>
-            <input type="text" inputmode="numeric" class="set-field__input gel" [value]="form().taxId"
+            <span class="set-field__label">{{ t.identificationCode }} <span class="set-req">{{ t.legalRequiredTag }}</span></span>
+            <input type="text" inputmode="numeric" class="set-field__input gel" [value]="form().taxId" required aria-required="true"
               (input)="setField('taxId', $any($event.target).value)" [placeholder]="t.taxIdPlaceholder" />
           </label>
           <label class="set-field">
-            <span class="set-field__label">{{ t.phone }}</span>
-            <input type="tel" class="set-field__input gel" [value]="form().phone"
+            <span class="set-field__label">{{ t.phone }} <span class="set-req">{{ t.legalRequiredTag }}</span></span>
+            <input type="tel" class="set-field__input gel" [value]="form().phone" required aria-required="true"
               (input)="setField('phone', $any($event.target).value)" [placeholder]="t.phonePlaceholder" />
           </label>
           <div class="set-edit__divider"><span>{{ t.secFees }}</span></div>
@@ -208,7 +249,7 @@
             </label>
           </div>
 
-          @if (isSuperAdmin()) {
+          @if (isSuperAdmin() && !p.licenseeId) {
             <div class="set-edit__divider"><span>{{ t.secRevenueSplit }}</span></div>
             <p class="set-edit__hint">{{ t.revenueSplitHint }}</p>
             <div class="set-edit__grid">
@@ -267,6 +308,186 @@
         </div>
       }
     </section>
+
+    <!-- ── Park status (suspend / reactivate) and its Annex 3 authorisations ── -->
+    @if (canChangeStatus() || p.status !== 'Active' || p.authorisationRevokedFrom) {
+      <section class="set-card" data-testid="park-status-card">
+        <header class="set-card__head set-card__head--plain">
+          <h2 class="set-card__title">{{ t.secParkStatus }}</h2>
+          <div class="set-card__head-actions">
+            <span class="status-pill" [attr.data-status]="p.status.toLowerCase()">
+              <span class="status-pill__dot"></span>
+              {{ statusLabel(p.status) }}
+            </span>
+            @if (canChangeStatus() && !statusConfirm()) {
+              @if (p.status === 'Active') {
+                <button class="set-edit-btn set-edit-btn--danger" (click)="openStatusConfirm('Suspended')">{{ t.suspendPark }}</button>
+              } @else if (p.status === 'Suspended') {
+                <button class="set-edit-btn" (click)="openStatusConfirm('Active')">{{ t.reactivatePark }}</button>
+              } @else if (p.status === 'Pending') {
+                <button class="set-edit-btn" (click)="openStatusConfirm('Active')">{{ t.activatePark }}</button>
+              }
+            }
+          </div>
+        </header>
+
+        @switch (p.status) {
+          @case ('Suspended') {
+            <div class="park-status park-status--suspended" role="status">
+              <p class="park-status__headline">{{ t.parkSuspendedNotice }}</p>
+              <dl class="park-status__facts">
+                @if (p.statusReason) {
+                  <div><dt>{{ t.parkStatusReasonLabel }}</dt><dd>{{ p.statusReason }}</dd></div>
+                }
+                @if (p.statusChangedAt) {
+                  <div><dt>{{ t.parkStatusSince }}</dt><dd class="gel">{{ formatDate(p.statusChangedAt) }}</dd></div>
+                }
+                @if (p.statusChangedBy) {
+                  <div><dt>{{ t.parkStatusBy }}</dt><dd>{{ actorLabel(p.statusChangedBy) }}</dd></div>
+                }
+              </dl>
+              <p class="park-status__note">
+                {{ t.parkSuspendedKeepsRunning }}
+                @if (!canChangeStatus()) { {{ t.parkSuspendedManagerHint }} }
+              </p>
+            </div>
+          }
+          @case ('Pending') {
+            <p class="set-note set-note--card">{{ t.parkPendingNotice }}</p>
+          }
+          @case ('Terminated') {
+            <p class="set-note set-note--card">{{ t.parkTerminatedNotice }}</p>
+          }
+          @default {
+            @if (!statusConfirm()) {
+              <p class="set-note set-note--card">{{ t.parkStatusActiveHint }}</p>
+            }
+          }
+        }
+
+        @if (statusInFlight(); as n) {
+          <p class="set-note set-note--card park-status__inflight">{{ t.parkStatusInFlight.replace('{n}', '' + n) }}</p>
+        }
+
+        @if (statusConfirm(); as target) {
+          <div class="set-edit">
+            <p class="park-status__confirm-text">
+              {{ (target === 'Suspended' ? t.suspendConfirmText : t.reactivateConfirmText).replace('{park}', p.name) }}
+            </p>
+            @if (target === 'Suspended') {
+              <p class="set-edit__hint">{{ t.parkSuspendedKeepsRunning }}</p>
+            }
+            <label class="set-field">
+              <span class="set-field__label">{{ target === 'Suspended' ? t.suspendReasonLabel : t.reactivateNoteLabel }}</span>
+              <textarea class="set-field__input park-status__reason" rows="2" maxlength="500"
+                [value]="statusReason()" (input)="statusReason.set($any($event.target).value)"
+                [placeholder]="target === 'Suspended' ? t.suspendReasonPlaceholder : ''"></textarea>
+            </label>
+            @if (statusError()) {
+              <p class="set-edit__error">{{ statusError() }}</p>
+            }
+            <div class="set-edit__actions">
+              <button class="btn-admin btn-admin--secondary" (click)="cancelStatus()" [disabled]="statusBusy()">{{ t.cancel }}</button>
+              <button class="btn-admin" [class.park-status__submit--danger]="target === 'Suspended'" [class.btn-admin--brand]="target !== 'Suspended'"
+                (click)="submitStatus()" [disabled]="!canSubmitStatus()">
+                @if (statusBusy()) { {{ t.saving }} }
+                @else { {{ target === 'Suspended' ? t.suspendPark : (p.status === 'Pending' ? t.activatePark : t.reactivatePark) }} }
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- ── Annex 3 §7: the park's authorisations and their revocation (recorded by Swich or the operator) ── -->
+        <div class="park-auth" data-testid="park-authorisation">
+          <p class="park-auth__title">{{ t.authSection }}</p>
+          @if (p.authorisationRevokedFrom; as from) {
+            <div class="park-auth__box" [class.park-auth__box--effect]="p.authorisationRevoked" role="status">
+              <p class="park-auth__headline">
+                {{ (p.authorisationRevoked ? t.authRevokedInEffect : t.authRevokedScheduled).replace('{date}', formatDay(from)) }}
+              </p>
+              <dl class="park-auth__facts">
+                <div><dt>{{ t.authNoticeOn }}</dt><dd class="gel">{{ formatDay(p.authorisationNoticeOn) }}</dd></div>
+                @if (p.authorisationRevocationReason) {
+                  <div><dt>{{ t.parkStatusReasonLabel }}</dt><dd>{{ p.authorisationRevocationReason }}</dd></div>
+                }
+                @if (p.authorisationRevocationRecordedBy) {
+                  <div><dt>{{ t.authRecordedBy }}</dt><dd>{{ actorLabel(p.authorisationRevocationRecordedBy) }} · {{ formatDate(p.authorisationRevocationRecordedAt) }}</dd></div>
+                }
+              </dl>
+              <p class="park-auth__effects-title">{{ t.authEffectsTitle }}</p>
+              <ul class="park-auth__effects">
+                <li>{{ t.authEffectCashouts }}</li>
+                <li>{{ t.authEffectPayouts }}</li>
+                <li>{{ p.licenseeId ? t.authEffectSettlementLicensee : t.authEffectSettlementDirect }}</li>
+              </ul>
+              <p class="park-auth__note">
+                {{ p.authorisationRevoked ? t.authInEffectNote : t.authScheduledNote.replace('{n}', '' + daysUntil(from)) }}
+              </p>
+            </div>
+            @if (canChangeStatus() && !p.authorisationRevoked) {
+              @if (!withdrawConfirm()) {
+                <div class="park-auth__actions">
+                  <button class="set-edit-btn" (click)="withdrawConfirm.set(true); revokeError.set(null)">{{ t.authWithdraw }}</button>
+                </div>
+              } @else {
+                <div class="park-auth__form">
+                  <p class="park-auth__confirm">{{ t.authWithdrawConfirm }}</p>
+                  <label class="set-field">
+                    <span class="set-field__label">{{ t.reactivateNoteLabel }}</span>
+                    <textarea class="set-field__input park-auth__reason" rows="2" maxlength="500"
+                      [value]="withdrawReason()" (input)="withdrawReason.set($any($event.target).value)"></textarea>
+                  </label>
+                  <div class="set-edit__actions">
+                    <button class="btn-admin btn-admin--secondary" (click)="withdrawConfirm.set(false)" [disabled]="revokeBusy()">{{ t.cancel }}</button>
+                    <button class="btn-admin btn-admin--brand park-auth__withdraw" (click)="withdrawRevocation()" [disabled]="revokeBusy()">
+                      @if (revokeBusy()) { {{ t.saving }} } @else { {{ t.authWithdraw }} }
+                    </button>
+                  </div>
+                </div>
+              }
+            }
+          } @else {
+            <p class="park-auth__hint">{{ t.authGrantedHint }}</p>
+            @if (canChangeStatus() && !revokeOpen()) {
+              <div class="park-auth__actions">
+                <button class="set-edit-btn set-edit-btn--danger park-auth__open" (click)="openRevoke()">{{ t.authRecordRevocation }}</button>
+              </div>
+            }
+            @if (revokeOpen()) {
+              <div class="park-auth__form">
+                <p class="park-auth__confirm">{{ t.authFormTitle }}</p>
+                <div class="set-edit__grid">
+                  <label class="set-field">
+                    <span class="set-field__label">{{ t.authNoticeLabel }}</span>
+                    <input type="date" class="set-field__input gel park-auth__notice" [max]="today()"
+                      [value]="revokeNotice()" (input)="setRevokeNotice($any($event.target).value)" />
+                  </label>
+                  <label class="set-field">
+                    <span class="set-field__label">{{ t.authFromLabel }}</span>
+                    <input type="date" class="set-field__input gel park-auth__from" [min]="revokeEarliest()"
+                      [value]="revokeFrom()" (input)="revokeFrom.set($any($event.target).value)" />
+                    <span class="set-field__note">{{ t.authFromHint.replace('{date}', formatDay(revokeEarliest())) }}</span>
+                  </label>
+                </div>
+                <label class="set-field">
+                  <span class="set-field__label">{{ t.authReasonLabel }}</span>
+                  <textarea class="set-field__input park-auth__reason" rows="2" maxlength="500" [placeholder]="t.authReasonPlaceholder"
+                    [value]="revokeReason()" (input)="revokeReason.set($any($event.target).value)"></textarea>
+                </label>
+                <p class="park-auth__consequence">{{ t.authConfirmText.replace('{date}', formatDay(revokeFrom())).replace('{park}', p.name) }}</p>
+                <div class="set-edit__actions">
+                  <button class="btn-admin btn-admin--secondary" (click)="cancelRevoke()" [disabled]="revokeBusy()">{{ t.cancel }}</button>
+                  <button class="btn-admin park-auth__submit" (click)="submitRevoke()" [disabled]="!canSubmitRevoke()">
+                    @if (revokeBusy()) { {{ t.saving }} } @else { {{ t.authSubmit }} }
+                  </button>
+                </div>
+              </div>
+            }
+          }
+          @if (revokeError()) { <p class="set-edit__error park-auth__error" role="alert">{{ revokeError() }}</p> }
+        </div>
+      </section>
+    }
 
     <!-- ── Payout accounts ─────────────────────────────────────────── -->
     <section class="set-card">
@@ -352,9 +573,9 @@
               <span class="set-field__label">{{ t.providerLabel }}</span>
               <select class="set-field__input" [value]="accountForm().provider" (change)="setAccountField('provider', $any($event.target).value)">
                 <option value="">—</option>
-                <option value="tbc">TBC</option>
-                <option value="bog">BOG</option>
-                <option value="mock">{{ t.providerMockDev }}</option>
+                @for (p of allowedProviders(); track p) {
+                  <option [value]="p">{{ providerName(p) }}</option>
+                }
               </select>
             </label>
             <label class="set-field">

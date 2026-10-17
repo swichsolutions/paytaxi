@@ -256,6 +256,14 @@ public class TbcSoapClient
 
     private async Task<XElement> CallAsync(TbcCredentials creds, string operation, XElement body, bool includeNonce, CancellationToken ct)
     {
+        // The one place the sandbox host is chosen, so the one place it is refused: every operation (payout, status poll,
+        // lookup, statement, balance, password change) of the cashout saga, the settlement and the reconciliation comes
+        // through here. Thrown as a configuration problem: nothing reached a bank — a payout waits (TBC_NOT_CONFIGURED),
+        // a status poll learns nothing, so a sandbox order can never turn into a completed real payout.
+        if (!creds.IsProduction && !_opts.AllowTestEnvironment)
+            throw new TbcConfigurationException(
+                "TBC_TEST_ENVIRONMENT_NOT_ALLOWED: these credentials are for TBC's test environment, which this server does not use — " +
+                "save the park's production credentials (\"environment\": \"production\", or no environment)");
         var envelope = BuildEnvelope(creds, body, includeNonce);
         var endpoint = creds.IsProduction ? _opts.ProductionEndpoint : _opts.TestEndpoint;
         var client = GetClient(creds);
@@ -318,7 +326,7 @@ public class TbcSoapClient
 
     private HttpClient GetClient(TbcCredentials creds)
     {
-        return _clients.GetOrAdd(creds.CacheKey(), _ =>
+        return _clients.GetOrAdd(creds.CacheKey(_opts.CertificateDirectory), _ =>
         {
             HttpMessageHandler handler;
             if (_handlerFactory is not null)
@@ -337,7 +345,7 @@ public class TbcSoapClient
                         EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                     },
                 };
-                var cert = creds.LoadCertificate();
+                var cert = creds.LoadCertificate(_opts.CertificateDirectory);
                 if (cert is not null)
                 {
                     sockets.SslOptions.ClientCertificates = new X509CertificateCollection { cert };

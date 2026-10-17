@@ -44,13 +44,21 @@ public class Park : BaseEntity
     public decimal? DailyCashoutLimitPerDriver { get; set; }
 
     // ── Revenue split with Swich (PAYTAXI-CONTEXT.md §2, §5) ──────────
-    /// <summary>Steady-state percentage of every cashout fee that goes to Swich. Network parks: 50.</summary>
+    /// <summary>
+    /// The licensee (exclusive operator) that connected this park. Set → the park is settled monthly as
+    /// part of that licensee's statement under the licence agreement, and the per-park split fields
+    /// below are NOT used. Null → a park Swich connected directly: outside the agreement, settled
+    /// monthly on its own with the per-park split below.
+    /// </summary>
+    public Guid? LicenseeId { get; set; }
+
+    /// <summary>Swich-direct parks only: steady-state percentage of every cashout fee that goes to Swich.</summary>
     public decimal SwichSharePercent { get; set; } = 50m;
 
-    /// <summary>Phase-1 percentage while cumulative fees are under <see cref="Phase1CapGel"/>. Levan's park: 100. Null = no phase 1.</summary>
+    /// <summary>Swich-direct parks only: phase-1 percentage while cumulative fees are under <see cref="Phase1CapGel"/>. Null = no phase 1.</summary>
     public decimal? Phase1SharePercent { get; set; }
 
-    /// <summary>Cumulative fee income (GEL) at which phase 1 ends. Levan's park: 20,000. Null = no phase 1.</summary>
+    /// <summary>Swich-direct parks only: cumulative fee income (GEL) at which phase 1 ends. Null = no phase 1.</summary>
     public decimal? Phase1CapGel { get; set; }
 
     // ── Yandex Fleet ──────────────────────────────────────────────────
@@ -78,6 +86,39 @@ public class Park : BaseEntity
     // ── Lifecycle ─────────────────────────────────────────────────────
     public ParkStatus Status { get; set; } = ParkStatus.Pending;
 
+    /// <summary>Why the status last changed (required for a suspension; shown in the console).</summary>
+    public string? StatusReason { get; set; }
+
+    /// <summary>When the status last changed through the console; null for parks never changed since creation.</summary>
+    public DateTime? StatusChangedAt { get; set; }
+
+    /// <summary>"admin:{email}" of whoever last changed the status.</summary>
+    public string? StatusChangedBy { get; set; }
+
+    // ── Annex 3 §2/§3 authorisations and their revocation (Annex 3 §7) ─
+    // The park authorises the platform to pay its drivers from its account (§2) and to transfer Swich's monthly share
+    // from it (§3). It may revoke both by written notice to the licensee and Swich, at least [30] days ahead;
+    // obligations that arose before stay. Swich or the operator records the revocation here. From
+    // AuthorisationRevokedFrom on (Tbilisi day) the platform initiates NO transfer from the park's account: no new
+    // cashout, no waiting payout is sent, no settlement transfer — the share stays owed (by the licensee, §2.5).
+    // Independent of Status: a revoked park may stay Active so its drivers and manager keep their history.
+
+    /// <summary>The day the park's written revocation notice was received.</summary>
+    public DateOnly? AuthorisationNoticeOn { get; set; }
+
+    /// <summary>
+    /// First Tbilisi day without the authorisations — at least the notice period after <see cref="AuthorisationNoticeOn"/>.
+    /// Null = authorised. Withdrawable only before it is reached; from then on it stands.
+    /// </summary>
+    public DateOnly? AuthorisationRevokedFrom { get; set; }
+
+    /// <summary>What the notice says (or where it is filed) — required with a revocation.</summary>
+    public string? AuthorisationRevocationReason { get; set; }
+
+    /// <summary>"admin:{email}" of whoever recorded the revocation, and when.</summary>
+    public string? AuthorisationRevocationRecordedBy { get; set; }
+    public DateTime? AuthorisationRevocationRecordedAt { get; set; }
+
     /// <summary>
     /// Legacy boolean kept for backward compatibility during the two-phase migration.
     /// Will be removed in a follow-up migration once no code reads it.
@@ -86,6 +127,7 @@ public class Park : BaseEntity
     public bool IsActive { get; set; } = true;
 
     // ── Navigation ────────────────────────────────────────────────────
+    public Licensee? Licensee { get; set; }
     public ICollection<Driver> Drivers { get; set; } = new List<Driver>();
     public ICollection<Cashout> Cashouts { get; set; } = new List<Cashout>();
     public ICollection<ParkBankAccount> BankAccounts { get; set; } = new List<ParkBankAccount>();

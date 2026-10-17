@@ -8,10 +8,13 @@ import { AdminAuthService } from './admin-auth.service';
  * for park-admins, so this just reflects what we got).
  *
  * Park-admin: forced to their own park (only one returned by the API).
- * Super-admin: defaults to the first park; the topbar switcher updates it.
+ * Super-admin / operator: the last park they picked (remembered per admin across reloads),
+ * else the first park; the topbar switcher updates it.
  *
  * Reactive: pages bind to `currentParkId()` and re-fetch when it changes.
  */
+const PARK_KEY_PREFIX = 'paytaxi.admin.park.';
+
 @Injectable({ providedIn: 'root' })
 export class AdminParkContextService {
   private readonly api = inject(AdminApiService);
@@ -65,6 +68,7 @@ export class AdminParkContextService {
   setCurrentPark(parkId: string) {
     if (this.parks().some(p => p.id === parkId)) {
       this.currentParkId.set(parkId);
+      this.rememberPark(parkId);
     }
   }
 
@@ -84,6 +88,24 @@ export class AdminParkContextService {
     }
   }
 
+  /** One key per admin, so a colleague signing in on the same browser does not inherit the pick. */
+  private rememberKey(): string | null {
+    const id = this.auth.admin()?.id;
+    return id ? `${PARK_KEY_PREFIX}${id}` : null;
+  }
+
+  private rememberPark(parkId: string) {
+    const key = this.rememberKey();
+    if (!key) return;
+    try { localStorage.setItem(key, parkId); } catch { /* SSR or storage blocked: picking still works, just not remembered */ }
+  }
+
+  private readRememberedPark(): string | null {
+    const key = this.rememberKey();
+    if (!key) return null;
+    try { return localStorage.getItem(key); } catch { return null; }
+  }
+
   private async loadParks(): Promise<void> {
     this.error.set(null);
     try {
@@ -96,9 +118,14 @@ export class AdminParkContextService {
         this.bootstrapping = null;
         return;
       }
-      // Prefer the park from the admin's session (park-admin), else first.
+      // Prefer the park this admin picked last time (a reload or new tab must not silently switch
+      // them to another park — an action on the wrong park is the risk), then the session's own
+      // park (park-admin), else the first.
       const sessionParkId = this.auth.admin()?.parkId;
-      const initial = parks.find(p => p.id === sessionParkId) ?? parks[0];
+      const remembered = this.readRememberedPark();
+      const initial = parks.find(p => p.id === remembered)
+        ?? parks.find(p => p.id === sessionParkId)
+        ?? parks[0];
       this.currentParkId.set(initial.id);
     } catch (err: any) {
       this.error.set(err?.error?.message ?? err?.message ?? 'load_failed');

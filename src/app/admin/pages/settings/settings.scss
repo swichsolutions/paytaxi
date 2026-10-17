@@ -196,6 +196,34 @@
   margin-top: -6px;
 }
 
+// "Required" marker on the legal details (an active park must have them).
+.set-req {
+  margin-left: 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #9A6F00;
+}
+
+.set-edit__hint--top { margin-top: 0; }
+
+// A park without its legal details: drivers' privacy notice would name nobody. Same amber note as elsewhere.
+.set-legal-warn {
+  margin: var(--space-3) var(--space-6) 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--color-warning-bg);
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #92400E;
+  overflow-wrap: anywhere;
+
+  @media (max-width: 540px) { margin-left: var(--space-4); margin-right: var(--space-4); }
+}
+
 .set-field__note {
   font-weight: 600;
   color: var(--color-text-3);
@@ -366,4 +394,153 @@
 .acct__confirm {
   grid-column: 1 / -1;
   margin-top: var(--space-2);
+}
+
+// ── Park status (suspend / reactivate) ────────────────────────────
+.set-edit-btn--danger {
+  color: #b91c1c;
+  &:hover { background: #fef2f2; border-color: #fecaca; }
+}
+
+.park-status {
+  margin: var(--space-4) var(--space-6) var(--space-5);
+  padding: var(--space-4);
+  border-radius: 12px;
+
+  &--suspended {
+    background: var(--color-error-bg, #fef2f2);
+    border: 1px solid rgba(229, 57, 53, 0.25);
+    color: var(--color-text);
+  }
+
+  &__headline {
+    font-size: 14px;
+    font-weight: 800;
+    color: #9a1c14;
+    letter-spacing: -0.01em;
+  }
+
+  &__facts {
+    display: grid;
+    gap: 6px;
+    margin: var(--space-3) 0;
+    font-size: 13px;
+
+    div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: var(--space-3); }
+    dt { color: var(--color-text-3); font-weight: 600; }
+    dd { font-weight: 600; overflow-wrap: anywhere; }
+  }
+
+  &__note {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--color-text-2);
+  }
+
+  &__inflight { color: var(--color-text-2); font-weight: 600; }
+
+  &__confirm-text {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  &__reason { resize: vertical; min-height: 60px; font-family: inherit; }
+
+  &__submit--danger {
+    background: #b42318;
+    border-color: #b42318;
+    color: #fff;
+    &:hover:not(:disabled) { background: #9a1c14; border-color: #9a1c14; }
+    &:disabled { opacity: 0.5; }
+  }
+}
+
+@media (max-width: 540px) {
+  .park-status__facts div { grid-template-columns: 1fr; gap: 1px; }
+  .set-card__head--plain { flex-wrap: wrap; gap: var(--space-2); }
+}
+// ── Annex 3 §7: the park's authorisations and their revocation ────
+// Its own classes (not .park-status__*): the suspension block and this one can be on screen together.
+.park-auth {
+  margin: 0 var(--space-6) var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--admin-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+
+  &__title { font-size: 12px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; color: var(--color-text-3); }
+  &__hint { font-size: 12.5px; line-height: 1.5; color: var(--color-text-2); max-width: 720px; }
+  &__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+  // Recorded, not yet in effect: amber. In effect: red — nothing is paid or collected from the account any more.
+  &__box {
+    padding: var(--space-4);
+    border-radius: 12px;
+    background: var(--color-warning-bg, #fff7e6);
+    border: 1px solid rgba(255, 184, 0, 0.35);
+    &--effect { background: var(--color-error-bg, #fef2f2); border-color: rgba(229, 57, 53, 0.25); }
+  }
+  &__headline { font-size: 14px; font-weight: 800; letter-spacing: -0.01em; color: #8a5a00; overflow-wrap: anywhere; }
+  &__box--effect &__headline { color: #9a1c14; }
+  &__facts {
+    display: grid;
+    gap: 6px;
+    margin: var(--space-3) 0;
+    font-size: 13px;
+    div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: var(--space-3); }
+    dt { color: var(--color-text-3); font-weight: 600; }
+    dd { font-weight: 600; overflow-wrap: anywhere; }
+  }
+  &__effects-title { font-size: 12.5px; font-weight: 700; color: var(--color-text); }
+  &__effects {
+    margin: 4px 0 var(--space-2) 18px;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--color-text-2);
+  }
+  &__note { font-size: 12.5px; line-height: 1.5; color: var(--color-text-2); }
+
+  &__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border-radius: 12px;
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+  }
+  &__confirm { font-size: 13.5px; font-weight: 700; color: var(--color-text); }
+  &__consequence { font-size: 12.5px; font-weight: 700; color: #9a1c14; line-height: 1.45; }
+  &__reason { resize: vertical; min-height: 60px; font-family: inherit; }
+  &__submit {
+    background: #b42318;
+    border-color: #b42318;
+    color: #fff;
+    &:hover:not(:disabled) { background: #9a1c14; border-color: #9a1c14; }
+    &:disabled { opacity: 0.5; }
+  }
+  &__error { margin: 0; }
+}
+
+@media (max-width: 540px) {
+  .park-auth { margin-left: var(--space-4); margin-right: var(--space-4); }
+  .park-auth__facts div { grid-template-columns: 1fr; gap: 1px; }
+  .park-auth__form .set-edit__actions { flex-wrap: wrap; }
+}
+
+// ── Settlement assignment (licence agreement vs Swich-direct) ─────
+.set-row--settlement .set-row__value { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; text-align: right; }
+.set-assign-btn { flex: 0 0 auto; }
+.set-assign {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 4px 0 8px; padding: 12px; border-radius: 10px;
+  background: var(--admin-surface); border: 1px solid var(--admin-border);
+  &__actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+  &__error { font-size: 12.5px; color: var(--color-error); }
+  &__note { font-size: 12px; line-height: 1.45; color: var(--color-text-2); margin: 2px 0 8px; overflow-wrap: anywhere; }
 }

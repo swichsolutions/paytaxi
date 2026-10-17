@@ -22,8 +22,10 @@ namespace PayTaxi.Infrastructure.Services;
 ///      <see cref="ReconciliationOptions.AmountToleranceGel"/>.
 ///   2. Bank transfer in the window → must have a matching PayTaxi cashout
 ///      (otherwise our system sent money it doesn't track).
-///   3. Cashouts in <c>Processing</c> or <c>Queued</c> for longer than
-///      <see cref="StuckPendingHours"/> → stuck pending.
+///   3. Cashouts in <c>Processing</c> for longer than <see cref="StuckPendingHours"/> since the bank
+///      accepted them → stuck pending. (<c>Queued</c> ones wait by contract; the payout_waiting alert
+///      shows them.) A payout may wait for days before it is paid, so no check assumes that a
+///      cashout's request and its completion fall into the same window.
 ///
 /// Window: last <see cref="WindowHours"/>, ending at <c>now − GracePeriodMinutes</c>
 /// so in-flight cashouts aren't false-flagged.
@@ -98,9 +100,11 @@ public class ReconciliationWorker : BackgroundService
         var windowTo = now.AddMinutes(-(graceMinutes ?? _opts.GracePeriodMinutes));
         var windowFrom = windowTo.AddHours(-_opts.WindowHours);
 
+        // Suspended parks too: their in-flight payouts keep completing and must still be checked.
         var parks = await db.Parks
             .AsNoTracking()
-            .Where(p => p.Status == ParkStatus.Active && (onlyParkId == null || p.Id == onlyParkId))
+            .Where(p => (p.Status == ParkStatus.Active || p.Status == ParkStatus.Suspended)
+                     && (onlyParkId == null || p.Id == onlyParkId))
             .Select(p => new { p.Id, p.Name, p.LegalEntityName })
             .ToListAsync(ct);
 
@@ -156,18 +160,32 @@ public class ReconciliationWorker : BackgroundService
                          && (c.CompletedAt ?? c.CreatedAt) < windowTo)
                 .Select(c => new CashoutSlim(
                     c.Id, c.Status, c.Amount, c.Fee, c.BankTransferId,
-                    c.YandexTransactionId, c.YandexReversalTransactionId, c.CreatedAt))
+                    c.YandexTransactionId, c.YandexReversalTransactionId, c.CreatedAt,
+                    c.LastAttemptAt, c.UpdatedAt, c.Driver.YandexDriverProfileId))
                 .ToListAsync(ct);
 
             // ── Side B: bank — one listing per park account (TBC, BoG, …) ──
+            // Each debit remembers the account whose statement listed it (an outside payment is matched on it below).
             var bankTransfers = new List<BankTransferRecord>();
+            var listedFrom = new List<(BankTransferRecord Record, Guid AccountId)>();
+            var unreadable = new List<string>();
             foreach (var account in accounts)
             {
+                // An account whose provider has no adapter on this server is not read at all — it used to be read from the
+                // mock, which agreed with whatever the mock had "paid", so nothing was ever flagged. Unread, the Completed
+                // cashouts paid through it come out below as missing_in_bank, and the run says which account it skipped.
                 var bank = sp.GetKeyedService<IBankPayoutAdapter>(account.Provider)
-                    ?? sp.GetKeyedService<IBankPayoutAdapter>(account.Provider.ToUpperInvariant())
-                    ?? sp.GetKeyedService<IBankPayoutAdapter>("MOCK")
-                    ?? throw new InvalidOperationException($"No bank adapter for provider '{account.Provider}'");
-                bankTransfers.AddRange(await bank.ListTransfersAsync(account, windowFrom, windowTo, ct));
+                    ?? sp.GetKeyedService<IBankPayoutAdapter>(account.Provider.ToUpperInvariant());
+                if (bank is null)
+                {
+                    unreadable.Add($"account {account.ParkBankAccountId} (provider '{account.Provider}')");
+                    _log.LogError("Reconciliation of park {Park}: no bank adapter for provider '{Provider}' of account {Account} — its bank side is not read",
+                        parkName, account.Provider, account.ParkBankAccountId);
+                    continue;
+                }
+                var listed = await bank.ListTransfersAsync(account, windowFrom, windowTo, ct);
+                bankTransfers.AddRange(listed);
+                listedFrom.AddRange(listed.Select(r => (r, account.ParkBankAccountId)));
             }
             var bankById = bankTransfers
                 .GroupBy(t => t.TransferId)
@@ -176,17 +194,31 @@ public class ReconciliationWorker : BackgroundService
             // ── Side C: Yandex ────────────────────────────────────────
             // Yandex API requires a per-driver query — ask for each driver that has
             // cashouts in the window. Faster than scanning every driver in the park.
-            var driversInWindow = await db.Cashouts.AsNoTracking()
+            //
+            // A payout can wait for days (Annex 3 §5) while its Yandex debit is posted at the REQUEST. So the
+            // drivers are those of the cashouts loaded above (windowed on completion) as well as those who
+            // asked inside the window, and each driver's transactions are fetched back to the request of
+            // their oldest loaded cashout — otherwise a payout that waited over a weekend and completed
+            // today would have its Friday debit outside the window and be reported missing in Yandex.
+            var createdInWindow = await db.Cashouts.AsNoTracking()
                 .Where(c => c.ParkId == parkId && c.CreatedAt >= windowFrom && c.CreatedAt < windowTo)
                 .Select(c => c.Driver.YandexDriverProfileId)
                 .Where(p => p != null)
                 .Distinct()
                 .ToListAsync(ct);
+            var fetchFrom = createdInWindow.ToDictionary(p => p!, _ => windowFrom);
+            foreach (var c in cashouts.Where(c => c.YandexDriverProfileId is not null))
+            {
+                // A few minutes of slack: the debit is posted right after the row is created.
+                var from = c.CreatedAt < windowFrom ? c.CreatedAt.AddMinutes(-5) : windowFrom;
+                var profile = c.YandexDriverProfileId!;
+                fetchFrom[profile] = fetchFrom.TryGetValue(profile, out var earlier) && earlier < from ? earlier : from;
+            }
 
             var yandexTxByRef = new Dictionary<string, YandexTransaction>();
-            foreach (var profileId in driversInWindow)
+            foreach (var (profileId, from) in fetchFrom)
             {
-                var txs = await yandex.GetTransactionsAsync(parkId, profileId!, windowFrom, windowTo, ct);
+                var txs = await yandex.GetTransactionsAsync(parkId, profileId, from, windowTo, ct);
                 foreach (var tx in txs.Where(t => t.Category == "partner_service_manual"))
                 {
                     yandexTxByRef[tx.TransactionId] = tx;
@@ -208,8 +240,16 @@ public class ReconciliationWorker : BackgroundService
                     if (c.YandexTransactionId is not null) seenYandex.Add(c.YandexTransactionId);
                     if (c.YandexReversalTransactionId is not null) seenYandex.Add(c.YandexReversalTransactionId);
 
-                    if ((c.Status == CashoutStatus.Processing || c.Status == CashoutStatus.Queued) &&
-                        (DateTime.UtcNow - c.CreatedAt) > TimeSpan.FromHours(StuckPendingHours))
+                    // Queued is not "stuck": it waits for the bank or a top-up for as long as that takes
+                    // (Annex 3 §5) and the payout_waiting alert reports it. Only Processing can be stuck —
+                    // measured from the attempt the bank accepted (or, with nothing at the bank, the latest
+                    // claim of the row, e.g. a console cancel's reversal), never from the request: a payout
+                    // that waited three days and was accepted a minute ago is not three days stuck.
+                    var processingSince = c.BankTransferId is not null
+                        ? c.LastAttemptAt ?? c.CreatedAt
+                        : Max(c.LastAttemptAt ?? c.CreatedAt, c.UpdatedAt);
+                    if (c.Status == CashoutStatus.Processing &&
+                        (DateTime.UtcNow - processingSince) > TimeSpan.FromHours(StuckPendingHours))
                     {
                         discrepancies.Add(new ReconciliationDiscrepancy
                         {
@@ -296,13 +336,62 @@ public class ReconciliationWorker : BackgroundService
                 }
             }
 
-            // Orphans: external rows we didn't match. The nightly park → Swich settlement
-            // transfers leave the same account and are expected — never orphans.
+            // A Yandex transaction of a cashout outside this window (asked inside it and completed after it,
+            // or fetched only because the driver's oldest payout waited) belongs to that cashout — known, not
+            // an orphan.
+            var unmatchedYandex = yandexTxByRef.Keys.Where(k => !seenYandex.Contains(k)).ToList();
+            if (unmatchedYandex.Count > 0)
+            {
+                var known = await db.Cashouts.AsNoTracking()
+                    .Where(c => c.ParkId == parkId
+                             && ((c.YandexTransactionId != null && unmatchedYandex.Contains(c.YandexTransactionId))
+                              || (c.YandexReversalTransactionId != null && unmatchedYandex.Contains(c.YandexReversalTransactionId))))
+                    .Select(c => new { c.YandexTransactionId, c.YandexReversalTransactionId })
+                    .ToListAsync(ct);
+                foreach (var k in known)
+                {
+                    if (k.YandexTransactionId is not null) seenYandex.Add(k.YandexTransactionId);
+                    if (k.YandexReversalTransactionId is not null) seenYandex.Add(k.YandexReversalTransactionId);
+                }
+            }
+
+            // Orphans: external rows we didn't match. The monthly park → Swich settlement
+            // transfers leave the same account and are expected — never orphans (matched on the
+            // order id the bank itself returned).
             var settlementTransferIds = await db.Settlements.AsNoTracking()
                 .Where(s => s.ParkId == parkId && s.BankTransferId != null)
                 .Select(s => s.BankTransferId!)
                 .ToListAsync(ct);
             foreach (var id in settlementTransferIds) seenBank.Add(id);
+
+            // So is a debt the park paid Swich by hand from its account, which Swich recorded as paid outside the
+            // platform (§2.5) with that payment's bank reference. But the reference is free text a person typed: on its
+            // own, a slip that equals the id of some other debit would hide a transfer the platform does not track.
+            // A debit is that payment only if everything agrees — the same id, the same amount to the tetri, from the
+            // account the debt was owed from (any of the park's accounts when the transfer never got as far as one),
+            // and sent in the few days up to the day the money reached Swich.
+            var paidOutside = await db.Settlements.AsNoTracking()
+                .Where(s => s.ParkId == parkId && s.Status == SettlementStatus.SettledExternally
+                         && s.ExternalReference != null && s.ExternalPaidOn != null)
+                .Select(s => new { s.ExternalReference, s.SwichShare, s.ParkBankAccountId, s.ExternalPaidOn })
+                .ToListAsync(ct);
+            if (paidOutside.Count > 0)
+            {
+                var tz = SettlementService.ResolveTimeZone(sp.GetService<IOptions<SettlementOptions>>()?.Value.TimeZoneId);
+                foreach (var e in paidOutside)
+                {
+                    var paidOn = e.ExternalPaidOn!.Value;
+                    foreach (var (br, accountId) in listedFrom.Where(t => t.Record.TransferId == e.ExternalReference))
+                    {
+                        var sentOn = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(AsUtc(br.SentAt), tz));
+                        if (br.Amount == e.SwichShare
+                            && (e.ParkBankAccountId is null || e.ParkBankAccountId == accountId)
+                            && sentOn >= paidOn.AddDays(-ExternalPaymentSentDaysBefore)
+                            && sentOn <= paidOn.AddDays(ExternalPaymentSentDaysAfter))
+                            seenBank.Add(br.TransferId);
+                    }
+                }
+            }
 
             foreach (var br in bankTransfers.Where(t => !seenBank.Contains(t.TransferId)))
             {
@@ -316,7 +405,9 @@ public class ReconciliationWorker : BackgroundService
                     Notes = $"Bank transfer ₾ {br.Amount:F2} has no matching PayTaxi cashout",
                 });
             }
-            foreach (var (txId, yt) in yandexTxByRef.Where(kv => !seenYandex.Contains(kv.Key) && kv.Value.Amount < 0))
+            // Only debits inside the window: older ones, fetched for a payout that waited, were judged by earlier runs.
+            foreach (var (txId, yt) in yandexTxByRef.Where(kv => !seenYandex.Contains(kv.Key) && kv.Value.Amount < 0
+                                                              && kv.Value.CreatedAt >= windowFrom && kv.Value.CreatedAt <= windowTo))
             {
                 discrepancies.Add(new ReconciliationDiscrepancy
                 {
@@ -357,6 +448,8 @@ public class ReconciliationWorker : BackgroundService
             run.DiscrepanciesFound = fresh.Count;
             run.Status = ReconciliationStatus.Completed;
             run.FinishedAt = DateTime.UtcNow;
+            if (unreadable.Count > 0)
+                run.Error = $"Bank side not read — no bank adapter on this server for {string.Join(", ", unreadable)}";
 
             await db.SaveChangesAsync(ct);
 
@@ -377,7 +470,25 @@ public class ReconciliationWorker : BackgroundService
     private record CashoutSlim(
         Guid Id, CashoutStatus Status, decimal Amount, decimal Fee,
         string? BankTransferId, string? YandexTransactionId, string? YandexReversalTransactionId,
-        DateTime CreatedAt);
+        DateTime CreatedAt, DateTime? LastAttemptAt, DateTime UpdatedAt, string? YandexDriverProfileId);
+
+    private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
+
+    private static DateTime AsUtc(DateTime t) => t.Kind switch
+    {
+        DateTimeKind.Utc => t,
+        DateTimeKind.Local => t.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(t, DateTimeKind.Utc),   // adapters report UTC
+    };
+
+    /// <summary>
+    /// A debt paid by hand is matched to a debit sent at most this many days before the day Swich recorded the money
+    /// as received (an interbank transfer over a long weekend) …
+    /// </summary>
+    private const int ExternalPaymentSentDaysBefore = 5;
+
+    /// <summary>… or one day after it (a bank that stamps the execution on the next booking day).</summary>
+    private const int ExternalPaymentSentDaysAfter = 1;
 }
 
 public class ReconciliationOptions

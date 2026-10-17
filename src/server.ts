@@ -13,6 +13,21 @@ const app = express();
 const angularApp = new AngularNodeAppEngine();
 
 /**
+ * Security headers on every response. The admin console must not be framed by another site (clickjacking), no
+ * response may be sniffed into a different type, and URLs (which carry park and driver ids) are not sent on as a
+ * referrer. No script-src policy yet: SSR hydration emits inline scripts, and a policy that blocks them would break the
+ * app — tracked as a follow-up rather than shipped half-working.
+ */
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
+/**
  * Example Express Rest API endpoints can be defined here.
  * Uncomment and define endpoints as necessary.
  *

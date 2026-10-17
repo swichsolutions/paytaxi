@@ -22,7 +22,7 @@
           (ngModelChange)="onParkChange($event)"
         >
           @for (p of parkCtx.parks(); track p.id) {
-            <option [value]="p.id">{{ p.name }}</option>
+            <option [value]="p.id">{{ parkOptionLabel(p) }}</option>
           }
         </select>
       </label>

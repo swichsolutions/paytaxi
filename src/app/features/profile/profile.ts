@@ -1,15 +1,16 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { MockDataService } from '../../core/services/mock-data.service';
 import { AuthService } from '../../core/services/auth.service';
 import { DriverNotificationService } from '../../core/services/notification.service';
 import { DriverSessionService, SessionCard } from '../../core/services/driver-session.service';
 import { Lang } from '../../core/mock/data';
 import { IbanHelpComponent } from '../../shared/components/iban-help/iban-help';
+import { legalLink } from '../legal/legal-doc';
 
 @Component({
   selector: 'app-profile',
-  imports: [IbanHelpComponent],
+  imports: [IbanHelpComponent, RouterLink],
   templateUrl: './profile.html',
   styleUrl: './profile.scss',
 })
@@ -38,6 +39,28 @@ export class ProfileComponent implements OnInit {
   }
 
   get t() { return this.svc.t; }
+
+  /** Legal documents in the app language: Georgian at /terms and /privacy, translations at /…/en|ru. */
+  readonly termsLink = computed(() => legalLink('terms', this.svc.lang()));
+  readonly privacyLink = computed(() => legalLink('privacy', this.svc.lang()));
+
+  /**
+   * "Your park": the controller of the driver's personal data. The privacy policy sends drivers here
+   * for its legal name, identification code and phone; the backend requires all three before a park
+   * is Active. The fallback to the display name, and leaving out a missing code or phone (rather than
+   * showing a dash), are only for parks created before that rule.
+   */
+  readonly yourPark = computed(() => {
+    const p = this.session.park();
+    if (!p) return null;
+    const phone = p.phone?.trim() || null;
+    return {
+      name: p.legalEntityName?.trim() || p.name,
+      taxId: p.taxId?.trim() || null,
+      phone,
+      phoneHref: phone ? 'tel:' + phone.replace(/[^\d+]/g, '') : null,
+    };
+  });
   get cards(): SessionCard[] { return this.session.cards(); }
 
   readonly driver = computed(() => {

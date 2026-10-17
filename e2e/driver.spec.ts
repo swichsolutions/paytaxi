@@ -1,7 +1,24 @@
 import { test, expect } from '@playwright/test';
-import { DRIVERS, driverLogin, tbcIban, freshTail } from './helpers';
+import { DRIVERS, driverLogin, tbcIban, freshTail, holdAppScript } from './helpers';
+
+/** Section count of privacy-content.ts — the same in every language. */
+const PRIVACY_SECTIONS = 8;
 
 test.describe('driver app', () => {
+  test('login: a number typed before the page finished loading survives the app taking over', async ({ page }) => {
+    // The login page is prerendered, so on a slow phone the field is usable before the app script runs.
+    // Hydration used to clear it (the field's first [value] write), leaving "Send code" disabled.
+    const app = await holdAppScript(page);
+    await page.goto('/login', { waitUntil: 'commit' });
+    await page.locator('input.phone-input').fill('0599 12 34 56');
+    await expect.poll(app.requested, 'the app script must still be held while typing').toBe(true);
+    app.release();
+
+    // Taken over and normalised like anything typed later (the leading 0 and the spaces go). No code is requested.
+    await expect(page.locator('button.btn--primary').first()).toBeEnabled();
+    await expect(page.locator('input.phone-input')).toHaveValue('599123456');
+  });
+
   test('login: the language switch is tappable on a 360px phone (the logo used to cover it)', async ({ page }) => {
     await page.goto('/login');
     await page.evaluate(() => localStorage.setItem('paytaxi.lang', 'ka'));
@@ -14,6 +31,37 @@ test.describe('driver app', () => {
     await expect(title).toContainText('Enter your number');
     await page.locator('.lang-btn', { hasText: 'RU' }).click({ timeout: 5_000 });
     await expect(title).toContainText('Введите номер');
+  });
+
+  test('privacy policy: public, linked from login in the app language, three languages, fits a 360px phone', async ({ page }) => {
+    await page.goto('/login');
+    await page.evaluate(() => localStorage.setItem('paytaxi.lang', 'ru'));
+    await page.reload();
+    await page.locator('.privacy-link').click();
+    await page.waitForURL(/\/privacy\/ru$/);
+    await expect(page.locator('h1')).toHaveText('Политика конфиденциальности');
+    await expect(page.locator('.pp-sec')).toHaveCount(PRIVACY_SECTIONS);
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('ru');
+
+    // Georgian is the governing text at the bare URL; English has its own address too.
+    await page.locator('.pp-langs__link', { hasText: 'ქართული' }).click();
+    await page.waitForURL(/\/privacy$/);
+    await expect(page.locator('h1')).toHaveText('კონფიდენციალურობის პოლიტიკა');
+    await expect(page.locator('.pp-govern')).toHaveCount(0);
+    await page.goto('/privacy/en#rights');
+    await expect(page.locator('h1')).toHaveText('Privacy Policy');
+    await expect(page.locator('#rights')).toBeInViewport({ timeout: 5_000 });
+
+    // Unfinished legal details are visibly blank, never invented, and the page says it is a draft.
+    await expect(page.locator('.pp-draft')).toBeVisible();
+    await expect(page.locator('mark.legal-blank').first()).toBeVisible();
+    await expect(page.locator('.pp-sec')).toHaveCount(PRIVACY_SECTIONS);
+    // The complaint route is the State Audit Office (the old Personal Data Protection Service is gone).
+    await expect(page.locator('#rights')).toContainText('State Audit Office of Georgia (sao.ge)');
+    expect(await page.locator('body').innerText()).not.toMatch(/\{[a-zA-Z]+\}|\bundefined\b|\bnull\b|Personal Data Protection Service/);
+
+    const { sw, cw } = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }));
+    expect(sw, 'privacy page scrolls sideways at 360px').toBeLessThanOrEqual(cw + 1);
   });
 
   test('login, dashboard balance, cashout step fits one screen, own-name rule', async ({ page }) => {
@@ -57,6 +105,16 @@ test.describe('driver app', () => {
   test('profile: holder name is prefilled, refusal is translated, English strings absent', async ({ page }) => {
     await driverLogin(page, DRIVERS.zura.phone, 'en');
     await page.goto('/profile');
+
+    // Your park: the controller's legal name, identification code and phone — the privacy policy
+    // sends drivers here (Profile → Your park). Zura drives for Tbilisi #3 (seeded legal details).
+    const park = page.locator('.prof-park');
+    await expect(park.locator('#prof-park-h')).toHaveText('Your park');
+    await expect(park.locator('.prof-park__name')).toHaveText('შპს თბილისი თაქსი სერვისი');
+    await expect(park.locator('.prof-park__facts')).toContainText('405123456');
+    await expect(park.locator('.prof-park__facts a')).toHaveAttribute('href', 'tel:+995322123456');
+    await expect(park.locator('.prof-park__more')).toHaveAttribute('href', '/privacy/en#who-we-are');
+
     await page.locator('.prof-add').click();
     await expect(page.locator('.prof-field__input').nth(1)).toHaveValue(DRIVERS.zura.name);
     await expect(page.locator('.prof-field__hint')).toContainText('own name');

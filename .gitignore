@@ -53,6 +53,15 @@ backend/PayTaxi.Api/appsettings.Development.json
 *.pfx
 *.p12
 
+# Customer documents (invoices, bank statements, ID scans) never go into git: they carry drivers' names, phones,
+# licence numbers and IBANs (Georgian personal-data law), and a public push cannot be taken back. Keep originals
+# outside the repository (a redacted copy at most). CI fails on a tracked one (.github/workflows/ci.yml).
+*.pdf
+docs/**/*.jpg
+docs/**/*.jpeg
+docs/**/*.png
+docs/**/*.heic
+
 # Docker compose / local secrets
 .env
 .env.*

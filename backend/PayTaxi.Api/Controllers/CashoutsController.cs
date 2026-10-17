@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
+using PayTaxi.Infrastructure.Services;
 
 namespace PayTaxi.Api.Controllers;
 
@@ -70,6 +71,14 @@ public class CashoutsController : AdminControllerBase
                     .FirstOrDefault(),
                 attemptCount = c.AttemptCount,
                 nextAttemptAt = c.NextAttemptAt,
+                unresolvedAttempts = c.UnresolvedAttempts,
+                // A document went to the bank and the bank never said what became of it: the payout may be
+                // paid, so the console can't offer Cancel (the claim refuses it anyway). Sticky — a later,
+                // unrelated answer (an expired password, "no money") does not clear it.
+                outcomeUnknown = c.UnknownOutcomeDocument != null || c.UnresolvedAttempts > 0
+                    || (c.FailureReason != null && (c.FailureReason.StartsWith("BANK_EXCEPTION:")
+                        || c.FailureReason.Contains("_UNRESOLVED:") || c.FailureReason.Contains("_UNKNOWN:"))),
+                unknownOutcomeDocument = c.UnknownOutcomeDocument,
                 createdAt = c.CreatedAt,
                 completedAt = c.CompletedAt,
                 bankType = c.BankCard.BankType,
@@ -99,10 +108,9 @@ public class CashoutsController : AdminControllerBase
         if (body.DriverId == Guid.Empty) return BadRequest(new { error = "driver_id_required" });
         if (body.CardId == Guid.Empty)   return BadRequest(new { error = "card_id_required" });
         if (body.Amount <= 0)            return BadRequest(new { error = "amount_must_be_positive" });
-        if (string.IsNullOrWhiteSpace(body.IdempotencyKey))
-            return BadRequest(new { error = "idempotency_key_required" });
-        if (body.IdempotencyKey.Length > 128)
-            return BadRequest(new { error = "idempotency_key_too_long", max = 128 });
+        // Also refuses the shapes of the server's own bank document ids (settle:, rev:, retry:, #n) — see IdempotencyKeys.
+        if (IdempotencyKeys.Problem(body.IdempotencyKey) is { } keyProblem)
+            return BadRequest(new { error = keyProblem, max = IdempotencyKeys.MaxLength });
 
         try
         {
@@ -159,7 +167,7 @@ public class CashoutsController : AdminControllerBase
     /// driverId/cardId/amount. The original Failed row is preserved as a
     /// historical record. Only allowed when the source cashout's status
     /// is Failed; for <c>ReviewRequired</c> a human must reconcile first,
-    /// and <c>Queued</c> rows retry themselves.
+    /// and <c>Queued</c> rows retry themselves (until paid, or cancelled).
     /// </summary>
     [HttpPost("{cashoutId:guid}/retry")]
     public async Task<IActionResult> Retry(Guid parkId, Guid cashoutId, CancellationToken ct)
@@ -246,6 +254,82 @@ public class CashoutsController : AdminControllerBase
         return SagaResponse(result);
     }
 
+    /// <summary>
+    /// Cancel a payout that is waiting in the queue and give the gross amount back on the driver's
+    /// Yandex balance. Waiting has no time limit any more (agreement §5.5, Annex 3 §5), so this is the
+    /// only way a waiting payout ends without being paid: a person decides, with a reason that stays on
+    /// the row ("CANCELLED: {reason} (by admin:{email})") and in the ledger.
+    ///
+    /// Swich and the operator only. Not the park's manager: the park is the party obliged to keep its
+    /// account funded, and a payout short of funds is queued and executed once topped up (Annex 3 §5) —
+    /// a transfer the driver asked for (Annex 3 §2) is not the park's to withdraw instead of topping up.
+    /// A driver who wants their request back asks Swich or the operator.
+    ///
+    /// Only Queued rows with nothing at the bank: a transfer the bank accepted (Processing) can no longer
+    /// be stopped from here, and a payout with a document the bank never answered about may already be
+    /// paid — reversing it could pay the driver twice. Before the reversal the bank is asked about every
+    /// document of the payout as well.
+    /// 200 cancelled · 202 cancelled but the Yandex reversal needs review · 409 not cancellable.
+    /// </summary>
+    [HttpPost("{cashoutId:guid}/cancel")]
+    public async Task<IActionResult> Cancel(Guid parkId, Guid cashoutId, [FromBody] CancelCashoutRequest? body, CancellationToken ct)
+    {
+        if (!IsSwichOrOperator || !CanAccessPark(parkId)) return Forbid();
+
+        var reason = body?.Reason?.Trim();
+        if (string.IsNullOrEmpty(reason)) return BadRequest(new { error = "reason_required" });
+        if (reason.Length > 500) return BadRequest(new { error = "reason_too_long", max = 500 });
+
+        var exists = await _db.Cashouts.AsNoTracking().AnyAsync(c => c.Id == cashoutId && c.ParkId == parkId, ct);
+        if (!exists) return NotFound(new { error = "cashout_not_found" });
+
+        CashoutSagaResult? result;
+        try
+        {
+            result = await _orchestrator.CancelQueuedAsync(parkId, cashoutId, reason, ActorLabel, ct);
+        }
+        catch (CashoutCancelRefusedException ex)
+        {
+            // The bank, asked before the reversal, holds one of the payout's documents or could not be asked.
+            _log.LogWarning("Cancel of cashout {CashoutId} in park {ParkId} by {Actor} refused ({Code}): {Message}",
+                cashoutId, parkId, ActorLabel, ex.Code, ex.Message);
+            var status = await _db.Cashouts.AsNoTracking().Where(c => c.Id == cashoutId).Select(c => c.Status).FirstAsync(ct);
+            return Conflict(new { error = ex.Code, status = status.ToString(), message = ex.Message });
+        }
+        if (result is null)
+        {
+            // Not claimable: re-read, because the worker (or another admin) may have moved it since.
+            var now = await _db.Cashouts.AsNoTracking()
+                .Where(c => c.Id == cashoutId)
+                .Select(c => new { c.Status, c.BankTransferId, c.UnknownOutcomeDocument, c.UnresolvedAttempts, c.FailureReason })
+                .FirstAsync(ct);
+            if (now.Status == Core.Enums.CashoutStatus.Failed && now.FailureReason?.StartsWith("CANCELLED", StringComparison.Ordinal) == true)
+                return Conflict(new { error = "already_cancelled", status = now.Status.ToString(), message = now.FailureReason });
+            if (now.Status == Core.Enums.CashoutStatus.Queued
+                && CashoutOrchestrator.HasUnresolvedOutcome(now.UnknownOutcomeDocument, now.UnresolvedAttempts, now.FailureReason))
+                return Conflict(new
+                {
+                    error = "outcome_unknown",
+                    status = now.Status.ToString(),
+                    message = "The bank has not said what became of a payment order already sent for this payout" +
+                              (now.UnknownOutcomeDocument is { } doc ? $" (document {doc})" : "") +
+                              ". The payout is checked again automatically; it can be cancelled once the bank answers about it.",
+                });
+            return Conflict(new
+            {
+                error = "not_cancellable",
+                status = now.Status.ToString(),
+                message = now.BankTransferId is not null
+                    ? $"The bank already accepted this transfer ({now.BankTransferId}); it can no longer be cancelled."
+                    : $"Only a payout waiting in the queue can be cancelled (status {now.Status}).",
+            });
+        }
+
+        _log.LogWarning("Cashout {CashoutId} in park {ParkId} cancelled by {Actor} → {Status}", cashoutId, parkId, ActorLabel, result.Status);
+        // ReviewRequired here means the cancel stood but Yandex refused (or did not answer) the reversal.
+        return result.Status == "ReviewRequired" ? StatusCode(202, result) : Ok(result);
+    }
+
     private IActionResult SagaResponse(CashoutSagaResult result) => result.Status switch
     {
         "Completed"      => Ok(result),
@@ -255,6 +339,8 @@ public class CashoutsController : AdminControllerBase
         _                => Ok(result),
     };
 }
+
+public record CancelCashoutRequest(string? Reason);
 
 public record CreateCashoutRequest(
     Guid DriverId,

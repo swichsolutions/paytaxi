@@ -18,6 +18,11 @@
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
   </ItemGroup>
 
+  <!-- The local dev settings (gitignored, dev JWT and encryption keys) are never published, whatever the build context. -->
+  <ItemGroup>
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\PayTaxi.Core\PayTaxi.Core.csproj" />
     <ProjectReference Include="..\PayTaxi.Infrastructure\PayTaxi.Infrastructure.csproj" />

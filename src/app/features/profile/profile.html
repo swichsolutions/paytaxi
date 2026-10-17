@@ -140,6 +140,42 @@
     </div>
   </section>
 
+  <!-- Your park: the controller of the driver's personal data (the privacy policy points here) -->
+  @if (yourPark(); as park) {
+    <section class="prof-section prof-park" aria-labelledby="prof-park-h">
+      <h2 id="prof-park-h" class="prof-section__label section-label">{{ t.yourPark }}</h2>
+      <div class="prof-card">
+        <div class="prof-park__body">
+          <p class="prof-park__name">{{ park.name }}</p>
+          <p class="prof-park__role">{{ t.yourParkRole }}</p>
+          @if (park.taxId || park.phone) {
+            <dl class="prof-park__facts">
+              @if (park.taxId) {
+                <div><dt>{{ t.parkIdCode }}</dt><dd class="gel">{{ park.taxId }}</dd></div>
+              }
+              @if (park.phone) {
+                <div><dt>{{ t.parkPhone }}</dt><dd><a class="gel" [href]="park.phoneHref">{{ park.phone }}</a></dd></div>
+              }
+            </dl>
+          }
+        </div>
+        <a class="prof-park__more" [routerLink]="privacyLink()" fragment="who-we-are">
+          <span>{{ t.yourParkMore }}</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+        </a>
+      </div>
+    </section>
+  }
+
+  <a class="prof-legal" [routerLink]="termsLink()">
+    <span>{{ t.termsOfUse }}</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+  </a>
+  <a class="prof-legal" [routerLink]="privacyLink()">
+    <span>{{ t.privacyPolicy }}</span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+  </a>
+
   <!-- Logout -->
   <div class="prof-logout">
     <button class="btn btn--danger" (click)="logout()">

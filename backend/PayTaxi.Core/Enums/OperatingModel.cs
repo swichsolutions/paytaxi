@@ -13,7 +13,7 @@ public enum OperatingModel
     /// API credentials (TBC Business Integration Service). PayTaxi orchestrates the
     /// transfer but never holds or has discretionary control over the money, so no
     /// PSP/NBG licence is needed. The 0.50 GEL fee never moves — it stays in the park's
-    /// account and is settled to Swich by a nightly aggregated transfer.
+    /// account and Swich's share is collected by one monthly transfer per park.
     /// </summary>
     ModelA,
 

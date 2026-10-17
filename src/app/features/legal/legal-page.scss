@@ -1,0 +1,592 @@
+// Legal pages (privacy policy, terms of use) — an editorial ledger in PayTaxi's own colours: navy masthead with the amber rule
+// the driver dashboard uses, a 68-character reading column, numbered sections, ledger tables.
+// Amber (#FFB800) only on navy; on white the darker --color-warning-fg keeps contrast above 4.5:1.
+
+:host {
+  display: block;
+  --pp-ink: var(--color-text);
+  --pp-ink-2: #3D4A5C;
+  --pp-mute: var(--color-text-2);
+  --pp-rule: var(--color-border);
+  --pp-amber-ink: var(--color-warning-fg);
+  --pp-measure: 68ch;
+  background: var(--color-bg);
+  color: var(--pp-ink);
+}
+
+.pp { min-height: 100dvh; display: flex; flex-direction: column; }
+
+// ── Skip link ───────────────────────────────────────────────────────
+.pp-skip {
+  position: absolute;
+  left: var(--space-4);
+  top: -48px;
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-brand);
+  color: var(--color-brand-text);
+  font-weight: 700;
+  text-decoration: none;
+  &:focus { top: var(--space-3); }
+}
+
+// ── Masthead ────────────────────────────────────────────────────────
+.pp-mast {
+  position: relative;
+  color: #fff;
+  background-color: var(--color-dark);
+  background-image: var(--dark-texture), linear-gradient(160deg, #1A2E47 0%, var(--color-dark) 60%);
+  border-bottom: 4px solid var(--color-brand);
+}
+
+.pp-mast__bar {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.pp-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 800;
+  font-size: var(--text-lg);
+  letter-spacing: -0.02em;
+
+  &__mark {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    background: var(--color-brand);
+    color: var(--color-dark);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    font-weight: 800;
+    box-shadow: var(--shadow-brand);
+  }
+}
+
+.pp-langs {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+
+  &__link {
+    min-height: 36px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-full);
+    color: rgba(255, 255, 255, 0.75);
+    font-size: var(--text-sm);
+    font-weight: 700;
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s;
+
+    &:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+    &[aria-current='page'] { background: var(--color-brand); color: var(--color-dark); }
+  }
+}
+
+.pp-mast__body {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-5) var(--space-10);
+}
+
+.pp-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-brand);
+}
+
+.pp-title {
+  margin-top: var(--space-3);
+  font-size: clamp(1.5rem, 7vw, 3.25rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  // Titles break only between words. The measure stays wider than the longest single word
+  // (კონფიდენციალურობის, конфиденциальности) at every size, and the phone size is small enough for
+  // that word to fit a 360px screen; balance evens the two lines.
+  max-width: 24ch;
+  text-wrap: balance;
+  hyphens: manual;
+  overflow-wrap: break-word;
+
+  // Narrower than any phone we design for: hyphenate by the page language rather than overflow.
+  @media (max-width: 340px) { hyphens: auto; }
+}
+
+.pp-sub {
+  margin-top: var(--space-4);
+  max-width: 52ch;
+  font-size: var(--text-lg);
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.pp-meta {
+  margin-top: var(--space-6);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+
+  &__chip {
+    padding: 6px 12px;
+    border-radius: var(--radius-full);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.85);
+
+    &--draft { border-color: rgba(255, 184, 0, 0.6); color: var(--color-brand); }
+  }
+
+  &__print {
+    margin-left: auto;
+    min-height: 36px;
+    padding: 0 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: var(--radius-full);
+    color: #fff;
+    font-size: var(--text-sm);
+    font-weight: 700;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    transition: background-color 0.15s;
+    svg { width: 16px; height: 16px; }
+    &:hover { background: rgba(255, 255, 255, 0.08); }
+  }
+}
+
+// ── Draft notice ────────────────────────────────────────────────────
+.pp-draft {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: 1120px;
+  width: calc(100% - 2 * var(--space-5));
+  margin: var(--space-5) auto 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  border: 1px solid rgba(255, 184, 0, 0.45);
+  border-left: 4px solid var(--color-brand);
+  color: var(--pp-ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+
+  &__tag {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--color-dark);
+    color: var(--color-brand);
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+}
+
+// ── Layout ──────────────────────────────────────────────────────────
+.pp-layout {
+  flex: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5) var(--space-12);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-10);
+
+  @media (min-width: 1024px) {
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: var(--space-12);
+    padding-top: var(--space-10);
+  }
+}
+
+// ── Contents ────────────────────────────────────────────────────────
+.pp-toc {
+  display: none;
+
+  @media (min-width: 1024px) {
+    display: block;
+    position: sticky;
+    top: var(--space-6);
+    align-self: start;
+    max-height: calc(100dvh - 2 * var(--space-6));
+    overflow-y: auto;
+  }
+
+  &__title {
+    font-size: var(--text-xs);
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--pp-mute);
+    margin-bottom: var(--space-3);
+  }
+
+  &__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+
+  &__link {
+    display: flex;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: var(--radius-sm);
+    border-left: 2px solid transparent;
+    color: var(--pp-ink-2);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1.35;
+    text-decoration: none;
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+
+    &:hover { background: var(--color-surface); color: var(--pp-ink); }
+    &--active { border-left-color: var(--color-brand); background: var(--color-surface); color: var(--pp-ink); }
+  }
+
+  &__num {
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    font-weight: 800;
+    color: var(--pp-amber-ink);
+  }
+}
+
+.pp-toc-fold {
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--pp-rule);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+
+  @media (min-width: 1024px) { display: none; }
+
+  summary {
+    min-height: 48px;
+    padding: 0 var(--space-4);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    list-style: none;
+    font-weight: 700;
+    &::-webkit-details-marker { display: none; }
+    &::after { content: '+'; font-size: 20px; font-weight: 500; color: var(--pp-mute); }
+  }
+  &[open] summary::after { content: '–'; }
+
+  .pp-toc__list { padding: 0 var(--space-2) var(--space-3); }
+  .pp-toc__link { padding: 10px; }
+}
+
+// ── Article ─────────────────────────────────────────────────────────
+.pp-article {
+  min-width: 0;
+  max-width: var(--pp-measure);
+  outline: none;
+}
+
+// No "In short" card above it (terms of use): the first section opens the article, level with the contents list.
+.pp-article--plain > .pp-sec:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.pp-govern {
+  margin-bottom: var(--space-5);
+  font-size: var(--text-sm);
+  font-style: italic;
+  color: var(--pp-mute);
+}
+
+// In short — the one dark card on the page
+.pp-summary {
+  padding: var(--space-6);
+  border-radius: var(--radius-xl);
+  background: var(--color-dark);
+  color: #fff;
+
+  &__title {
+    font-size: var(--text-xs);
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-brand);
+  }
+
+  &__list {
+    list-style: none;
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+
+    li {
+      position: relative;
+      padding-left: 28px;
+      font-size: var(--text-base);
+      line-height: 1.6;
+      color: rgba(255, 255, 255, 0.9);
+
+      &::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0.45em;
+        width: 14px;
+        height: 8px;
+        border-left: 2.5px solid var(--color-brand);
+        border-bottom: 2.5px solid var(--color-brand);
+        transform: rotate(-45deg);
+      }
+    }
+  }
+}
+
+.pp-glance {
+  margin-top: var(--space-10);
+
+  &__title {
+    font-size: var(--text-xl);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-4);
+  }
+}
+
+// ── Sections ────────────────────────────────────────────────────────
+.pp-sec {
+  margin-top: var(--space-12);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--pp-rule);
+  scroll-margin-top: var(--space-6);
+
+  &__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-size: clamp(1.25rem, 4.6vw, 1.5rem);
+    font-weight: 800;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    margin-bottom: var(--space-4);
+  }
+
+  &__num {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+    color: var(--pp-amber-ink);
+    letter-spacing: 0;
+  }
+}
+
+.pp-p {
+  margin-top: var(--space-4);
+  font-size: var(--text-base);
+  line-height: 1.7;
+  color: var(--pp-ink-2);
+  &:first-of-type { margin-top: 0; }
+}
+
+.pp-ul {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+
+  li {
+    position: relative;
+    padding-left: 22px;
+    font-size: var(--text-base);
+    line-height: 1.7;
+    color: var(--pp-ink-2);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: 2px;
+      top: 0.7em;
+      width: 7px;
+      height: 7px;
+      background: var(--color-brand);
+    }
+  }
+}
+
+// ── Tables (ledger) ─────────────────────────────────────────────────
+.pp-table {
+  width: 100%;
+  margin-top: var(--space-4);
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+
+  thead th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: var(--text-xs);
+    font-weight: 800;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--pp-mute);
+    background: var(--color-surface-2);
+    border-bottom: 2px solid var(--color-dark);
+  }
+
+  tbody th,
+  tbody td {
+    padding: 12px;
+    vertical-align: top;
+    text-align: left;
+    border-bottom: 1px solid var(--pp-rule);
+    color: var(--pp-ink-2);
+  }
+
+  tbody th { font-weight: 700; color: var(--pp-ink); width: 34%; }
+
+  tbody tr { break-inside: avoid; }
+
+  // Phones: each row becomes a small card; the column name rides along as a label.
+  @media (max-width: 640px) {
+    thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+    tbody tr {
+      display: block;
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--pp-rule);
+    }
+
+    tbody th,
+    tbody td {
+      display: block;
+      width: auto;
+      padding: 2px 0;
+      border: 0;
+    }
+
+    tbody th { font-size: var(--text-base); margin-bottom: 4px; }
+
+    tbody td::before {
+      content: attr(data-label);
+      display: block;
+      font-size: 10.5px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--pp-mute);
+      margin-top: 6px;
+    }
+  }
+}
+
+.pp-table--ledger tbody td:last-child { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--pp-ink); }
+
+// ── Footer ──────────────────────────────────────────────────────────
+.pp-foot {
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  background: var(--color-dark);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: var(--text-sm);
+
+  &__links {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-5);
+  }
+
+  // The other legal document, same language.
+  &__related {
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    &:hover { color: #fff; }
+  }
+
+  &__back {
+    color: var(--color-brand);
+    font-weight: 700;
+    text-decoration: none;
+    &:hover { text-decoration: underline; }
+  }
+}
+
+// ── Focus ───────────────────────────────────────────────────────────
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--color-dark);
+  outline-offset: 2px;
+}
+
+.pp-mast a:focus-visible,
+.pp-mast button:focus-visible,
+.pp-foot a:focus-visible {
+  outline-color: var(--color-brand);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+
+// ── Print: the document, nothing else ───────────────────────────────
+@media print {
+  :host { --pp-ink-2: #000; --pp-mute: #333; }
+
+  .pp-skip, .pp-langs, .pp-meta__print, .pp-toc, .pp-toc-fold, .pp-foot__links { display: none !important; }
+
+  .pp-mast {
+    color: #000;
+    background: none;
+    border-bottom: 2px solid #000;
+  }
+  .pp-mast__body { padding: 0 0 12pt; }
+  .pp-eyebrow, .pp-sub, .pp-meta__chip, .pp-brand { color: #000; }
+  .pp-meta__chip { border-color: #000; }
+  .pp-brand__mark { box-shadow: none; border: 1px solid #000; }
+
+  .pp-draft { border: 1px solid #000; background: none; }
+  .pp-layout { display: block; padding: 12pt 0; }
+  .pp-article { max-width: none; }
+
+  .pp-summary { background: none; color: #000; border: 1px solid #000; }
+  .pp-summary__title { color: #000; }
+  .pp-summary__list li { color: #000; }
+
+  .pp-sec { break-inside: auto; margin-top: 18pt; }
+  .pp-sec__title { break-after: avoid; }
+  .pp-table thead th { background: none; }
+  .pp-foot { background: none; color: #000; border-top: 1px solid #000; }
+}

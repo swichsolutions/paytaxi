@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.EntityFrameworkCore;
 using PayTaxi.Core.Banking;
 using PayTaxi.Core.Identity;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
+using PayTaxi.Infrastructure.Services;
 
 namespace PayTaxi.Api.Controllers;
 
@@ -13,7 +15,7 @@ namespace PayTaxi.Api.Controllers;
 /// stack: DB park resolution → resilient client (rate-limit, retry, audit) → mock.
 ///
 /// Requires admin role. Every action calls <see cref="AdminControllerBase.CanAccessPark"/>:
-/// super-admins and operators reach any park, park-admins only their own.
+/// super-admins reach any park, operators the parks of their own licensee in force, park-admins only their own.
 /// </summary>
 [ApiController]
 [Authorize(Roles = "admin")]
@@ -22,15 +24,18 @@ public class AdminParksController : AdminControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IYandexFleetClient _yandex;
+    private readonly Infrastructure.Adapters.Banks.BankRailPolicy _rails;
     private readonly ILogger<AdminParksController> _log;
 
     public AdminParksController(
         AppDbContext db,
         IYandexFleetClient yandex,
+        Infrastructure.Adapters.Banks.BankRailPolicy rails,
         ILogger<AdminParksController> log)
     {
         _db = db;
         _yandex = yandex;
+        _rails = rails;
         _log = log;
     }
 
@@ -38,13 +43,17 @@ public class AdminParksController : AdminControllerBase
     [HttpGet("/api/admin/parks")]
     public async Task<IActionResult> ListParks(CancellationToken ct)
     {
+        if (ParkScopeMissing) return Forbid();
         var query = _db.Parks.AsNoTracking().AsQueryable();
 
-        // Park-admins only see their own park; super-admins see all.
-        var scoped = ScopedParkId;
-        if (scoped is not null) query = query.Where(p => p.Id == scoped);
+        // Park-admins see their own park, an operator its licensee's parks (none while the licensee is not in force),
+        // Swich every park.
+        var parks = ParkFilter;
+        if (parks is not null) query = query.Where(p => parks.Contains(p.Id));
+        var seesAll = IsSwichOrOperator;
+        var today = SettlementService.TodayLocal();
 
-        var parks = await query
+        var rows = await query
             .OrderBy(p => p.Name)
             .Select(p => new
             {
@@ -61,7 +70,23 @@ public class AdminParksController : AdminControllerBase
                 swichSharePercent = p.SwichSharePercent,
                 phase1SharePercent = p.Phase1SharePercent,
                 phase1CapGel = p.Phase1CapGel,
+                // Settled under the licence agreement with this licensee; null = Swich-direct (own split above).
+                licenseeId = p.LicenseeId,
+                licenseeName = p.Licensee != null ? p.Licensee.Name : null,
                 status = p.Status.ToString(),
+                statusReason = p.StatusReason,
+                statusChangedAt = p.StatusChangedAt,
+                // Who pressed the button is Swich/operator business; the park sees why and when.
+                statusChangedBy = seesAll ? p.StatusChangedBy : null,
+                // Annex 3 §7: the park's revocation of the platform's authorisations, when recorded — shown to everyone who
+                // sees the park (from that day nothing is paid or collected from its account); who recorded it, likewise,
+                // only to Swich and the operator.
+                authorisationNoticeOn = p.AuthorisationNoticeOn,
+                authorisationRevokedFrom = p.AuthorisationRevokedFrom,
+                authorisationRevoked = p.AuthorisationRevokedFrom != null && p.AuthorisationRevokedFrom <= today,
+                authorisationRevocationReason = p.AuthorisationRevocationReason,
+                authorisationRevocationRecordedBy = seesAll ? p.AuthorisationRevocationRecordedBy : null,
+                authorisationRevocationRecordedAt = p.AuthorisationRevocationRecordedAt,
                 driverCount = p.Drivers.Count(),
                 p.LegalEntityName,
                 p.TaxId,
@@ -87,13 +112,19 @@ public class AdminParksController : AdminControllerBase
             })
             .ToListAsync(ct);
 
-        return Ok(parks);
+        return Ok(rows);
     }
 
     /// <summary>
     /// Create a new park (super-admin only) and, optionally, its first park-admin login.
     /// This is the "register a taxi park" step — replaces editing the seed file.
     /// Yandex credentials are stored on the park (plaintext placeholder until Phase 8 AES).
+    ///
+    /// Which agreement settles it is never left to chance: with exactly one licensee in force the park joins that
+    /// licensee's agreement (every park the licensee connects is under it, §2.2) unless Swich sends direct=true;
+    /// with several, Swich must name one (licenseeId) or say direct; with none, there is no agreement to join.
+    /// A park silently left Swich-direct would be settled under its own split from the next run day — stamping its
+    /// cashouts for good, outside the licensee's statement and barrier.
     /// </summary>
     [HttpPost("/api/admin/parks")]
     public async Task<IActionResult> CreatePark([FromBody] CreateParkRequest body, CancellationToken ct)
@@ -124,13 +155,14 @@ public class AdminParksController : AdminControllerBase
         if (body.MaxCashoutAmount is { } maxC && maxC < minCashout) return BadRequest(new { error = "invalid_max_cashout" });
         if (body.DailyCashoutLimitPerDriver is { } dl && dl < minCashout) return BadRequest(new { error = "invalid_daily_limit" });
 
-        // Optional billing fields — validate the same way as the PATCH endpoint.
+        // The park's legal details — validated the same way as the PATCH endpoint, and required: the park is created
+        // Active, and the driver's privacy notice names it as the controller of the driver's data (see
+        // MissingLegalDetails).
         var taxId = Blank(body.TaxId ?? "");
         if (taxId is not null)
         {
-            var digits = new string(taxId.Where(char.IsDigit).ToArray());
-            if (digits.Length is < 9 or > 11) return BadRequest(new { error = "invalid_tax_id" });
-            taxId = digits;
+            taxId = NormalizeTaxId(taxId);
+            if (taxId is null) return BadRequest(new { error = "invalid_tax_id" });
         }
 
         string? phone = null;
@@ -139,6 +171,10 @@ public class AdminParksController : AdminControllerBase
             phone = NormalizePhone(rawPhone);
             if (phone is null) return BadRequest(new { error = "invalid_phone" });
         }
+
+        var legalEntity = Blank(body.LegalEntityName ?? "");
+        var missingLegal = MissingLegalDetails(legalEntity, taxId, phone);
+        if (missingLegal.Length > 0) return LegalDetailsRequired(missingLegal);
 
         // The park's payout account. Required: without it no driver can be paid.
         if (!GeorgianIban.TryParse(body.BankAccountIban, out var iban, out var parkBankCode, out var ibanError))
@@ -155,8 +191,34 @@ public class AdminParksController : AdminControllerBase
                 return Conflict(new { error = "email_taken" });
         }
 
-        var provider = (Blank(body.BankProvider ?? "") ?? ProviderForBankCode(parkBankCode)).ToLowerInvariant();
-        var legalEntity = Blank(body.LegalEntityName ?? "");
+        Guid? licenseeId = null;
+        string? licenseeName = null;
+        if (body.Direct == true)
+        {
+            if (body.LicenseeId is not null) return BadRequest(new { error = "licensee_conflict" });
+        }
+        else if (body.LicenseeId is { } chosen)
+        {
+            licenseeName = await _db.Licensees.AsNoTracking().Where(l => l.Id == chosen).Select(l => l.Name).FirstOrDefaultAsync(ct);
+            if (licenseeName is null) return BadRequest(new { error = "licensee_not_found" });
+            licenseeId = chosen;
+        }
+        else
+        {
+            var inForce = await _db.Licensees.AsNoTracking().Where(l => l.IsActive)
+                .OrderBy(l => l.Name).Select(l => new { l.Id, l.Name }).Take(2).ToListAsync(ct);
+            if (inForce.Count > 1) return BadRequest(new { error = "licensee_required" });
+            if (inForce.Count == 1) (licenseeId, licenseeName) = (inForce[0].Id, inForce[0].Name);
+        }
+
+        // The same rules as adding a payout account (RailProblem): a provider this server can pay through, at a bank it pays from.
+        if (RailProblem(parkBankCode, body.BankProvider, out var provider) is { } railProblem) return railProblem;
+        var credentialsJson = Blank(body.BankCredentialsJson ?? "");
+        if (credentialsJson is not null && !IsJsonObject(credentialsJson))
+            return BadRequest(new { error = "invalid_credentials_json", message = "credentialsJson must be a JSON object" });
+        if (credentialsJson is not null && CredentialsProblem(credentialsJson) is { } createCredentialsProblem)
+            return BadRequest(new { error = createCredentialsProblem });
+
         var park = new Core.Entities.Park
         {
             Name = name,
@@ -177,6 +239,7 @@ public class AdminParksController : AdminControllerBase
             BankCredentialsEncrypted = "{}",
             BankAccountIban = iban,
             Status = Core.Enums.ParkStatus.Active,
+            LicenseeId = licenseeId,
         };
 #pragma warning disable CS0618 // legacy bool mirror
         park.IsActive = true;
@@ -190,7 +253,7 @@ public class AdminParksController : AdminControllerBase
             Provider = provider,
             Iban = iban,
             HolderName = legalEntity ?? name,
-            CredentialsEncrypted = Blank(body.BankCredentialsJson ?? "") ?? "{}",
+            CredentialsEncrypted = credentialsJson ?? "{}",
             IsActive = true,
             IsPrimary = true,
             Label = $"{GeorgianIban.BankLabel(parkBankCode)} business account",
@@ -210,8 +273,8 @@ public class AdminParksController : AdminControllerBase
         }
 
         await _db.SaveChangesAsync(ct);
-        _log.LogInformation("Park {ParkId} ({Name}) created by super-admin; manager={Manager}",
-            park.Id, park.Name, managerEmail ?? "(none)");
+        _log.LogInformation("Park {ParkId} ({Name}) created by super-admin; manager={Manager}; settled {Settlement}",
+            park.Id, park.Name, managerEmail ?? "(none)", licenseeName is null ? "Swich-direct" : $"under the licence agreement of {licenseeName}");
 
         return Created($"/api/admin/parks/{park.Id}", new
         {
@@ -220,6 +283,8 @@ public class AdminParksController : AdminControllerBase
             slug = park.Slug,
             operatingModel = park.OperatingModel.ToString(),
             managerEmail,
+            licenseeId,
+            licenseeName,
         });
     }
 
@@ -336,11 +401,6 @@ public class AdminParksController : AdminControllerBase
     }
 
     /// <summary>
-    /// Smoke-test endpoint that exercises the resilient client (and therefore
-    /// rate limiter, retry policy and audit log) with parallel requests.
-    /// Returns timing data so you can see the 0.5s spacing in action.
-    /// </summary>
-    /// <summary>
     /// Headline KPIs for the admin overview page. Single round-trip aggregation
     /// over Cashouts + Drivers for the given park.
     /// </summary>
@@ -353,7 +413,7 @@ public class AdminParksController : AdminControllerBase
         if (park is null) return NotFound(new { error = "park_not_found" });
 
         // "Today" is the park's local day (Tbilisi), the same boundary the driver daily limit
-        // and the nightly settlement use — not the UTC day (which rolls over at 04:00 local).
+        // and the settlement months use — not the UTC day (which rolls over at 04:00 local).
         var now = DateTime.UtcNow;
         var tz = PayTaxi.Infrastructure.Services.SettlementService.ResolveTimeZone(null);
         var dayStart = TimeZoneInfo.ConvertTimeToUtc(TimeZoneInfo.ConvertTimeFromUtc(now, tz).Date, tz);
@@ -542,6 +602,9 @@ public class AdminParksController : AdminControllerBase
     /// Returns headline tiles, day-by-day breakdown, and top drivers in one round trip
     /// so the frontend renders the whole page from a single fetch.
     /// </summary>
+    /// <summary>Longest report window in days (the console's presets are at most a month; a custom range up to a year).</summary>
+    private const int MaxReportDays = 366;
+
     [HttpGet("reports")]
     public async Task<IActionResult> Reports(
         Guid parkId,
@@ -557,6 +620,10 @@ public class AdminParksController : AdminControllerBase
         var windowFrom = (from ?? now.AddDays(-7)).ToUniversalTime();
         if (windowFrom >= windowTo)
             return BadRequest(new { error = "invalid_window", message = "`from` must be earlier than `to`." });
+        // A year (with a leap day) at most. Unbounded, from=0001-01-01&to=9999-12-31 built 3.6 million daily rows on the
+        // single API instance that also runs the payout and settlement workers — any park manager could stall every park.
+        if (windowTo - windowFrom > TimeSpan.FromDays(MaxReportDays + 1))
+            return BadRequest(new { error = "window_too_large", maxDays = MaxReportDays, message = $"The report window can be at most {MaxReportDays} days." });
 
         topDrivers = Math.Clamp(topDrivers, 1, 50);
 
@@ -603,18 +670,20 @@ public class AdminParksController : AdminControllerBase
         // If windowTo carries time-of-day, include the partial day at the end.
         if (windowTo > endDay) endDay = endDay.AddDays(1);
 
+        // Grouped once (not re-filtered per day): the work is the cashouts plus the days, not their product.
+        var completedByDay = completed.GroupBy(c => c.CreatedAt.Date).ToDictionary(g => g.Key, g => g.ToList());
+        var failedByDay = failed.GroupBy(c => c.CreatedAt.Date).ToDictionary(g => g.Key, g => g.Count());
         var daily = new List<DailyRow>();
         for (var d = startDay; d < endDay; d = d.AddDays(1))
         {
-            var next = d.AddDays(1);
-            var inDay = completed.Where(c => c.CreatedAt >= d && c.CreatedAt < next).ToList();
-            var failedInDay = failed.Where(c => c.CreatedAt >= d && c.CreatedAt < next).ToList();
+            ct.ThrowIfCancellationRequested();
+            var inDay = completedByDay.TryGetValue(d.Date, out var list) ? list : new();
             daily.Add(new DailyRow(
                 Date: d,
                 CashoutsCount: inDay.Count,
                 Value: inDay.Sum(c => c.Amount),
                 Fees: inDay.Sum(c => c.Fee),
-                FailedCount: failedInDay.Count));
+                FailedCount: failedByDay.GetValueOrDefault(d.Date)));
         }
 
         var topByDriver = completed
@@ -691,7 +760,7 @@ public class AdminParksController : AdminControllerBase
 
     /// <summary>
     /// Onboard a new driver: create the Driver row plus default bank cards.
-    /// Phone is normalized to E.164 and hashed with SHA-256 for lookup.
+    /// Phone is normalized to E.164 and given its keyed lookup hash (LookupHash — never a plain SHA-256).
     /// Phase 8 will swap the plaintext <c>PhoneEncrypted</c> column for real AES.
     /// </summary>
     [HttpPost("drivers")]
@@ -737,9 +806,10 @@ public class AdminParksController : AdminControllerBase
         await using var tx = await _db.Database.BeginTransactionAsync(ct);
         await _db.SaveChangesAsync(ct);
 
+        Core.Entities.BankCard? destination = null;
         if (!string.IsNullOrWhiteSpace(body.Iban))
         {
-            var (outcome, error, payload) = await DestinationHelper.AddAsync(
+            var (outcome, error, payload, card) = await DestinationHelper.AddAsync(
                 _db, parkId, driver, body.Iban, body.HolderName, makeDefault: true,
                 allowThirdParty: true, thirdPartyReason: body.Reason, initiatedBy: ActorLabel, ct);
             if (outcome != DestinationHelper.Outcome.Created)
@@ -749,12 +819,17 @@ public class AdminParksController : AdminControllerBase
                     ? Conflict(new { error })
                     : BadRequest(payload ?? new { error });
             }
+            destination = card;
         }
 
         await tx.CommitAsync(ct);
+        // The park registered where the new driver's money goes: the driver hears of it (also the first sign of the account).
+        if (destination is not null)
+            await DestinationHelper.NotifyAsync(HttpContext.RequestServices, destination, PayoutAccountChange.Added, byPark: true);
 
-        _log.LogInformation("Onboarded driver {DriverId} ({Name}) in park {ParkId} by {Actor}",
-            driver.Id, driver.Name, parkId, ActorLabel);
+        // Ids only: the log sink outlives the retention periods the privacy notice promises, so no names in it.
+        _log.LogInformation("Onboarded driver {DriverId} in park {ParkId} by {Actor}",
+            driver.Id, parkId, ActorLabel);
 
         return Created($"/api/admin/parks/{parkId}/drivers", new
         {
@@ -874,6 +949,11 @@ public class AdminParksController : AdminControllerBase
     /// <summary>
     /// Edit an existing driver. Any field omitted from the body is left untouched
     /// (partial update). Re-hashes phone on change and rejects duplicates.
+    ///
+    /// A driver who leaves Active (suspended, pending) or whose phone changes is signed out of every device in the same
+    /// save: their sessions are revoked (admin_revoked), so no refresh token works any more, and DriverTokenCheck refuses
+    /// the access tokens still out there. A suspension used to end a device's session only if that device happened to
+    /// refresh while it lasted — one kept quiet worked again after a reactivation; a phone change touched no session.
     /// </summary>
     [HttpPatch("drivers/{driverId:guid}")]
     public async Task<IActionResult> UpdateDriver(
@@ -885,6 +965,8 @@ public class AdminParksController : AdminControllerBase
         var driver = await _db.Drivers
             .FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (driver is null) return NotFound(new { error = "driver_not_found" });
+        var statusBefore = driver.Status;
+        var phoneHashBefore = driver.PhoneHash;
 
         if (body.Name is not null)
         {
@@ -928,11 +1010,28 @@ public class AdminParksController : AdminControllerBase
             driver.Status = parsed;
         }
 
+        var changed = RecordConfigChange(driver, parkId, Core.Entities.ParkConfigSubjects.Driver, driver.Id, DriverWatched);
+
+        var signOut = (driver.Status != statusBefore && driver.Status != Core.Enums.DriverStatus.Active)
+                   || driver.PhoneHash != phoneHashBefore;
+        var revoked = 0;
+        if (signOut)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var session in await _db.DriverSessions.Where(x => x.DriverId == driver.Id && x.RevokedAt == null).ToListAsync(ct))
+            {
+                session.RevokedAt = now;
+                session.RevokedReason = "admin_revoked";
+                revoked++;
+            }
+        }
         await _db.SaveChangesAsync(ct);
+        if (signOut)
+            await Security.DriverTokenCheck.ForgetAsync(HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>(), _db, driver.Id, ct);
 
         _log.LogInformation(
-            "Driver {DriverId} updated by admin ({Name} | status={Status})",
-            driver.Id, driver.Name, driver.Status);
+            "Driver {DriverId} updated by {Actor}: {Fields} (status={Status}){SignedOut}",
+            driver.Id, ActorLabel, changed ?? "nothing", driver.Status, signOut ? $"; signed out of {revoked} device session(s)" : "");
 
         return Ok(new
         {
@@ -942,13 +1041,16 @@ public class AdminParksController : AdminControllerBase
             yandexProfileId = driver.YandexDriverProfileId,
             status = driver.Status.ToString(),
             parkId = driver.ParkId,
+            sessionsRevoked = revoked,
         });
     }
 
     /// <summary>
     /// Update the park's account/billing details (legal entity, tax ID, phone, IBAN).
     /// Surfaced on the admin Settings page. Each field is optional; sending an empty
-    /// string clears it, omitting it (null) leaves it unchanged.
+    /// string clears it, omitting it (null) leaves it unchanged. An Active park must come out
+    /// of the edit with its legal name, identification code and phone (400 legal_details_required,
+    /// nothing saved) — including a park created before that rule, whose next edit completes them.
     /// </summary>
     [HttpPatch("")]
     public async Task<IActionResult> UpdatePark(
@@ -968,10 +1070,8 @@ public class AdminParksController : AdminControllerBase
             var tax = Blank(body.TaxId);
             if (tax is not null)
             {
-                var digits = new string(tax.Where(char.IsDigit).ToArray());
-                // Georgian company IDs are 9 digits; sole-proprietor personal IDs are 11.
-                if (digits.Length is < 9 or > 11) return BadRequest(new { error = "invalid_tax_id" });
-                tax = digits;
+                tax = NormalizeTaxId(tax);
+                if (tax is null) return BadRequest(new { error = "invalid_tax_id" });
             }
             park.TaxId = tax;
         }
@@ -1058,8 +1158,13 @@ public class AdminParksController : AdminControllerBase
         if (park.MaxCashoutAmount is { } mx && mx < park.MinCashoutAmount) return BadRequest(new { error = "invalid_max_cashout" });
         if (park.DailyCashoutLimitPerDriver is { } dlim && dlim < park.MinCashoutAmount) return BadRequest(new { error = "invalid_daily_limit" });
 
+        if (park.Status == Core.Enums.ParkStatus.Active
+            && MissingLegalDetails(park.LegalEntityName, park.TaxId, park.Phone) is { Length: > 0 } missing)
+            return LegalDetailsRequired(missing);
+
+        var changedFields = RecordConfigChange(park, parkId, Core.Entities.ParkConfigSubjects.Park, null, ParkWatched);
         await _db.SaveChangesAsync(ct);
-        _log.LogInformation("Park {ParkId} account details updated by admin", park.Id);
+        _log.LogInformation("Park {ParkId} account details updated by {Actor}: {Fields}", park.Id, ActorLabel, changedFields ?? "nothing");
 
         return Ok(new
         {
@@ -1080,6 +1185,202 @@ public class AdminParksController : AdminControllerBase
             phase1SharePercent = park.Phase1SharePercent,
             phase1CapGel = park.Phase1CapGel,
         });
+    }
+
+    /// <summary>
+    /// Suspend or reactivate a park. Swich and the operator only — a park manager cannot change
+    /// their own park's status. Body: { status: "Suspended" | "Active", reason }; the reason is
+    /// required to suspend.
+    ///
+    /// Suspension stops NEW cashouts (the saga refuses with park_inactive) and nothing else:
+    /// payouts already debited from Yandex keep draining from the queue — the driver is owed that
+    /// money — and the monthly settlement and reconciliation keep running, so fees already earned
+    /// are still collected. Termination is not offered here: it ends a contract and is done
+    /// deliberately, outside the console.
+    /// </summary>
+    [HttpPost("status")]
+    public async Task<IActionResult> ChangeParkStatus(
+        Guid parkId, [FromBody] ChangeParkStatusRequest body, CancellationToken ct)
+    {
+        if (!IsSwichOrOperator || !CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        if (!Enum.TryParse<Core.Enums.ParkStatus>(body.Status, ignoreCase: true, out var target)
+            || target is not (Core.Enums.ParkStatus.Active or Core.Enums.ParkStatus.Suspended))
+            return BadRequest(new { error = "invalid_status", allowed = new[] { "Active", "Suspended" } });
+
+        var reason = Blank(body.Reason ?? "");
+        if (target == Core.Enums.ParkStatus.Suspended && reason is null)
+            return BadRequest(new { error = "reason_required" });
+        if (reason is { Length: > 500 })
+            return BadRequest(new { error = "reason_too_long", max = 500 });
+
+        var park = await _db.Parks.FirstOrDefaultAsync(p => p.Id == parkId, ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        if (park.Status == Core.Enums.ParkStatus.Terminated)
+            return Conflict(new { error = "park_terminated" });
+        if (park.Status == Core.Enums.ParkStatus.Pending && target == Core.Enums.ParkStatus.Suspended)
+            return Conflict(new { error = "invalid_transition", from = park.Status.ToString(), to = target.ToString() });
+        if (target == Core.Enums.ParkStatus.Active && park.Status != Core.Enums.ParkStatus.Active
+            && MissingLegalDetails(park.LegalEntityName, park.TaxId, park.Phone) is { Length: > 0 } missingLegal)
+            return LegalDetailsRequired(missingLegal);
+
+        // A double click or a second admin asking for the state the park is already in is a no-op:
+        // the first change keeps its reason, time and author.
+        var changed = park.Status != target;
+        if (changed)
+        {
+            var from = park.Status;
+            park.Status = target;
+            park.StatusReason = reason;
+            park.StatusChangedAt = DateTime.UtcNow;
+            park.StatusChangedBy = ActorLabel;
+#pragma warning disable CS0618 // legacy bool mirror
+            park.IsActive = target == Core.Enums.ParkStatus.Active;
+#pragma warning restore CS0618
+            await _db.SaveChangesAsync(ct);
+            _log.LogWarning("Park {ParkId} ({Name}) status {From} → {To} by {Actor}: {Reason}",
+                park.Id, park.Name, from, target, ActorLabel, reason ?? "(no reason)");
+        }
+
+        // Payouts already debited from Yandex: they still complete while the park is suspended.
+        var inFlight = await _db.Cashouts.AsNoTracking()
+            .CountAsync(c => c.ParkId == parkId
+                          && (c.Status == Core.Enums.CashoutStatus.Queued || c.Status == Core.Enums.CashoutStatus.Processing), ct);
+
+        return Ok(new
+        {
+            id = park.Id,
+            name = park.Name,
+            status = park.Status.ToString(),
+            statusReason = park.StatusReason,
+            statusChangedAt = park.StatusChangedAt,
+            statusChangedBy = park.StatusChangedBy,
+            changed,
+            inFlightCount = inFlight,
+        });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Annex 3 §7: the park revokes the platform's authorisations
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Record the park's written revocation of the Annex 3 §2 (payouts) and §3 (monthly transfer) authorisations — by
+    /// Swich or the operator, to whom the park writes; never by the park's own manager. Body: noticeOn (the day the
+    /// notice was received — not in the future), revokedFrom (the first day without the authorisations: at least
+    /// <see cref="ParkAuthorisation.NoticeDays"/> days after the notice, and not already past), reason (what the
+    /// notice says, or where it is filed).
+    ///
+    /// From revokedFrom (Tbilisi day) the platform initiates nothing from the park's account: new cashouts are refused
+    /// (authorisation_revoked), no waiting payout is sent (each waits with AUTHORISATION_REVOKED until a person cancels
+    /// it — the amount goes back to the driver's Yandex balance), and no settlement share is collected (it is owed by the
+    /// licensee under §2.5 and closed as paid outside the platform). What arose before stays owed. Until that day the
+    /// revocation can be withdrawn (DELETE); one at a time — withdraw it to change it.
+    /// </summary>
+    [HttpPut("authorisation-revocation")]
+    public async Task<IActionResult> RecordRevocation(Guid parkId, [FromBody] RecordRevocationRequest body, CancellationToken ct)
+    {
+        if (!IsSwichOrOperator || !CanAccessPark(parkId)) return Forbid();
+        if (body is null) return BadRequest(new { error = "missing_body" });
+
+        var today = SettlementService.TodayLocal();
+        if (!DateOnly.TryParseExact(body.NoticeOn?.Trim() ?? "", "yyyy-MM-dd", out var noticeOn) || noticeOn.Year < 2020 || noticeOn > today)
+            return BadRequest(new { error = "invalid_notice_date" });
+        if (!DateOnly.TryParseExact(body.RevokedFrom?.Trim() ?? "", "yyyy-MM-dd", out var from))
+            return BadRequest(new { error = "invalid_revoked_from" });
+        var earliest = ParkAuthorisation.EarliestEffect(noticeOn);
+        if (from < earliest)
+            return BadRequest(new { error = "revocation_too_early", earliest, noticeDays = ParkAuthorisation.NoticeDays });
+        // Recorded ahead, never back-dated: what the platform paid or collected before today it did under the authority
+        // it had then — a past date would make the record say otherwise, and nothing could be undone by it anyway.
+        if (from < today) return BadRequest(new { error = "revocation_in_past" });
+        var reason = Blank(body.Reason ?? "");
+        if (reason is null) return BadRequest(new { error = "reason_required" });
+        if (reason.Length > 500) return BadRequest(new { error = "reason_too_long", max = 500 });
+        if (!await _db.Parks.AsNoTracking().AnyAsync(p => p.Id == parkId, ct)) return NotFound(new { error = "park_not_found" });
+
+        // Written only while none is recorded — checked by the UPDATE itself, so two people recording at once cannot both
+        // write theirs (the second is told one exists).
+        var now = DateTime.UtcNow;
+        var actor = ActorLabel;
+        var recorded = await _db.Parks
+            .Where(p => p.Id == parkId && p.AuthorisationRevokedFrom == null)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.AuthorisationNoticeOn, (DateOnly?)noticeOn)
+                .SetProperty(p => p.AuthorisationRevokedFrom, (DateOnly?)from)
+                .SetProperty(p => p.AuthorisationRevocationReason, reason)
+                .SetProperty(p => p.AuthorisationRevocationRecordedBy, actor)
+                .SetProperty(p => p.AuthorisationRevocationRecordedAt, (DateTime?)now)
+                .SetProperty(p => p.UpdatedAt, now), ct);
+        if (recorded == 0) return Conflict(new { error = "revocation_already_recorded" });
+
+        _log.LogWarning("Park {ParkId}: authorisation revoked from {From} (notice received {Notice}) — recorded by {Actor}: {Reason}",
+            parkId, from, noticeOn, actor, reason);
+        return Ok(await RevocationDtoAsync(parkId, ct));
+    }
+
+    /// <summary>
+    /// Withdraw a recorded revocation before its day (the park changed its mind, or it was entered wrongly) — Swich or the
+    /// operator. From its day on it stands (409 revocation_in_effect): the platform has acted on it. Body: an optional reason.
+    /// </summary>
+    [HttpDelete("authorisation-revocation")]
+    public async Task<IActionResult> WithdrawRevocation(Guid parkId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] WithdrawRevocationRequest? body, CancellationToken ct)
+    {
+        if (!IsSwichOrOperator || !CanAccessPark(parkId)) return Forbid();
+        var reason = Blank(body?.Reason ?? "");
+        if (reason is { Length: > 500 }) return BadRequest(new { error = "reason_too_long", max = 500 });
+        var park = await _db.Parks.AsNoTracking().Where(p => p.Id == parkId)
+            .Select(p => new { p.AuthorisationNoticeOn, p.AuthorisationRevokedFrom, p.AuthorisationRevocationRecordedBy })
+            .FirstOrDefaultAsync(ct);
+        if (park is null) return NotFound(new { error = "park_not_found" });
+
+        var today = SettlementService.TodayLocal();
+        // "Not yet in effect" is part of the UPDATE: a withdrawal racing midnight never lifts a revocation that has begun.
+        var withdrawn = await _db.Parks
+            .Where(p => p.Id == parkId && p.AuthorisationRevokedFrom != null && p.AuthorisationRevokedFrom > today)
+            .ExecuteUpdateAsync(u => u
+                .SetProperty(p => p.AuthorisationNoticeOn, (DateOnly?)null)
+                .SetProperty(p => p.AuthorisationRevokedFrom, (DateOnly?)null)
+                .SetProperty(p => p.AuthorisationRevocationReason, (string?)null)
+                .SetProperty(p => p.AuthorisationRevocationRecordedBy, (string?)null)
+                .SetProperty(p => p.AuthorisationRevocationRecordedAt, (DateTime?)null)
+                .SetProperty(p => p.UpdatedAt, DateTime.UtcNow), ct);
+        if (withdrawn == 0)
+            return park.AuthorisationRevokedFrom is { } from
+                ? Conflict(new { error = "revocation_in_effect", revokedFrom = from })
+                : Conflict(new { error = "no_revocation" });
+
+        _log.LogWarning("Park {ParkId}: revocation from {From} (notice {Notice}, recorded by {RecordedBy}) withdrawn by {Actor}: {Reason}",
+            parkId, park.AuthorisationRevokedFrom, park.AuthorisationNoticeOn, park.AuthorisationRevocationRecordedBy, ActorLabel, reason ?? "(no reason)");
+        return Ok(await RevocationDtoAsync(parkId, ct));
+    }
+
+    /// <summary>The park's revocation (null when none is recorded) and what is waiting on it: payouts and unpaid shares.</summary>
+    private async Task<object> RevocationDtoAsync(Guid parkId, CancellationToken ct)
+    {
+        var p = await _db.Parks.AsNoTracking().FirstAsync(x => x.Id == parkId, ct);
+        var waiting = await _db.Cashouts.AsNoTracking()
+            .CountAsync(c => c.ParkId == parkId && c.Status == Core.Enums.CashoutStatus.Queued, ct);
+        var unpaid = await _db.Settlements.AsNoTracking()
+            .CountAsync(s => s.ParkId == parkId && s.Status == Core.Enums.SettlementStatus.Failed, ct);
+        return new
+        {
+            parkId,
+            authorisation = p.AuthorisationRevokedFrom is not { } from ? null : new
+            {
+                noticeOn = p.AuthorisationNoticeOn,
+                revokedFrom = from,
+                inEffect = ParkAuthorisation.IsRevoked(from, SettlementService.TodayLocal()),
+                reason = p.AuthorisationRevocationReason,
+                recordedBy = p.AuthorisationRevocationRecordedBy,
+                recordedAt = p.AuthorisationRevocationRecordedAt,
+            },
+            waitingPayouts = waiting,
+            unpaidSettlements = unpaid,
+        };
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1154,7 +1455,8 @@ public class AdminParksController : AdminControllerBase
             });
         }
 
-        return Ok(new { parkId, count = rows.Count, accounts = rows });
+        // What this server accepts as a provider (the console offers exactly these): no "mock" with real rails.
+        return Ok(new { parkId, count = rows.Count, accounts = rows, allowedProviders = _rails.AllowedProviders });
     }
 
     /// <summary>
@@ -1177,12 +1479,12 @@ public class AdminParksController : AdminControllerBase
         if (await _db.ParkBankAccounts.AsNoTracking().AnyAsync(a => a.ParkId == parkId && a.Iban == iban, ct))
             return Conflict(new { error = "iban_already_added" });
 
-        var provider = (Blank(body.Provider ?? "") ?? ProviderForBankCode(bankCode)).ToLowerInvariant();
-        if (provider is not ("tbc" or "bog" or "mock"))
-            return BadRequest(new { error = "invalid_provider", allowed = new[] { "tbc", "bog", "mock" } });
+        if (RailProblem(bankCode, body.Provider, out var provider) is { } railProblem) return railProblem;
         var credentials = Blank(body.CredentialsJson ?? "");
         if (credentials is not null && !IsJsonObject(credentials))
             return BadRequest(new { error = "invalid_credentials_json", message = "credentialsJson must be a JSON object" });
+        if (credentials is not null && CredentialsProblem(credentials) is { } credentialsProblem)
+            return BadRequest(new { error = credentialsProblem });
 
         var hasAny = await _db.ParkBankAccounts.AnyAsync(a => a.ParkId == parkId && a.IsActive, ct);
         var makePrimary = body.IsPrimary ?? !hasAny;
@@ -1214,9 +1516,19 @@ public class AdminParksController : AdminControllerBase
             park.BankType = provider.ToUpperInvariant();
         }
 
+        _db.ParkConfigEvents.Add(new Core.Entities.ParkConfigEvent
+        {
+            ParkId = parkId,
+            Subject = Core.Entities.ParkConfigSubjects.BankAccount,
+            SubjectId = account.Id,
+            Action = "created",
+            ChangedFields = string.Join(",", new[] { "iban", "provider", credentials is null ? null : "credentials", makePrimary ? "isPrimary" : null }
+                .Where(f => f is not null)),
+            Actor = ActorLabel,
+        });
         await _db.SaveChangesAsync(ct);
-        _log.LogInformation("Park {ParkId}: payout account {Account} added ({Bank}/{Provider}, primary={Primary})",
-            parkId, account.Id, bankCode, provider, makePrimary);
+        _log.LogInformation("Park {ParkId}: payout account {Account} added by {Actor} ({Bank}/{Provider}, primary={Primary})",
+            parkId, account.Id, ActorLabel, bankCode, provider, makePrimary);
 
         return Created($"/api/admin/parks/{parkId}/bank-accounts/{account.Id}", new
         {
@@ -1246,6 +1558,7 @@ public class AdminParksController : AdminControllerBase
         var account = await _db.ParkBankAccounts.FirstOrDefaultAsync(a => a.Id == accountId && a.ParkId == parkId, ct);
         if (account is null) return NotFound(new { error = "account_not_found" });
         var park = await _db.Parks.FirstAsync(p => p.Id == parkId, ct);
+        var railBefore = RailOf(account.Provider, account.CredentialsEncrypted);
 
         if (body.HolderName is not null) account.HolderName = Blank(body.HolderName);
         if (body.Label is not null) account.Label = Blank(body.Label);
@@ -1255,13 +1568,18 @@ public class AdminParksController : AdminControllerBase
             // as a failed payout at 3 a.m., so refuse anything that is not a JSON object now.
             if (!IsJsonObject(body.CredentialsJson))
                 return BadRequest(new { error = "invalid_credentials_json", message = "credentialsJson must be a JSON object" });
+            if (CredentialsProblem(body.CredentialsJson) is { } credentialsProblem)
+                return BadRequest(new { error = credentialsProblem });
             account.CredentialsEncrypted = body.CredentialsJson.Trim();
         }
-        if (body.Provider is not null)
+        // The new-account rule (RailProblem) wherever an edit makes the account pay: a provider named, or the account switched
+        // back on. Checking the provider alone let an account saved before the rule — a dry run's, a copied development
+        // database's — at a bank without an adapter be named "tbc" (and pass every rail check, which reads the provider), or
+        // a mock one come back into routing, where it pays nobody and stops the next start. Tidying one that stays off is fine.
+        if (body.Provider is not null || (body.IsActive == true && !account.IsActive))
         {
-            var provider = body.Provider.Trim().ToLowerInvariant();
-            if (provider is not ("tbc" or "bog" or "mock"))
-                return BadRequest(new { error = "invalid_provider", allowed = new[] { "tbc", "bog", "mock" } });
+            if (RailProblem(account.BankCode, body.Provider ?? account.Provider, out var provider) is { } railProblem)
+                return railProblem;
             account.Provider = provider;
         }
         if (body.IsActive is { } active) account.IsActive = active;
@@ -1299,7 +1617,25 @@ public class AdminParksController : AdminControllerBase
             park.BankType = mirror.Provider.ToUpperInvariant();
         }
 
+        var changedFields = RecordConfigChange(account, parkId, Core.Entities.ParkConfigSubjects.BankAccount, account.Id, BankAccountWatched);
+        if (!ReferenceEquals(mirror, account))
+            RecordConfigChange(mirror, parkId, Core.Entities.ParkConfigSubjects.BankAccount, mirror.Id, BankAccountWatched);
         await _db.SaveChangesAsync(ct);
+        if (changedFields is not null)
+            _log.LogInformation("Park {ParkId}: payout account {Account} changed by {Actor}: {Fields}", parkId, account.Id, ActorLabel, changedFields);
+
+        // Another provider or another bank user (or environment) is another rail: a document sent before, whose answer
+        // was lost, would be a NEW order there. Payouts holding one go to review instead of being re-sent. A new password
+        // or certificate of the same user changes nothing for the bank's duplicate check.
+        if (RailOf(account.Provider, account.CredentialsEncrypted) != railBefore)
+        {
+            var held = await HttpContext.RequestServices.GetRequiredService<ICashoutOrchestrator>()
+                .HoldUnansweredDocumentsAsync(account.Id, $"{ActorLabel} changed the account's provider or bank user", ct);
+            if (held > 0)
+                _log.LogWarning("Park {ParkId}: {Held} payout(s) with an unanswered bank document held for review after account {Account}'s rail changed",
+                    parkId, held, account.Id);
+        }
+
         return Ok(new
         {
             id = account.Id,
@@ -1333,13 +1669,16 @@ public class AdminParksController : AdminControllerBase
         var driver = await _db.Drivers.FirstOrDefaultAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (driver is null) return NotFound(new { error = "driver_not_found" });
 
-        var (result, error, payload) = await DestinationHelper.AddAsync(
+        var (result, error, payload, card) = await DestinationHelper.AddAsync(
             _db, parkId, driver, body.Iban, body.HolderName, body.MakeDefault ?? true,
             allowThirdParty: true, thirdPartyReason: body.Reason, initiatedBy: ActorLabel, ct);
 
-        if (result == DestinationHelper.Outcome.Created)
+        if (result == DestinationHelper.Outcome.Created && card is not null)
+        {
             _log.LogInformation("Payout destination added for driver {DriverId} by {Actor} (third-party: {ThirdParty})",
-                driverId, ActorLabel, PersonName.Words(driver.Name).Count > 0 && !PersonName.LooksLikeSamePerson(driver.Name, body.HolderName ?? driver.Name));
+                driverId, ActorLabel, card.IsThirdPartyAccount);
+            await DestinationHelper.NotifyAsync(HttpContext.RequestServices, card, PayoutAccountChange.Added, byPark: true);
+        }
         return result switch
         {
             DestinationHelper.Outcome.Created => Created($"/api/admin/parks/{parkId}/drivers/{driverId}/cards", payload),
@@ -1355,16 +1694,147 @@ public class AdminParksController : AdminControllerBase
         if (!CanAccessPark(parkId)) return Forbid();
         var inPark = await _db.Drivers.AsNoTracking().AnyAsync(d => d.Id == driverId && d.ParkId == parkId, ct);
         if (!inPark) return NotFound(new { error = "driver_not_found" });
-        var ok = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
-        return ok ? NoContent() : NotFound(new { error = "card_not_found" });
+        var removed = await DestinationHelper.DeactivateAsync(_db, driverId, cardId, ct);
+        if (removed is null) return NotFound(new { error = "card_not_found" });
+        _log.LogInformation("Payout destination {CardId} of driver {DriverId} removed by {Actor}", cardId, driverId, ActorLabel);
+        await DestinationHelper.NotifyAsync(HttpContext.RequestServices, removed, PayoutAccountChange.Removed, byPark: true);
+        return NoContent();
     }
 
-    private static string ProviderForBankCode(string bankCode) => bankCode switch
+    // ── Change trail (ParkConfigEvent): which of these properties changed, by name — never the values ──
+
+    private static readonly (string Property, string Field)[] BankAccountWatched =
     {
-        "TB" => "tbc",
-        "BG" => "bog",
-        _ => "mock",
+        (nameof(Core.Entities.ParkBankAccount.Provider), "provider"),
+        (nameof(Core.Entities.ParkBankAccount.CredentialsEncrypted), "credentials"),
+        (nameof(Core.Entities.ParkBankAccount.IsActive), "isActive"),
+        (nameof(Core.Entities.ParkBankAccount.IsPrimary), "isPrimary"),
+        (nameof(Core.Entities.ParkBankAccount.HolderName), "holderName"),
     };
+
+    private static readonly (string Property, string Field)[] ParkWatched =
+    {
+        (nameof(Core.Entities.Park.YandexClientIdEncrypted), "yandexClientId"),
+        (nameof(Core.Entities.Park.YandexApiKeyEncrypted), "yandexApiKey"),
+        (nameof(Core.Entities.Park.YandexParkId), "yandexParkId"),
+        (nameof(Core.Entities.Park.BankAccountIban), "bankAccountIban"),
+        (nameof(Core.Entities.Park.CashoutFee), "cashoutFee"),
+        (nameof(Core.Entities.Park.MinCashoutAmount), "minCashoutAmount"),
+        (nameof(Core.Entities.Park.MaxCashoutAmount), "maxCashoutAmount"),
+        (nameof(Core.Entities.Park.DailyCashoutLimitPerDriver), "dailyCashoutLimitPerDriver"),
+        (nameof(Core.Entities.Park.SwichSharePercent), "swichSharePercent"),
+        (nameof(Core.Entities.Park.Phase1SharePercent), "phase1SharePercent"),
+        (nameof(Core.Entities.Park.Phase1CapGel), "phase1CapGel"),
+        (nameof(Core.Entities.Park.LegalEntityName), "legalEntityName"),
+        (nameof(Core.Entities.Park.TaxId), "taxId"),
+        (nameof(Core.Entities.Park.Phone), "phone"),
+    };
+
+    private static readonly (string Property, string Field)[] DriverWatched =
+    {
+        (nameof(Core.Entities.Driver.Name), "name"),
+        (nameof(Core.Entities.Driver.PhoneEncrypted), "phone"),
+        (nameof(Core.Entities.Driver.YandexDriverProfileId), "yandexProfileId"),
+        (nameof(Core.Entities.Driver.Status), "status"),
+    };
+
+    /// <summary>
+    /// Adds a <see cref="Core.Entities.ParkConfigEvent"/> naming the watched properties that differ from what was loaded
+    /// (saved with the change itself). Returns the field list, or null when none changed (then nothing is recorded).
+    /// </summary>
+    private string? RecordConfigChange(object entity, Guid parkId, string subject, Guid? subjectId, (string Property, string Field)[] watched)
+    {
+        _db.ChangeTracker.DetectChanges();
+        var entry = _db.Entry(entity);
+        var fields = watched.Where(w => entry.Property(w.Property).IsModified).Select(w => w.Field).ToList();
+        if (fields.Count == 0) return null;
+        var list = string.Join(",", fields);
+        _db.ParkConfigEvents.Add(new Core.Entities.ParkConfigEvent
+        {
+            ParkId = parkId,
+            Subject = subject,
+            SubjectId = subjectId,
+            Action = "updated",
+            ChangedFields = list,
+            Actor = ActorLabel,
+        });
+        return list;
+    }
+
+    /// <summary>
+    /// What stored payout credentials may not contain, as an error code (null = fine): a TBC certificatePath outside the
+    /// directory the operator configured (none configured = no paths at all), or a certificate larger than a certificate
+    /// can be. Park staff write this JSON; checked here so they hear it now, and so the API never opens a file they name
+    /// (the adapter refuses the same at load time). Every spelling of the key counts — the adapter reads it
+    /// case-insensitively, and a JSON object may repeat a key.
+    /// </summary>
+    private string? CredentialsProblem(string json)
+    {
+        // Credentials for a bank's test environment, on a server with real rails: a sandbox would accept the payouts and
+        // the settlement, and they would be recorded as paid while no money moved. Omitted environment = production.
+        // Sandbox tests of a park's credentials belong on a staging host (BankRailPolicy; the adapter refuses them too).
+        if (!_rails.TestEnvironmentAllowed && Infrastructure.Adapters.Banks.Tbc.TbcCredentials.DeclaresTestEnvironment(json))
+            return "test_environment_not_allowed";
+        var dir = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["BankPayout:Tbc:CertificateDirectory"];
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        foreach (var p in doc.RootElement.EnumerateObject())
+        {
+            var value = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString() : null;
+            if (string.Equals(p.Name, "certificatePath", StringComparison.OrdinalIgnoreCase)
+                && Infrastructure.Adapters.Banks.Tbc.TbcCredentials.CertificatePathProblem(value, dir) is { } pathProblem)
+                return pathProblem;
+            if (string.Equals(p.Name, "certificatePfxBase64", StringComparison.OrdinalIgnoreCase)
+                && value is { Length: > Infrastructure.Adapters.Banks.Tbc.TbcCredentials.MaxCertificateBytes * 4 / 3 + 4 })
+                return "certificate_too_large";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Which rail a payout account sends through, as the bank's duplicate check sees it: the provider plus the bank user
+    /// and environment named in the credentials (unreadable credentials count as their own rail).
+    /// </summary>
+    private static string RailOf(string provider, string? credentialsJson)
+    {
+        string user = "";
+        string? environment = null;   // null: no "environment" key at all
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(string.IsNullOrWhiteSpace(credentialsJson) ? "{}" : credentialsJson);
+            foreach (var p in doc.RootElement.EnumerateObject())
+            {
+                var v = p.Value.ValueKind == System.Text.Json.JsonValueKind.String ? p.Value.GetString() ?? "" : "";
+                if (string.Equals(p.Name, "username", StringComparison.OrdinalIgnoreCase)) user = v.Trim();
+                if (string.Equals(p.Name, "environment", StringComparison.OrdinalIgnoreCase)) environment = v;
+            }
+        }
+        catch (System.Text.Json.JsonException) { user = "\u0000unreadable:" + credentialsJson; }
+        // Which host the adapter sends to, as TbcCredentials decides it: no key at all is production; a key is production
+        // only when it says so ("production"/"prod") — anything else, "" included, is the test host. Reading "" as
+        // production here, unlike the adapter, made moving a sandbox user to production look like no change of rail.
+        var host = environment is null || Infrastructure.Adapters.Banks.Tbc.TbcCredentials.IsProductionEnvironment(environment) ? "production" : "test";
+        return $"{provider.Trim().ToLowerInvariant()}|{user.ToLowerInvariant()}|{host}";
+    }
+
+    /// <summary>
+    /// The provider a payout account at <paramref name="bankCode"/> will pay through (<paramref name="requested"/>, or the
+    /// bank's own when none is named), or the 400 to answer instead. With real rails only TBC and BoG accounts can pay
+    /// (unsupported_bank: any other bank used to default to the mock) and "mock" is no provider (invalid_provider);
+    /// Development keeps every bank and the mock (BankRailPolicy).
+    /// </summary>
+    private IActionResult? RailProblem(string bankCode, string? requested, out string provider)
+    {
+        provider = "";
+        var chosen = _rails.MockProviderAllowed || bankCode is "TB" or "BG"
+            ? Blank(requested ?? "")?.ToLowerInvariant() ?? _rails.DefaultProviderFor(bankCode)
+            : null;
+        if (chosen is null)
+            return BadRequest(new { error = "unsupported_bank", bankCode, bankLabel = GeorgianIban.BankLabel(bankCode), supported = new[] { "TBC", "BOG" } });
+        if (!_rails.AllowedProviders.Contains(chosen))
+            return BadRequest(new { error = "invalid_provider", allowed = _rails.AllowedProviders });
+        provider = chosen;
+        return null;
+    }
 
     /// <summary>True when the text parses as a JSON object (what every bank adapter expects for credentials).</summary>
 
@@ -1395,7 +1865,39 @@ public class AdminParksController : AdminControllerBase
 
     // One normaliser for every phone that ever becomes a PhoneHash (login uses the same).
     private static string? NormalizePhone(string? raw) => Core.Identity.GeorgianPhone.Normalize(raw);
-    private static string HashPhone(string phone) => Core.Identity.GeorgianPhone.Hash(phone);
+
+    /// <summary>
+    /// A Georgian identification code, digits only: 9 for a company, 11 for an individual entrepreneur (their personal
+    /// number). Anything else is null.
+    /// </summary>
+    private static string? NormalizeTaxId(string raw)
+    {
+        var digits = new string(raw.Where(char.IsDigit).ToArray());
+        return digits.Length is 9 or 11 ? digits : null;
+    }
+
+    /// <summary>
+    /// The driver's privacy notice names the park as the controller of the driver's data, and the driver app shows who
+    /// that is under Profile → "Your park": the legal name, identification code and phone. A park that takes cashouts
+    /// (Active) without them would leave its drivers with a notice that names nobody — so an Active park, or one being
+    /// made Active, must have all three. Returns the missing ones in a fixed order.
+    /// </summary>
+    private static string[] MissingLegalDetails(string? legalEntityName, string? taxId, string? phone)
+    {
+        var missing = new List<string>(3);
+        if (string.IsNullOrWhiteSpace(legalEntityName)) missing.Add("legalEntityName");
+        if (string.IsNullOrWhiteSpace(taxId)) missing.Add("taxId");
+        if (string.IsNullOrWhiteSpace(phone)) missing.Add("phone");
+        return missing.ToArray();
+    }
+
+    private BadRequestObjectResult LegalDetailsRequired(string[] missing) => BadRequest(new
+    {
+        error = "legal_details_required",
+        missing,
+        message = "An active park needs its legal name, identification code and phone — the drivers' privacy notice names the park by them.",
+    });
+    private static string HashPhone(string phone) => Infrastructure.Security.LookupHash.Phone(phone);
 }
 
 public record CreateDriverRequest(
@@ -1440,6 +1942,13 @@ public record UpdateParkRequest(
     decimal? Phase1SharePercent = null,
     decimal? Phase1CapGel = null);
 
+public record ChangeParkStatusRequest(string? Status, string? Reason);
+
+/// <summary>Annex 3 §7 revocation: both dates "YYYY-MM-DD".</summary>
+public record RecordRevocationRequest(string? NoticeOn, string? RevokedFrom, string? Reason);
+
+public record WithdrawRevocationRequest(string? Reason);
+
 public record CreateParkRequest(
     string? Name,
     string? Slug,
@@ -1459,7 +1968,11 @@ public record CreateParkRequest(
     decimal? CashoutFee = null,
     decimal? MinCashoutAmount = null,
     decimal? MaxCashoutAmount = null,
-    decimal? DailyCashoutLimitPerDriver = null);
+    decimal? DailyCashoutLimitPerDriver = null,
+    // The licensee whose agreement settles the park; omitted = the one licensee in force (required when several are).
+    Guid? LicenseeId = null,
+    // True = Swich connected the park directly: outside the licence agreement, its own split.
+    bool? Direct = null);
 
 public record BulkOnboardRequest(string[] YandexProfileIds);
 

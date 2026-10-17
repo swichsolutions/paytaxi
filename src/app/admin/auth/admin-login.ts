@@ -1,15 +1,16 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, ElementRef, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AdminAuthService } from '../services/admin-auth.service';
 import { AdminI18nService } from '../services/admin-i18n.service';
+import { typedBeforeHydration } from '../../core/typed-before-hydration';
 
 /** Only relative console paths may be used as a post-login destination. */
 const SAFE_NEXT = /^\/admin(\/[A-Za-z0-9\-_/]*)?(\?[^#\s]*)?$/;
 
 @Component({
   selector: 'app-admin-login',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   templateUrl: './admin-login.html',
   styleUrl: './admin-login.scss',
 })
@@ -18,12 +19,16 @@ export class AdminLoginComponent {
   private route = inject(ActivatedRoute);
   private auth = inject(AdminAuthService);
   readonly i18n = inject(AdminI18nService);
+  private host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   get t() { return this.i18n.t; }
 
   constructor() {
     // Already signed in (token in localStorage) → skip the login form. No-op during SSR.
     if (this.auth.isAuthenticated()) this.router.navigateByUrl(this.nextUrl());
+    // The page is prerendered: keep what was typed before the app took over, or the first render clears it.
+    this.email.set(typedBeforeHydration(this.host, 'input[type="email"]'));
+    this.password.set(typedBeforeHydration(this.host, 'input[type="password"]'));
   }
 
   email = signal('');
@@ -63,6 +68,8 @@ export class AdminLoginComponent {
       this.error.set(
         code === 'invalid_credentials' ? this.t['errWrongCredentials']
         : code === 'email_and_password_required' ? this.t['errBothRequired']
+        // An operator account works only while its licensee is in force (bound to none, or deactivated: refused).
+        : code === 'licensee_not_in_force' ? this.t['errLicenseeNotInForce']
         : err?.error?.message ?? err?.message ?? this.t['errLoginFailed']
       );
     } finally {

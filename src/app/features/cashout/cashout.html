@@ -42,7 +42,14 @@
           </div>
         </div>
 
-        @if (balanceState() === 'unavailable') {
+        @if (session.cashoutsPaused()) {
+          <div class="balance-block" role="alert">
+            <p class="balance-block__text">
+              <b>{{ session.cashoutsRevoked() ? t.cashoutsRevokedTitle : t.cashoutsPausedTitle }}</b><br>
+              {{ session.cashoutsRevoked() ? t.cashoutsRevokedHint : t.cashoutsPausedHint }}
+            </p>
+          </div>
+        } @else if (balanceState() === 'unavailable') {
           <div class="balance-block" role="alert">
             <p class="balance-block__text">{{ balanceHint() }}</p>
             <button class="btn btn--secondary btn--sm balance-block__retry" (click)="retryBalance()" [disabled]="session.refreshing()">
@@ -262,7 +269,7 @@
           @case ('Completed') { {{ t.cashoutCompletedTitle }} }
           @case ('Queued') { {{ t.cashoutQueuedTitle }} }
           @case ('ReviewRequired') { {{ t.cashoutReviewTitle }} }
-          @default { {{ t.cashoutFailedTitle }} }
+          @default { {{ isCancelled(r) ? t.cashoutCancelledTitle : t.cashoutFailedTitle }} }
         }
       </h2>
       <p>

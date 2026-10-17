@@ -102,5 +102,9 @@
         </div>
       </div>
     }
+
+    <!-- Signing in accepts the terms of use: they are named and one tap away where the driver signs in.
+         One line on purpose — whitespace between the parts would show up before the full stop. -->
+    <p class="legal-accept">@for (part of acceptParts(); track $index) {@if (part.link === 'terms') {<a class="terms-link" [routerLink]="termsLink()">{{ part.text }}</a>} @else if (part.link === 'privacy') {<a class="privacy-link" [routerLink]="privacyLink()">{{ part.text }}</a>} @else {<ng-container>{{ part.text }}</ng-container>}}</p>
   </main>
 </div>

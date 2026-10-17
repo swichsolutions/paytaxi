@@ -18,6 +18,10 @@ namespace PayTaxi.Infrastructure.Adapters.Banks;
 ///     status-check-by-document-id path)
 ///   - <see cref="MockBankPayoutOptions.OutageUntilUtc"/> hard outage window — every
 ///     payout is retryable-failed until this time (lets you demo the queue draining)
+///   - <see cref="MockBankPayoutOptions.EnforceBalance"/> refuse a payout the source account
+///     cannot cover with INSUFFICIENT_FUNDS (retryable) — the "park forgot to top up" case.
+///     Off by default so demos never run dry; <see cref="SetBalance"/> / <see cref="TopUp"/>
+///     move the balance for tests and the Development-only console endpoint.
 ///
 /// Idempotency-key deduplication: a repeat call with the same key returns the same
 /// result without simulating another transfer.
@@ -44,8 +48,10 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
     private readonly object _logLock = new();
     private readonly List<(Guid AccountId, BankTransferRecord Record)> _transferLog = new();
 
-    // Running balance per park account (starts at a comfortable float).
+    // Running balance per park account (starts at a comfortable float). Check-and-debit runs under
+    // _balanceLock so two concurrent payouts can't both pass the funds check on the same balance.
     private readonly ConcurrentDictionary<Guid, decimal> _balances = new();
+    private readonly object _balanceLock = new();
 
     // Async-execution simulation: transfer_id → remaining status polls before it turns Completed.
     private readonly ConcurrentDictionary<string, int> _pendingPolls = new();
@@ -97,6 +103,12 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
             return bad;
         }
 
+        // An empty account answers "insufficient funds" every time, before any random gateway hiccup,
+        // so a demo of the wait-for-top-up path is deterministic. (Re-checked under the lock below.)
+        var accountId = request.Source.ParkBankAccountId;
+        if (_opts.EnforceBalance && GetBalance(accountId) < request.Amount)
+            return InsufficientFunds(accountId, request.Amount);
+
         if (_rng.NextDouble() < _opts.TransientFailureRate)
         {
             _log.LogWarning(
@@ -105,6 +117,16 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
             // Not cached: a transient failure must be retryable with the same key.
             return new BankTransferResult(false, null, "BANK_TRANSIENT_503",
                 "Simulated bank gateway timeout — retryable", IsRetryable: true);
+        }
+
+        lock (_balanceLock)
+        {
+            // The park's account cannot cover it: "not now", not "never". Nothing is recorded and the
+            // key is not cached, so the same document goes through once the account is topped up.
+            var available = GetBalance(accountId);
+            if (_opts.EnforceBalance && available < request.Amount)
+                return InsufficientFunds(accountId, request.Amount);
+            _balances[accountId] = available - request.Amount;
         }
 
         var transferId = $"mock_tr_{Guid.NewGuid():N}".Substring(0, 20);
@@ -119,10 +141,7 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
         _statuses[transferId] = _opts.AsyncExecution ? BankTransferStatus.Pending : BankTransferStatus.Completed;
         if (_opts.AsyncExecution) _pendingPolls[transferId] = Math.Max(1, _opts.AsyncSettleAfterPolls);
         _byKey[request.IdempotencyKey] = record;
-        lock (_logLock) _transferLog.Add((request.Source.ParkBankAccountId, record));
-        _balances.AddOrUpdate(request.Source.ParkBankAccountId,
-            _ => _opts.InitialBalance - request.Amount,
-            (_, b) => b - request.Amount);
+        lock (_logLock) _transferLog.Add((accountId, record));
 
         // Asynchronous rail simulation (TBC-like): accepted now, executed after a few status polls.
         var result = _opts.AsyncExecution
@@ -191,10 +210,45 @@ public class MockBankPayoutProvider : IBankPayoutAdapter
         return Task.FromResult(snapshot);
     }
 
-    public Task<decimal?> GetBalanceAsync(BankAccountContext source, CancellationToken ct = default)
+    public Task<decimal?> GetBalanceAsync(BankAccountContext source, CancellationToken ct = default) =>
+        Task.FromResult<decimal?>(GetBalance(source.ParkBankAccountId));
+
+    /// <summary>Current mock balance of a park account (starts at <see cref="MockBankPayoutOptions.InitialBalance"/>).</summary>
+    public decimal GetBalance(Guid parkBankAccountId) =>
+        _balances.GetOrAdd(parkBankAccountId, _ => _opts.InitialBalance);
+
+    /// <summary>Tests / dev: set a park account's balance outright (e.g. 0 to make it run dry).</summary>
+    public void SetBalance(Guid parkBankAccountId, decimal amount)
     {
-        var b = _balances.GetOrAdd(source.ParkBankAccountId, _ => _opts.InitialBalance);
-        return Task.FromResult<decimal?>(b);
+        lock (_balanceLock) _balances[parkBankAccountId] = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+        _log.LogInformation("Mock bank: account {Account} balance set to {Balance}", parkBankAccountId, amount);
+    }
+
+    /// <summary>Tests / dev: the park tops its account up. Returns the new balance.</summary>
+    public decimal TopUp(Guid parkBankAccountId, decimal amount)
+    {
+        if (amount <= 0) throw new ArgumentOutOfRangeException(nameof(amount), "Top-up must be positive");
+        decimal balance;
+        lock (_balanceLock)
+        {
+            balance = GetBalance(parkBankAccountId) + Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+            _balances[parkBankAccountId] = balance;
+        }
+        _log.LogInformation("Mock bank: account {Account} topped up by {Amount} → {Balance}", parkBankAccountId, amount, balance);
+        return balance;
+    }
+
+    /// <summary>Whether payouts are currently refused when the account cannot cover them.</summary>
+    public bool EnforcesBalance => _opts.EnforceBalance;
+
+    private BankTransferResult InsufficientFunds(Guid accountId, decimal amount)
+    {
+        var available = GetBalance(accountId);
+        _log.LogWarning("Mock bank: account {Account} has {Balance} GEL, payout needs {Amount} — insufficient funds",
+            accountId, available, amount);
+        return new BankTransferResult(false, null, BankErrorCodes.InsufficientFunds,
+            $"Insufficient funds: the account has {available:F2} GEL, the payout needs {amount:F2} GEL",
+            IsRetryable: true);
     }
 
     private static DateTime ToUtc(DateTime d) => d.Kind switch
@@ -226,6 +280,12 @@ public class MockBankPayoutOptions
 
     /// <summary>Starting mock balance per park account.</summary>
     public decimal InitialBalance { get; set; } = 25_000m;
+
+    /// <summary>
+    /// Refuse a payout the source account cannot cover (INSUFFICIENT_FUNDS, retryable) instead of
+    /// letting the balance go negative. Off by default so demos keep working; tests turn it on.
+    /// </summary>
+    public bool EnforceBalance { get; set; } = false;
 
     /// <summary>Simulate an asynchronous rail (like TBC DBI): accept now, execute after N status polls.</summary>
     public bool AsyncExecution { get; set; } = false;

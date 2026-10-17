@@ -1,0 +1,166 @@
+@let doc = d();
+<div class="pp" [attr.lang]="doc.lang">
+  <a class="pp-skip" [routerLink]="[]" [fragment]="mainId()">{{ doc.skipToContent }}</a>
+
+  <!-- ── Masthead ──────────────────────────────────────────────── -->
+  <header class="pp-mast">
+    <div class="pp-mast__bar">
+      <a class="pp-brand" routerLink="/login">
+        <span class="pp-brand__mark" aria-hidden="true">₾</span>
+        <span class="pp-brand__name">PayTaxi</span>
+      </a>
+      <nav class="pp-langs" aria-label="Language / ენა / Язык">
+        @for (l of langs; track l) {
+          <a class="pp-langs__link" [routerLink]="langLink(l)" [attr.hreflang]="l" [attr.lang]="l"
+             [attr.aria-current]="l === doc.lang ? 'page' : null">{{ docs()[l].langName }}</a>
+        }
+      </nav>
+    </div>
+
+    <div class="pp-mast__body">
+      <p class="pp-eyebrow">{{ doc.eyebrow }}</p>
+      <h1 class="pp-title">{{ doc.title }}</h1>
+      <p class="pp-sub">{{ doc.subtitle }}</p>
+      <div class="pp-meta">
+        <span class="pp-meta__chip">{{ doc.versionLabel }} {{ version() }}</span>
+        <span class="pp-meta__chip" [class.pp-meta__chip--draft]="draft()">{{ dateLine() }}</span>
+        <button type="button" class="pp-meta__print" (click)="print()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+          </svg>
+          {{ doc.print }}
+        </button>
+      </div>
+    </div>
+  </header>
+
+  @if (draft()) {
+    <div class="pp-draft" role="note">
+      <span class="pp-draft__tag">{{ doc.draftTag }}</span>
+      <span>{{ doc.draftBanner }}</span>
+    </div>
+  }
+
+  <div class="pp-layout">
+    <!-- ── Contents: sticky list on desktop, folded on phones ───────── -->
+    <nav class="pp-toc" [attr.aria-label]="doc.toc">
+      <p class="pp-toc__title">{{ doc.toc }}</p>
+      <ol class="pp-toc__list">
+        @for (s of doc.sections; track s.id; let i = $index) {
+          <li>
+            <a class="pp-toc__link" [routerLink]="[]" [fragment]="s.id" [class.pp-toc__link--active]="activeId() === s.id">
+              <span class="pp-toc__num">{{ num(i) }}</span>{{ s.title }}
+            </a>
+          </li>
+        }
+      </ol>
+    </nav>
+
+    <main [id]="mainId()" class="pp-article" [class.pp-article--plain]="!doc.summary" tabindex="-1">
+      @if (doc.governingNote) {
+        <p class="pp-govern">{{ doc.governingNote }}</p>
+      }
+
+      <details class="pp-toc-fold">
+        <summary>{{ doc.toc }}</summary>
+        <ol class="pp-toc__list">
+          @for (s of doc.sections; track s.id; let i = $index) {
+            <li><a class="pp-toc__link" [routerLink]="[]" [fragment]="s.id"><span class="pp-toc__num">{{ num(i) }}</span>{{ s.title }}</a></li>
+          }
+        </ol>
+      </details>
+
+      <!-- In short (privacy policy only) -->
+      @if (doc.summary; as summary) {
+        <section class="pp-summary" aria-labelledby="pp-summary-h">
+          <h2 id="pp-summary-h" class="pp-summary__title">{{ doc.summaryTitle }}</h2>
+          <ul class="pp-summary__list">
+            @for (line of summary; track $index) {
+              <li><legal-text [text]="line" [lang]="doc.lang" [labels]="doc.blanks" [blankTitle]="doc.blankTitle" /></li>
+            }
+          </ul>
+        </section>
+      }
+
+      <!-- At a glance: the ledger (privacy policy only) -->
+      @if (doc.glance; as glance) {
+        @let head = doc.glanceHead ?? ['', '', ''];
+        <section class="pp-glance" aria-labelledby="pp-glance-h">
+          <h2 id="pp-glance-h" class="pp-glance__title">{{ doc.glanceTitle }}</h2>
+          <table class="pp-table pp-table--ledger">
+            <thead>
+              <tr>
+                @for (h of head; track $index) { <th scope="col">{{ h }}</th> }
+              </tr>
+            </thead>
+            <tbody>
+              @for (row of glance; track $index) {
+                <tr>
+                  @for (cell of row; track $index; let j = $index) {
+                    @if (j === 0) {
+                      <th scope="row" [attr.data-label]="head[j]">{{ cell }}</th>
+                    } @else {
+                      <td [attr.data-label]="head[j]"><legal-text [text]="cell" [lang]="doc.lang" [labels]="doc.blanks" [blankTitle]="doc.blankTitle" /></td>
+                    }
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </section>
+      }
+
+      <!-- The document -->
+      @for (s of doc.sections; track s.id; let i = $index) {
+        <section class="pp-sec" [id]="s.id" [attr.aria-labelledby]="s.id + '-h'">
+          <h2 class="pp-sec__title" [id]="s.id + '-h'">
+            <span class="pp-sec__num" aria-hidden="true">{{ num(i) }}</span>
+            <span>{{ s.title }}</span>
+          </h2>
+          @for (b of s.blocks; track $index) {
+            @switch (b.kind) {
+              @case ('p') {
+                <p class="pp-p"><legal-text [text]="b.text" [lang]="doc.lang" [labels]="doc.blanks" [blankTitle]="doc.blankTitle" /></p>
+              }
+              @case ('ul') {
+                <ul class="pp-ul">
+                  @for (item of b.items; track $index) {
+                    <li><legal-text [text]="item" [lang]="doc.lang" [labels]="doc.blanks" [blankTitle]="doc.blankTitle" /></li>
+                  }
+                </ul>
+              }
+              @case ('table') {
+                <table class="pp-table">
+                  <thead>
+                    <tr>@for (h of b.head; track $index) { <th scope="col">{{ h }}</th> }</tr>
+                  </thead>
+                  <tbody>
+                    @for (row of b.rows; track $index) {
+                      <tr>
+                        @for (cell of row; track $index; let j = $index) {
+                          @if (j === 0) {
+                            <th scope="row" [attr.data-label]="b.head[j]">{{ cell }}</th>
+                          } @else {
+                            <td [attr.data-label]="b.head[j]"><legal-text [text]="cell" [lang]="doc.lang" [labels]="doc.blanks" [blankTitle]="doc.blankTitle" /></td>
+                          }
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            }
+          }
+        </section>
+      }
+    </main>
+  </div>
+
+  <footer class="pp-foot">
+    <span><legal-text [text]="doc.footer" [lang]="doc.lang" [labels]="doc.blanks" [blankTitle]="doc.blankTitle" /></span>
+    <span class="pp-foot__links">
+      <a class="pp-foot__related" [routerLink]="related().link">{{ related().title }}</a>
+      <a class="pp-foot__back" routerLink="/login">{{ doc.backToApp }} →</a>
+    </span>
+  </footer>
+</div>

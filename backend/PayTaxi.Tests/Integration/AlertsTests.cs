@@ -17,20 +17,27 @@ public class AlertsTests
 
     private static IEnumerable<JsonElement> Alerts(JsonElement body) => body.GetProperty("alerts").EnumerateArray();
 
-    /// <summary>Plant a failed settlement for a park (as the nightly worker would leave it) and return its id.</summary>
+    /// <summary>
+    /// Plant a failed monthly park transfer (as the monthly run leaves it when the park cannot pay) for
+    /// last month and return its id.
+    /// </summary>
     private async Task<Guid> PlantFailedSettlementAsync(Guid parkId, decimal swichShare, string reason)
     {
+        var today = PayTaxi.Infrastructure.Services.SettlementService.TodayLocal();
+        var month = new DateOnly(today.Year, today.Month, 1).AddMonths(-1);
         return await _f.DbAsync(async db =>
         {
             var s = new Settlement
             {
                 ParkId = parkId,
-                SettlementDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-3)),
-                PeriodFromUtc = DateTime.UtcNow.AddDays(-4), PeriodToUtc = DateTime.UtcNow.AddDays(-3),
+                IsMonthly = true,
+                SettlementDate = month.AddMonths(1).AddDays(-1),
+                PeriodFromUtc = month.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-4),
+                PeriodToUtc = month.AddMonths(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-4),
                 CashoutCount = 3, FeeTotal = swichShare * 2, SwichShare = swichShare, ParkShare = swichShare,
                 Status = SettlementStatus.Failed, FailureReason = reason,
                 IdempotencyKey = "settle:test:" + Guid.NewGuid().ToString("N"),
-                Description = "PayTaxi settlement (test)", InvoiceRef = "PT-TEST-" + Guid.NewGuid().ToString("N")[..6],
+                Description = $"PayTaxi settlement {month:yyyy-MM}, 3 tx, inv ref PT-{month:yyyy-MM}", InvoiceRef = $"PT-{month:yyyy-MM}",
                 AttemptCount = 1, LastAttemptAt = DateTime.UtcNow.AddHours(-20),
             };
             db.Settlements.Add(s);
@@ -65,7 +72,10 @@ public class AlertsTests
             Assert.Equal(1, alert.GetProperty("count").GetInt32());
             Assert.Equal(12.50m, alert.GetProperty("amount").GetDecimal());
             Assert.Equal("INSUFFICIENT_PARK_BALANCE", alert.GetProperty("code").GetString());
-            Assert.Equal("/admin/settlements", alert.GetProperty("link").GetString());
+            // The link opens the month the failed transfer belongs to (last month), not the running month's preview.
+            var today = PayTaxi.Infrastructure.Services.SettlementService.TodayLocal();
+            var lastMonth = new DateOnly(today.Year, today.Month, 1).AddMonths(-1);
+            Assert.Equal($"/admin/settlements?month={lastMonth:yyyy-MM}", alert.GetProperty("link").GetString());
             Assert.True(body.GetProperty("dangerCount").GetInt32() >= 1);
             Assert.NotEqual(sigBefore, body.GetProperty("signature").GetString());
 
@@ -75,7 +85,8 @@ public class AlertsTests
 
             // Batumi's manager does NOT see Tbilisi's failure.
             var bm = await batumiManager.GetFromJsonAsync<JsonElement>("/api/admin/alerts");
-            Assert.DoesNotContain(Alerts(bm), a => a.GetProperty("parkId").GetGuid() == tbilisi);
+            // parkId is null on a platform-wide line (an incident affecting every park) — compare null-safely.
+            Assert.DoesNotContain(Alerts(bm), a => a.GetProperty("parkId").ValueKind != JsonValueKind.Null && a.GetProperty("parkId").GetGuid() == tbilisi);
 
             // Same set → same signature (so a dismissal sticks); a second failure → new signature.
             var again = await swich.GetFromJsonAsync<JsonElement>("/api/admin/alerts");

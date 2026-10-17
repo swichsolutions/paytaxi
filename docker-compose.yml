@@ -2,7 +2,12 @@
 # compose file (never committed) — see docs/DEPLOY.md for the variable list.
 #
 #   docker compose up --build
-#   API on http://localhost:8080, Postgres on localhost:5433
+#   API on http://localhost:8080, Postgres on localhost:5433 — both bound to 127.0.0.1 only: put a reverse proxy in
+#   front for anything else (Docker's published ports bypass host firewalls such as ufw).
+#
+# It runs as Production unless ASPNETCORE_ENVIRONMENT says otherwise, so the real rails are the default: a mock bank
+# completes payouts that move no money. A dry run on the mocks needs YANDEX_USE_MOCK/BANK_USE_MOCK=true AND
+# ALLOW_MOCK_RAILS=true (startup refuses a mock rail outside Development without it).
 services:
   db:
     image: postgres:17
@@ -11,7 +16,7 @@ services:
       POSTGRES_USER: paytaxi
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -26,17 +31,27 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__DefaultConnection: "Host=db;Database=paytaxi;Username=paytaxi;Password=${DB_PASSWORD}"
       Jwt__Key: ${JWT_KEY:?set JWT_KEY in .env (>=32 chars)}
       Encryption__Key: ${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env (base64, 32 bytes)}
+      Encryption__HashKey: ${HASH_KEY:?set HASH_KEY in .env (base64, 32 bytes, not the same as ENCRYPTION_KEY)}
       Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:4200}
-      YandexFleet__UseMock: ${YANDEX_USE_MOCK:-true}
+      YandexFleet__UseMock: ${YANDEX_USE_MOCK:-false}
       YandexFleet__ReadOnlyMode: ${YANDEX_READ_ONLY:-true}
-      BankPayout__UseMock: ${BANK_USE_MOCK:-true}
+      BankPayout__UseMock: ${BANK_USE_MOCK:-false}
+      AllowMockRails: ${ALLOW_MOCK_RAILS:-false}
+      # Behind a reverse proxy on this host: trust its X-Forwarded-* only (the Docker bridge network by default).
+      Proxy__TrustForwardedHeaders: ${TRUST_PROXY:-false}
+      Proxy__KnownNetworks__0: ${PROXY_NETWORK:-172.16.0.0/12}
       Settlement__SwichIban: ${SWICH_IBAN:-}
+      # smsoffice.ge (sign-in codes, payout-account notices). Without the key the API refuses to start unless
+      # ALLOW_LOG_SMS=true: a dry run that sends nothing and returns the sign-in codes in the API response.
+      Sms__SmsOffice__Key: ${SMS_OFFICE_KEY:-}
+      Sms__SmsOffice__Sender: ${SMS_SENDER:-smsoffice}
+      Sms__AllowLogSender: ${ALLOW_LOG_SMS:-false}
       Invoice__OperatingEntityName: ${OPERATING_ENTITY_NAME:-Swich Solutions LLC}
       Invoice__OperatingEntityTaxId: ${OPERATING_ENTITY_TAX_ID:-}
     restart: unless-stopped

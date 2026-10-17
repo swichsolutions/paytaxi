@@ -45,6 +45,23 @@ export async function adminLogin(page: Page, who: keyof typeof ADMINS = 'swich')
   await page.waitForURL(/\/admin\/overview/, { timeout: 20_000 });
 }
 
+/**
+ * Holds back the app's main script, so a test can use a prerendered page the way a slow phone shows it: the
+ * server-rendered form is on screen and usable before Angular takes it over (hydration). `release()` lets the
+ * script load; `requested()` says whether the browser has asked for it yet (i.e. it really was held).
+ */
+export async function holdAppScript(page: Page) {
+  let release!: () => void;
+  const gate = new Promise<void>(r => (release = r));
+  let requested = false;
+  await page.route(/\/main(-[A-Za-z0-9]+)?\.js(\?.*)?$/, async route => {
+    requested = true;
+    await gate;
+    await route.continue();
+  });
+  return { release, requested: () => requested };
+}
+
 /** Valid Georgian TBC IBAN for a 16-digit tail (mod-97 check digits). */
 export function tbcIban(tail16: string): string {
   const bban = 'TB' + tail16;

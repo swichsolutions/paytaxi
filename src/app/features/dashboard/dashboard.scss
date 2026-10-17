@@ -453,3 +453,28 @@
     &--green { color: var(--color-success); }
   }
 }
+
+// Park not active: the cashout button gives way to a plain explanation (the saga would refuse anyway).
+.dash-paused {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 184, 0, 0.12);
+  border: 1px solid rgba(255, 184, 0, 0.45);
+
+  &__title {
+    font-size: var(--text-base);
+    font-weight: 800;
+    color: var(--color-brand);
+    letter-spacing: -0.01em;
+  }
+
+  &__hint {
+    font-size: var(--text-sm);
+    font-weight: 500;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, 0.75);
+  }
+}

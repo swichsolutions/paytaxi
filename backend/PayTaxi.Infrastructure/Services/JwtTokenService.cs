@@ -12,11 +12,17 @@ namespace PayTaxi.Infrastructure.Services;
 /// Claims layout:
 ///   sub        — driverId (Guid)
 ///   parkId     — parkId  (Guid)
-///   phoneHash  — SHA-256 of phone, useful for OTP rate-limiting on later requests
+///   phoneHash  — the phone's keyed lookup hash (LookupHash; opaque without the hash key). DriverTokenCheck compares
+///                it with the driver's: a phone change ends the token at once. (A hash-key rotation re-hashes every
+///                phone, so outstanding access tokens then fail once and the app refreshes — refresh does not compare.)
+///   sessionId  — the DriverSessions row it was minted from (sign-in, refresh): it dies with the session
 ///   role       — "driver"
 /// </summary>
 public class JwtTokenService : IJwtTokenService
 {
+    /// <summary>The driver token's claim naming its session (see the class summary).</summary>
+    public const string DriverSessionClaim = "sessionId";
+
     private readonly string _key;
     private readonly string _issuer;
     private readonly string _audience;
@@ -34,7 +40,7 @@ public class JwtTokenService : IJwtTokenService
         _driverAccessMinutes = section.GetValue("DriverAccessMinutes", 60);
     }
 
-    public DriverTokenResult IssueDriverToken(Guid driverId, Guid parkId, string phoneHash)
+    public DriverTokenResult IssueDriverToken(Guid driverId, Guid parkId, string phoneHash, Guid? sessionId = null)
     {
         var claims = new List<Claim>
         {
@@ -44,6 +50,8 @@ public class JwtTokenService : IJwtTokenService
             new(ClaimTypes.Role, "driver"),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
+        // A claim name of our own: "sid" is in the JWT handler's inbound claim map and would arrive renamed.
+        if (sessionId is { } sid) claims.Add(new Claim(DriverSessionClaim, sid.ToString()));
         return BuildToken(claims, _driverAccessMinutes);
     }
 

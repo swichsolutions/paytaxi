@@ -92,3 +92,14 @@ public sealed class YandexTransientException : Exception
 {
     public YandexTransientException(string message) : base(message) { }
 }
+
+/// <summary>
+/// A balance write whose outcome nobody knows: an attempt failed without an answer (timeout, 5xx), and the retry under
+/// the same idempotency token was declined — which is also what Yandex answers when the first attempt DID land. Reported
+/// as "declined" it would book a Failed cashout and tell the driver "not charged" while the debit may stand; the saga
+/// sends it to review instead (the same path as any write that threw).
+/// </summary>
+public sealed class YandexOutcomeUnknownException : Exception
+{
+    public YandexOutcomeUnknownException(string message) : base(message) { }
+}

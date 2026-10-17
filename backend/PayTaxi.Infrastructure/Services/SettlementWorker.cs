@@ -1,17 +1,22 @@
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PayTaxi.Core.Interfaces;
-using PayTaxi.Infrastructure.Data;
 
 namespace PayTaxi.Infrastructure.Services;
 
 /// <summary>
-/// Fires the nightly settlement once per local day at <see cref="SettlementOptions.RunAtLocalTime"/>
-/// (default 00:30 Tbilisi), settling the PREVIOUS local day. The run itself is idempotent
-/// per (park, day), so a restart after 00:30 simply re-enters and finds nothing new to do.
+/// Fires the settlement tick once per local day at <see cref="SettlementOptions.RunAtLocalTime"/>
+/// (default 00:30 Tbilisi). Every night it retries failed park transfers (until they succeed) and
+/// resolves interrupted / bank-pending ones; from <see cref="SettlementOptions.RunDayOfMonth"/> on
+/// (default the 3rd) it also settles the PREVIOUS month — licence agreement §2.5: collected within
+/// five days of the month's end.
+///
+/// Restart-safe by construction: statements are unique per (licensee, month) and direct-park rows per
+/// (park, month), every transfer carries a deterministic document id, so a tick re-entered after a
+/// restart finds the month already settled and only retries what is still failed. "Run day or later"
+/// (not "exactly the run day") means a server that was down on the 3rd settles on the 4th.
 /// </summary>
 public class SettlementWorker : BackgroundService
 {
@@ -44,7 +49,8 @@ public class SettlementWorker : BackgroundService
 
         var tz = SettlementService.ResolveTimeZone(_opts.TimeZoneId);
         var runAt = TimeOnly.TryParse(_opts.RunAtLocalTime, out var t) ? t : new TimeOnly(0, 30);
-        _log.LogInformation("Settlement worker started (runs daily at {RunAt} {Tz})", runAt, tz.Id);
+        _log.LogInformation("Settlement worker started (nightly at {RunAt} {Tz}; previous month settled from day {Day})",
+            runAt, tz.Id, Math.Clamp(_opts.RunDayOfMonth, 1, 28));
 
         while (!ct.IsCancellationRequested)
         {
@@ -52,20 +58,15 @@ public class SettlementWorker : BackgroundService
             {
                 var nowLocal = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz);
                 var today = DateOnly.FromDateTime(nowLocal);
-                var dueFor = today.AddDays(-1); // the day we settle once RunAt has passed
                 var isPastRunTime = TimeOnly.FromDateTime(nowLocal) >= runAt;
 
-                if (isPastRunTime && _lastRunFor != dueFor && !await AlreadyRanAsync(dueFor, ct))
+                if (isPastRunTime && _lastRunFor != today)
                 {
                     using var scope = _scopeFactory.CreateScope();
                     var svc = scope.ServiceProvider.GetRequiredService<ISettlementService>();
-                    var summary = await svc.RunDueAsync(dueFor, "nightly", ct);
-                    _lastRunFor = dueFor;
-                    _log.LogInformation("Nightly settlement for {Date}: {Summary}", dueFor, summary);
-                }
-                else if (isPastRunTime)
-                {
-                    _lastRunFor = dueFor;
+                    var summary = await svc.RunDueAsync(today, "monthly", ct);
+                    _lastRunFor = today;
+                    _log.LogInformation("Settlement tick for {Date}: {Summary}", today, summary);
                 }
             }
             catch (OperationCanceledException) { break; }
@@ -79,16 +80,5 @@ public class SettlementWorker : BackgroundService
         }
 
         _log.LogInformation("Settlement worker stopped");
-    }
-
-    /// <summary>
-    /// After a restart: treat the night as done if any settlement exists for that date.
-    /// (Parks with nothing to settle create no row, so a restart can re-run harmlessly.)
-    /// </summary>
-    private async Task<bool> AlreadyRanAsync(DateOnly date, CancellationToken ct)
-    {
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        return await db.Settlements.AsNoTracking().AnyAsync(s => s.SettlementDate == date && s.InitiatedBy == "nightly", ct);
     }
 }

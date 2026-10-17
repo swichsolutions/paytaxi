@@ -24,6 +24,11 @@
         <span>Swich Solutions</span>
         <span class="login__footer-dot"></span>
         <span>{{ t.loginLocation }}</span>
+        <!-- The legal links get their own line: in Georgian they never fit beside the rest. -->
+        <span class="login__footer-break" aria-hidden="true"></span>
+        <a class="login__footer-link" [routerLink]="t.termsOfUsePath">{{ t.termsOfUse }}</a>
+        <span class="login__footer-dot"></span>
+        <a class="login__footer-link" [routerLink]="t.privacyPolicyPath">{{ t.privacyPolicy }}</a>
       </div>
     </div>
   </aside>

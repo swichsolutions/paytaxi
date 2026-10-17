@@ -13,6 +13,7 @@ env:
   CI_DB: "Host=localhost;Database=paytaxi_test;Username=postgres;Password=postgres"
   CI_JWT_KEY: "ci-only-jwt-key-0123456789-abcdefghijklmnopqrstuvwxyz"
   CI_ENC_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  CI_HASH_KEY: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
 
 jobs:
   backend:
@@ -29,6 +30,13 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+      - name: No customer documents in the repository
+        shell: bash
+        run: |
+          # Real invoices and statements carry drivers' names, phones, licence numbers and IBANs — they stay out of git
+          # (.gitignore). A tracked one here means someone forced it in: fail before it reaches the public repository.
+          found=$(git ls-files -- '*.pdf' 'docs/*.jpg' 'docs/*.jpeg' 'docs/*.png' 'docs/*.heic')
+          if [ -n "$found" ]; then echo "::error::Customer documents must not be committed: $found"; exit 1; fi
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
@@ -91,6 +99,7 @@ jobs:
           ConnectionStrings__DefaultConnection: ${{ env.CI_DB }}
           Jwt__Key: ${{ env.CI_JWT_KEY }}
           Encryption__Key: ${{ env.CI_ENC_KEY }}
+          Encryption__HashKey: ${{ env.CI_HASH_KEY }}   # keyed lookup hashes, as production runs
           Cors__AllowedOrigins__0: http://localhost:4200
           YandexFleet__ReadOnlyMode: "false"
           YandexFleet__MockLatencyMs: "0"
@@ -104,8 +113,15 @@ jobs:
           # Placeholder Swich IBAN (same one the backend test fixture uses) so a manual settlement run
           # gets past the "not configured" guard and the alerts e2e can provoke NO_PARK_ACCOUNT.
           Settlement__SwichIban: GE12TB7100000000000001
+          # The settlement e2e settles the running month instead of waiting for month end. Development/e2e
+          # only — production refuses to start with it (locally it comes from appsettings.Development.json).
+          Settlement__AllowOpenMonthRun: "true"
           RateLimit__AuthPerMinute: "100000"
           Auth__OtpMaxPerWindow: "50"
+          # The per-phone day limits (10 codes, 10 misses per rolling 24 h) would trip repeated e2e sign-ins of the same
+          # seeded drivers on a reused database; production keeps the defaults.
+          Auth__OtpMaxPerDay: "1000"
+          Auth__SignInFailuresBeforeLock: "1000"
         run: |
           nohup dotnet run --project backend/PayTaxi.Api -c Release --no-build --no-launch-profile --urls http://localhost:5196 > api.log 2>&1 &
           for i in $(seq 1 60); do

@@ -26,10 +26,17 @@ public class TbcPayoutAdapterTests
         SourceHolderName: "Tbilisi Taxi Service LLC",
         CredentialsJson: CredsJson);
 
-    private static (TbcPayoutAdapter adapter, FakeTbcHandler fake) Build(int pollAttempts = 3)
+    private static (TbcPayoutAdapter adapter, FakeTbcHandler fake) Build(int pollAttempts = 3, string[]? insufficientFundsCodes = null)
     {
         var fake = new FakeTbcHandler();
-        var opts = new TbcDbiOptions { StatusPollAttempts = pollAttempts, StatusPollDelayMs = 0 };
+        var opts = new TbcDbiOptions
+        {
+            StatusPollAttempts = pollAttempts,
+            StatusPollDelayMs = 0,
+            InsufficientFundsCodes = insufficientFundsCodes ?? Array.Empty<string>(),
+            // These tests script TBC's sandbox (environment "test"), as a staging host may (TbcTestEnvironmentTests).
+            AllowTestEnvironment = true,
+        };
         var soap = new TbcSoapClient(opts, NullLogger.Instance, () => fake);
         var adapter = new TbcPayoutAdapter(soap, Options.Create(opts), NullLogger<TbcPayoutAdapter>.Instance);
         return (adapter, fake);
@@ -129,15 +136,99 @@ public class TbcPayoutAdapterTests
     {
         var (adapter, fake) = Build();
         fake.On("ImportSinglePaymentOrders", FakeTbcHandler.ImportResponse(78))
-            .On("GetPaymentOrderStatus", FakeTbcHandler.StatusResponse("FL", "Insufficient funds on account", "78"));
+            .On("GetPaymentOrderStatus", FakeTbcHandler.StatusResponse("FL", "Beneficiary account is closed", "78"));
 
         var result = await adapter.SendPayoutAsync(Request());
 
         Assert.False(result.Success);
         Assert.False(result.IsRetryable);
         Assert.Equal("TBC_FL", result.ErrorCode);
-        Assert.Contains("Insufficient funds", result.ErrorMessage);
+        Assert.Contains("account is closed", result.ErrorMessage);
         Assert.Equal("78", result.TransferId);
+    }
+
+    // ── Insufficient funds: a wait for a top-up, never a "no" (Annex 3 §5) ──
+
+    [Fact]
+    public async Task Import_then_failed_for_lack_of_funds_is_retryable_insufficient_funds_with_the_dead_order_id()
+    {
+        var (adapter, fake) = Build();
+        fake.On("ImportSinglePaymentOrders", FakeTbcHandler.ImportResponse(78))
+            .On("GetPaymentOrderStatus", FakeTbcHandler.StatusResponse("FL", "Insufficient funds on account", "78"));
+
+        var result = await adapter.SendPayoutAsync(Request());
+
+        Assert.False(result.Success);
+        Assert.True(result.IsRetryable);
+        Assert.Equal(BankErrorCodes.InsufficientFunds, result.ErrorCode);
+        Assert.Contains("Insufficient funds", result.ErrorMessage);
+        // The order exists at the bank: the saga needs its id to know the next attempt is a new document.
+        Assert.Equal("78", result.TransferId);
+    }
+
+    [Fact]
+    public async Task Insufficient_funds_fault_at_import_is_retryable_and_names_no_order()
+    {
+        var (adapter, fake) = Build();
+        fake.Fault("ImportSinglePaymentOrders", "INSUFFICIENT_FUNDS", "Not enough money on the debit account");
+
+        var r = await adapter.SendPayoutAsync(Request());
+
+        Assert.False(r.Success);
+        Assert.True(r.IsRetryable);
+        Assert.Equal(BankErrorCodes.InsufficientFunds, r.ErrorCode);
+        Assert.Null(r.TransferId);
+    }
+
+    [Fact]
+    public async Task Georgian_error_text_is_recognised_when_there_is_no_english_detail()
+    {
+        var (adapter, fake) = Build();
+        fake.Fault("ImportSinglePaymentOrders", "GENERAL_ERROR", "ანგარიშზე არასაკმარისი თანხაა");
+
+        var r = await adapter.SendPayoutAsync(Request());
+
+        Assert.True(r.IsRetryable);
+        Assert.Equal(BankErrorCodes.InsufficientFunds, r.ErrorCode);
+    }
+
+    [Fact]
+    public async Task Insufficient_funds_codes_are_configurable_and_replace_the_defaults()
+    {
+        // Once the sandbox tells us the real code, config carries it; the guessed phrases then no longer apply.
+        var (adapter, fake) = Build(insufficientFundsCodes: new[] { "DEBIT_ACCOUNT_BALANCE_TOO_LOW" });
+        fake.Fault("ImportSinglePaymentOrders", "DEBIT_ACCOUNT_BALANCE_TOO_LOW", "balance too low")
+            .Fault("ImportSinglePaymentOrders", "VALIDATION_ERROR", "Insufficient funds");
+
+        var configured = await adapter.SendPayoutAsync(Request());
+        Assert.Equal(BankErrorCodes.InsufficientFunds, configured.ErrorCode);
+        Assert.True(configured.IsRetryable);
+
+        var notListed = await adapter.SendPayoutAsync(Request());
+        Assert.Equal("TBC_VALIDATION_ERROR", notListed.ErrorCode);
+        Assert.False(notListed.IsRetryable);
+    }
+
+    [Fact]
+    public async Task Status_poll_says_why_an_accepted_order_failed()
+    {
+        var (adapter, fake) = Build();
+        fake.On("GetPaymentOrderStatus", FakeTbcHandler.StatusResponse("FL", "Insufficient funds on account", "78"))
+            .On("GetPaymentOrderStatus", FakeTbcHandler.StatusResponse("C", "Cancelled by the customer", "79"))
+            .On("GetPaymentOrderStatus", FakeTbcHandler.StatusResponse("WC"));
+
+        var dead = await adapter.GetTransferOutcomeAsync(Source, "78");
+        Assert.Equal(BankTransferStatus.Failed, dead.Status);
+        Assert.Equal(BankErrorCodes.InsufficientFunds, dead.ErrorCode);
+
+        // A cancellation (e.g. by the park in internet banking) is a real "no": no wait, no new document.
+        var cancelled = await adapter.GetTransferOutcomeAsync(Source, "79");
+        Assert.Equal(BankTransferStatus.Failed, cancelled.Status);
+        Assert.Equal("TBC_C", cancelled.ErrorCode);
+
+        var pending = await adapter.GetTransferOutcomeAsync(Source, "80");
+        Assert.Equal(BankTransferStatus.Pending, pending.Status);
+        Assert.Null(pending.ErrorCode);
     }
 
     [Theory]

@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { HttpClient, HttpContext, HttpContextToken } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpContextToken, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -22,6 +22,13 @@ export const SKIP_AUTH = new HttpContextToken<boolean>(() => false);
  * The interceptor calls ensureValidToken() before driver API calls and refresh() once
  * on a 401, so a returning driver never sees the OTP screen while the 90-day session lives.
  *
+ * Several tabs share one session through localStorage. Each refresh rotates the refresh token, and the server treats
+ * a rotated token coming back as theft (every session of the driver is revoked). So the stored tokens are the truth,
+ * not this tab's copy: they are re-read before every use and on the 'storage' event, refreshes of all tabs are
+ * serialised with a Web Lock, and a tab that loses a simultaneous refresh (409) adopts the winner's tokens.
+ * Only the server saying "this session is over" (401) signs the driver out — a 429, a dropped connection or a 5xx
+ * keeps the session for the next try.
+ *
  * SSR note: localStorage is browser-only; every access is guarded.
  */
 @Injectable({ providedIn: 'root' })
@@ -37,6 +44,15 @@ export class AuthService {
   readonly isAuthenticated = computed(() => this.token() !== null || this.hasLiveRefresh());
 
   private refreshing: Promise<boolean> | null = null;
+
+  constructor() {
+    // Another tab refreshed or signed out: take its tokens (or its sign-out) instead of replaying ours.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', e => {
+        if (e.key === null || e.key.startsWith('paytaxi.driver.')) this.syncFromStorage();
+      });
+    }
+  }
 
   async requestOtp(phone: string): Promise<{ devCode: string | null }> {
     const res = await firstValueFrom(
@@ -57,20 +73,32 @@ export class AuthService {
    * session if not. Returns false when the driver must sign in again.
    */
   async ensureValidToken(): Promise<boolean> {
+    this.syncFromStorage();
     const exp = this.readMs(TOKEN_EXP_KEY);
     const fresh = this.token() !== null && exp !== null && exp - Date.now() > 60_000;
     if (fresh) return true;
     return this.refresh();
   }
 
-  /** Rotate the refresh token and mint a new access token. De-duplicates concurrent callers. */
+  /**
+   * Rotate the refresh token and mint a new access token. De-duplicates concurrent callers in this tab, and runs
+   * under a cross-tab lock where the browser has one (all current ones do), so two tabs never send the same token.
+   */
   refresh(): Promise<boolean> {
     if (this.refreshing) return this.refreshing;
-    this.refreshing = this.doRefresh().finally(() => { this.refreshing = null; });
+    const locks = typeof navigator !== 'undefined' ? (navigator as Navigator & { locks?: LockManager }).locks : undefined;
+    const run = locks
+      ? locks.request('paytaxi.driver.refresh', () => this.doRefresh())
+      : this.doRefresh();
+    this.refreshing = Promise.resolve(run).finally(() => { this.refreshing = null; });
     return this.refreshing;
   }
 
   private async doRefresh(): Promise<boolean> {
+    const before = this.refreshToken();
+    this.syncFromStorage();
+    // Another tab rotated while we waited for the lock: its fresh access token is ours too.
+    if (this.refreshToken() !== before && this.hasFreshAccessToken()) return true;
     const rt = this.refreshToken();
     if (!rt || !this.hasLiveRefresh()) { this.clear(); return false; }
     try {
@@ -79,9 +107,18 @@ export class AuthService {
           { context: new HttpContext().set(SKIP_AUTH, true) }));
       this.apply(res);
       return true;
-    } catch {
-      // Expired, revoked (possibly reuse detected) or driver suspended → back to the OTP screen.
-      this.clear();
+    } catch (err) {
+      const status = err instanceof HttpErrorResponse ? err.status : 0;
+      if (status === 409) {
+        // A simultaneous refresh with the same token won (a browser without Web Locks): it stores its tokens a
+        // moment later. Adopt them; never resend the old token, which the server would take for a stolen copy.
+        await new Promise(r => setTimeout(r, 400));
+        this.syncFromStorage();
+        return this.refreshToken() !== rt && this.hasFreshAccessToken();
+      }
+      // Expired, revoked (possibly reuse detected) or driver suspended → back to the OTP screen. Anything else
+      // (rate limited, offline, a server error) says nothing about the session: keep it and try again later.
+      if (status === 401) this.clear();
       return false;
     }
   }
@@ -118,6 +155,20 @@ export class AuthService {
     this.token.set(null);
     this.refreshToken.set(null);
     this.setSession(null);
+  }
+
+  /** Pick up what another tab stored (new tokens after its refresh, or its sign-out). */
+  private syncFromStorage() {
+    const token = this.read(TOKEN_KEY);
+    const refresh = this.read(REFRESH_KEY);
+    if (token !== this.token()) this.token.set(token);
+    if (refresh !== this.refreshToken()) this.refreshToken.set(refresh);
+    if (token === null && refresh === null && this.session() !== null) this.session.set(null);
+  }
+
+  private hasFreshAccessToken(): boolean {
+    const exp = this.readMs(TOKEN_EXP_KEY);
+    return this.token() !== null && exp !== null && exp - Date.now() > 60_000;
   }
 
   private hasLiveRefresh(): boolean {

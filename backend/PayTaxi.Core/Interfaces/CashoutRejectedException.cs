@@ -26,6 +26,8 @@ public sealed class CashoutRejectedException : InvalidOperationException
 public static class CashoutRejectionCodes
 {
     public const string ParkInactive = "park_inactive";
+    /// <summary>The park revoked the platform's authorisation to pay from its account (Annex 3 §7); params: from.</summary>
+    public const string AuthorisationRevoked = "authorisation_revoked";
     public const string DriverInactive = "driver_inactive";
     public const string DriverNotLinked = "driver_not_linked";
     public const string DestinationRemoved = "destination_removed";
@@ -36,6 +38,7 @@ public static class CashoutRejectionCodes
     public const string DailyLimitReached = "daily_limit_reached";
     public const string BankNotSupported = "bank_not_supported";
     public const string InsufficientBalance = "insufficient_balance";
+    /// <summary>Yandex Fleet did not answer the balance read: refused — nothing debited, nothing queued; try again later.</summary>
     public const string BalanceUnavailable = "balance_unavailable";
     public const string CashoutInFlight = "cashout_in_flight";
     public const string YandexReadOnly = "yandex_read_only";

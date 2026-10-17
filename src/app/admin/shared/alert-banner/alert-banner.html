@@ -13,15 +13,15 @@
         {{ severity() === 'danger' ? t.alertTitleDanger : t.alertTitleWarning }}
       </p>
       <ul class="alert-banner__list">
-        @for (a of alerts.alerts(); track a.kind + a.parkId) {
+        @for (a of alerts.alerts(); track a.kind + (a.parkId ?? 'platform')) {
           <li class="alert-banner__item" [attr.data-severity]="a.severity">
             <span class="alert-banner__text">
-              @if (showParkName()) { <b class="alert-banner__park">{{ a.parkName }}</b> · }
+              @if (showParkName()) { <b class="alert-banner__park">{{ a.parkName ?? t.incidentAllParks }}</b> · }
               {{ headline(a) }}
               @if (advice(a); as tip) { <span class="alert-banner__advice">{{ tip }}</span> }
               <span class="alert-banner__since">{{ since(a) }}</span>
             </span>
-            <a class="alert-banner__link" [routerLink]="linkParts(a).path" [queryParams]="linkParts(a).query">{{ t.alertOpen }}</a>
+            <a class="alert-banner__link" [routerLink]="linkParts(a).path" [queryParams]="linkParts(a).query" (click)="open(a)">{{ t.alertOpen }}</a>
           </li>
         }
       </ul>

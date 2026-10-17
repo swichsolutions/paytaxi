@@ -85,7 +85,10 @@ export class ReportsComponent {
       const r = await this.api.getReport(parkId, from.toISOString(), to.toISOString(), 10);
       this.report.set(r);
     } catch (err: any) {
-      this.loadError.set(err?.error?.message ?? this.t.errLoadReport);
+      // The API refuses windows over a year (window_too_large) — a custom range is the only way to ask for one.
+      this.loadError.set(err?.error?.error === 'window_too_large'
+        ? this.t.errReportWindowTooLarge
+        : err?.error?.message ?? this.t.errLoadReport);
     } finally {
       this.loading.set(false);
     }

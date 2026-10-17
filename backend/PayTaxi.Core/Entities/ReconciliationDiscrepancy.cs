@@ -38,7 +38,16 @@ public class ReconciliationDiscrepancy : BaseEntity
     public bool IsResolved { get; set; }
     public DateTime? ResolvedAt { get; set; }
     public string? ResolvedBy { get; set; }
+    /// <summary>Why it was resolved — required (a few characters at least): Swich or the operator of the park's licensee.</summary>
     public string? ResolutionNotes { get; set; }
+
+    /// <summary>
+    /// The park's own explanation, written by its manager while the item is open. It does not resolve anything: the item
+    /// stays on Swich's and the operator's banner until one of them resolves it, and they read the note when they do.
+    /// </summary>
+    public string? ParkNote { get; set; }
+    public string? ParkNoteBy { get; set; }
+    public DateTime? ParkNoteAt { get; set; }
 
     public ReconciliationRun Run { get; set; } = default!;
     public Cashout? Cashout { get; set; }

@@ -155,12 +155,19 @@
 .login__footer {
   margin-top: auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  // Row gap applies on both sides of the zero-height break, so keep it small.
+  gap: var(--space-1) var(--space-3);
   font-size: 11.5px;
   color: rgba(255, 255, 255, 0.35);
   font-weight: 500;
   letter-spacing: 0.04em;
+}
+
+.login__footer-break {
+  flex-basis: 100%;
+  height: 0;
 }
 
 .login__footer-dot {
@@ -427,4 +434,11 @@
   .login__stat-num { font-size: 1.1rem; }
   .login__footer { display: none; }
   .login__panel { padding: var(--space-6); }
+}
+
+.login__footer-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  &:hover { color: var(--color-brand); }
 }

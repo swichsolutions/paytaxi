@@ -1,0 +1,386 @@
+<div class="page">
+  <header class="page-head">
+    <div class="page-head__left">
+      <h1 class="page-head__title">{{ t.navIncidents }}</h1>
+      <p class="page-head__sub">{{ seesAll() ? t.incidentsSub : t.incidentsSubPark }}</p>
+    </div>
+    <div class="page-head__actions">
+      @if (seesAll()) {
+        <button class="btn-admin btn-admin--brand" (click)="openReport()" [disabled]="reporting()" data-testid="incident-report-open">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          <span>{{ t.incReport }}</span>
+        </button>
+      }
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
+          <path d="M21 3v5h-5"/>
+        </svg>
+        <span>{{ t.refresh }}</span>
+      </button>
+    </div>
+  </header>
+
+  @if (loadError()) {
+    <div class="load-banner" role="alert">
+      <span class="load-banner__text">{{ loadError() }}</span>
+      <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
+    </div>
+  }
+
+  <!-- ── Report an incident ───────────────────────────────────────── -->
+  @if (reporting()) {
+    <section class="inc-form" data-testid="incident-report-form" aria-labelledby="inc-form-title">
+      <header class="inc-form__head">
+        <h2 id="inc-form-title">{{ t.incReportTitle }}</h2>
+        <p>{{ isSuperAdmin() ? t.incReportSubOwner : t.incReportSubLicensee }}</p>
+      </header>
+
+      <div class="inc-form__levels" role="radiogroup" [attr.aria-label]="t.incFieldLevel">
+        @for (l of levels; track l) {
+          <button type="button" class="inc-level-card" role="radio" [attr.aria-checked]="report().level === l"
+                  [attr.data-level]="l" [class.inc-level-card--on]="report().level === l" (click)="patchReport({ level: l })">
+            <span class="inc-level" [attr.data-level]="l">{{ l }}</span>
+            <span class="inc-level-card__hint">{{ levelHint(l) }}</span>
+          </button>
+        }
+      </div>
+
+      <div class="inc-form__grid">
+        <label class="inc-field inc-field--wide">
+          <span class="inc-field__label">{{ t.incFieldTitle }}</span>
+          <input class="inc-field__input" type="text" maxlength="200" [value]="report().title"
+                 [placeholder]="t.incFieldTitlePh" (input)="patchReport({ title: $any($event.target).value })" />
+        </label>
+        <label class="inc-field">
+          <span class="inc-field__label">{{ t.incFieldPark }}</span>
+          <select class="inc-field__input" (change)="patchReport({ parkId: $any($event.target).value })">
+            <option value="" [selected]="report().parkId === ''">{{ t.incidentAllParks }}</option>
+            @for (p of parks(); track p.id) {
+              <option [value]="p.id" [selected]="report().parkId === p.id">{{ p.name }}</option>
+            }
+          </select>
+        </label>
+        <label class="inc-field">
+          <span class="inc-field__label">{{ t.incFieldStarted }}</span>
+          <input class="inc-field__input" type="datetime-local" [value]="report().startedAt" [max]="maxStart()"
+                 (input)="patchReport({ startedAt: $any($event.target).value })" />
+          <span class="inc-field__note">{{ t.incFieldStartedHint }}</span>
+        </label>
+        <label class="inc-field inc-field--wide">
+          <span class="inc-field__label">{{ t.incFieldDescription }}</span>
+          <textarea class="inc-field__input inc-field__input--area" rows="3" maxlength="4000" [value]="report().description"
+                    [placeholder]="t.incFieldDescriptionPh" (input)="patchReport({ description: $any($event.target).value })"></textarea>
+        </label>
+        @if (isSuperAdmin()) {
+          <label class="inc-field">
+            <span class="inc-field__label">{{ t.incFieldFault }}</span>
+            <select class="inc-field__input" (change)="patchReport({ fault: $any($event.target).value })">
+              @for (f of faults; track f) {
+                <option [value]="f" [selected]="report().fault === f">{{ faultLabel(f) }}</option>
+              }
+            </select>
+          </label>
+          <label class="inc-field">
+            <span class="inc-field__label">{{ t.incFieldCause }}</span>
+            <input class="inc-field__input" type="text" maxlength="1000" [value]="report().cause"
+                   [placeholder]="t.incFieldCausePh" (input)="patchReport({ cause: $any($event.target).value })" />
+          </label>
+          <label class="inc-check inc-field--wide">
+            <input type="checkbox" [checked]="report().acknowledge" (change)="patchReport({ acknowledge: $any($event.target).checked })" />
+            <span>{{ t.incFieldAckNow }}</span>
+          </label>
+        }
+      </div>
+
+      @if (reportError()) { <p class="inc-error" role="alert">{{ reportError() }}</p> }
+      <footer class="inc-form__foot">
+        <button class="btn-admin btn-admin--secondary" (click)="cancelReport()" [disabled]="reportBusy()">{{ t.cancel }}</button>
+        <button class="btn-admin btn-admin--primary" (click)="submitReport()" [disabled]="reportBusy() || !report().title.trim()" data-testid="incident-report-submit">
+          {{ reportBusy() ? t.incSubmitting : t.incSubmit }}
+        </button>
+      </footer>
+    </section>
+  }
+
+  <!-- ── Licence agreement: this month against Annex 1 §5–§7 ──────── -->
+  @if (seesAll()) {
+    @if (metrics(); as m) {
+      <app-incident-contract [metrics]="m" (shift)="shiftMonth($event)" (open)="openDetail($event)" />
+    } @else if (metricsError()) {
+      <div class="load-banner" role="alert">
+        <span class="load-banner__text">{{ t.incErrMetrics }}</span>
+        <button class="btn-admin btn-admin--secondary" (click)="refresh()">{{ t.tryAgain }}</button>
+      </div>
+    }
+  }
+
+  <!-- ── Filters ──────────────────────────────────────────────────── -->
+  <div class="inc-toolbar">
+    <div class="inc-seg-ctl" role="group" [attr.aria-label]="t.incFilterState">
+      <button [attr.aria-pressed]="stateFilter() === 'all'" [class.on]="stateFilter() === 'all'" (click)="stateFilter.set('all')">{{ t.incFilterAll }}</button>
+      <button [attr.aria-pressed]="stateFilter() === 'open'" [class.on]="stateFilter() === 'open'" (click)="stateFilter.set('open')">
+        {{ t.incFilterOpen }} <span class="inc-seg-ctl__count">{{ openCount() }}</span>
+      </button>
+      <button [attr.aria-pressed]="stateFilter() === 'resolved'" [class.on]="stateFilter() === 'resolved'" (click)="stateFilter.set('resolved')">{{ t.incFilterResolved }}</button>
+    </div>
+
+    <div class="inc-seg-ctl inc-seg-ctl--levels" role="group" [attr.aria-label]="t.incFieldLevel">
+      <button [attr.aria-pressed]="levelFilter() === ''" [class.on]="levelFilter() === ''" (click)="levelFilter.set('')">{{ t.incAllLevels }}</button>
+      @for (l of levels; track l) {
+        <button [attr.aria-pressed]="levelFilter() === l" [class.on]="levelFilter() === l" [attr.data-level]="l" (click)="levelFilter.set(l)">{{ l }}</button>
+      }
+    </div>
+
+    @if (seesAll()) {
+      <select class="inc-select" [attr.aria-label]="t.incFieldPark" (change)="parkFilter.set($any($event.target).value)">
+        <option value="" [selected]="parkFilter() === ''">{{ t.allParks }}</option>
+        <option value="platform" [selected]="parkFilter() === 'platform'">{{ t.incPlatformOnly }}</option>
+        @for (p of parks(); track p.id) {
+          <option [value]="p.id" [selected]="parkFilter() === p.id">{{ p.name }}</option>
+        }
+      </select>
+    }
+
+    <input class="inc-select inc-select--month" type="month" [value]="monthFilter()" [attr.aria-label]="t.incFilterMonth"
+           [title]="t.incFilterMonth" (change)="monthFilter.set($any($event.target).value)" />
+
+    @if (hasFilters()) {
+      <button class="btn-admin btn-admin--ghost btn-admin--sm" (click)="clearFilters()">{{ t.incClearFilters }}</button>
+    }
+  </div>
+
+  <!-- ── The log ──────────────────────────────────────────────────── -->
+  <section class="inc-list" [attr.aria-busy]="loading()">
+    @if (loading() && incidents().length === 0) {
+      <div class="skel-stack">
+        <div class="skel skel--row"></div><div class="skel skel--row"></div><div class="skel skel--row"></div>
+      </div>
+    } @else if (incidents().length === 0) {
+      <div class="inc-empty">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M8.5 14h2l1.5-3 2 5 1.5-2h1.5"/>
+        </svg>
+        <p>{{ hasFilters() ? t.incEmptyFiltered : t.incEmpty }}</p>
+      </div>
+    }
+
+    @for (i of incidents(); track i.id) {
+      <button type="button" class="inc-row" [attr.data-level]="i.level" [class.inc-row--resolved]="i.status === 'Resolved'"
+              [class.inc-row--selected]="selectedId() === i.id" (click)="openDetail(i.id)" [attr.data-ref]="i.ref">
+        <span class="inc-row__id">
+          <code class="inc-row__ref">{{ i.ref }}</code>
+          <span class="inc-level" [attr.data-level]="i.level">{{ i.level }}</span>
+        </span>
+        <span class="inc-row__main">
+          <span class="inc-row__title">{{ title(i) }}</span>
+          <span class="inc-row__meta">
+            <span>{{ scope(i) }}</span>
+            <span class="inc-dot" aria-hidden="true"></span>
+            <span [class.inc-row__fault--owner]="i.fault === 'Platform'">{{ faultLabel(i.fault) }}</span>
+            <span class="inc-dot" aria-hidden="true"></span>
+            <span>{{ when(i.reportedAt) }}</span>
+            @if (i.source === 'Auto') { <span class="inc-auto">{{ t.incSourceAutoShort }}</span> }
+          </span>
+        </span>
+        <span class="inc-row__state">
+          <span class="inc-status" [attr.data-status]="i.status">{{ statusLabel(i.status) }}</span>
+        </span>
+        <span class="inc-row__chips">
+          @if (i.status !== 'Resolved' || i.sla.response.state === 'Missed') {
+            <span class="inc-chip" [attr.data-tone]="responseChip(i).tone">{{ responseChip(i).text }}</span>
+          }
+          <span class="inc-chip" [attr.data-tone]="resolutionChip(i).tone">{{ resolutionChip(i).text }}</span>
+        </span>
+      </button>
+    }
+  </section>
+
+  <!-- ── Detail drawer ────────────────────────────────────────────── -->
+  @if (selectedId()) {
+    <div class="drawer-overlay" (click)="closeDetail()"></div>
+    <aside class="drawer" role="dialog" aria-modal="true" [attr.aria-label]="t.navIncidents" data-testid="incident-drawer">
+      @if (detail(); as d) {
+        <header class="drawer__head">
+          <div class="inc-drawer__id">
+            <span class="inc-drawer__tags">
+              <code class="inc-row__ref">{{ d.incident.ref }}</code>
+              <span class="inc-level" [attr.data-level]="d.incident.level">{{ d.incident.level }}</span>
+              <span class="inc-status" [attr.data-status]="d.incident.status">{{ statusLabel(d.incident.status) }}</span>
+            </span>
+            <h2>{{ title(d.incident) }}</h2>
+            <span class="inc-drawer__sub">{{ scope(d.incident) }} · {{ d.incident.source === 'Auto' ? t.incSourceAuto : t.incSourceManual }}</span>
+          </div>
+          <button class="drawer__close" (click)="closeDetail()" [attr.aria-label]="t.cancel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </header>
+
+        <!-- The two contractual clocks -->
+        <section class="inc-clocks">
+          <div class="inc-clock">
+            <div class="inc-clock__top">
+              <span class="inc-clock__label">{{ t.incClockResponse }}</span>
+              <span class="inc-chip" [attr.data-tone]="responseChip(d.incident).tone">{{ responseChip(d.incident).text }}</span>
+            </div>
+            <div class="inc-clock__bar" [attr.data-tone]="responseChip(d.incident).tone"><i [style.width.%]="progress(d.incident.sla.response)"></i></div>
+            <span class="inc-clock__line">{{ t.incDue }} {{ when(d.incident.sla.response.dueAt) }}
+              @if (d.incident.sla.response.doneAt) { · {{ t.incDone }} {{ when(d.incident.sla.response.doneAt) }} }
+            </span>
+          </div>
+          <div class="inc-clock">
+            <div class="inc-clock__top">
+              <span class="inc-clock__label">{{ t.incClockResolution }}</span>
+              <span class="inc-chip" [attr.data-tone]="resolutionChip(d.incident).tone">{{ resolutionChip(d.incident).text }}</span>
+            </div>
+            @if (d.incident.sla.resolution.dueAt) {
+              <div class="inc-clock__bar" [attr.data-tone]="resolutionChip(d.incident).tone"><i [style.width.%]="progress(d.incident.sla.resolution)"></i></div>
+              <span class="inc-clock__line">{{ t.incDue }} {{ when(d.incident.sla.resolution.dueAt) }}
+                @if (isExternalCause(d.incident)) { · {{ t.incClockFromRestore }} }
+              </span>
+            } @else if (d.incident.sla.resolution.state === 'Paused') {
+              <div class="inc-clock__bar inc-clock__bar--paused" aria-hidden="true"></div>
+              <span class="inc-clock__line">{{ t.incClockStartsOnRestore }}</span>
+            } @else {
+              <span class="inc-clock__line">{{ t.incClockNoTarget }}</span>
+            }
+          </div>
+        </section>
+
+        @if (detailError()) { <p class="inc-error inc-error--pad" role="alert">{{ detailError() }}</p> }
+
+        <!-- Actions (Swich) -->
+        @if (d.can.acknowledge || d.can.restoreExternal || d.can.resolve || d.can.reopen || d.can.edit) {
+          <section class="drawer__section inc-actions">
+            @if (confirming(); as action) {
+              <div class="confirm-inline inc-confirm">
+                <span class="confirm-inline__text">{{ confirmText(action) }}</span>
+                <textarea class="inc-field__input inc-field__input--area" rows="2" maxlength="2000"
+                          [placeholder]="action === 'reopen' ? t.incReasonRequired : t.incNoteOptional"
+                          [value]="actionText()" (input)="actionText.set($any($event.target).value)"></textarea>
+                <span class="confirm-inline__actions">
+                  <button class="btn-admin btn-admin--secondary" (click)="cancelAsk()" [disabled]="busy()">{{ t.cancel }}</button>
+                  <button class="btn-admin btn-admin--primary" (click)="confirmAction()" [disabled]="!canConfirm()" data-testid="incident-confirm">{{ confirmLabel(action) }}</button>
+                </span>
+              </div>
+            } @else if (!editing()) {
+              <div class="inc-actions__row">
+                @if (d.can.acknowledge) { <button class="btn-admin btn-admin--brand" (click)="ask('acknowledge')" data-testid="incident-ack">{{ t.incActAck }}</button> }
+                @if (d.can.restoreExternal) { <button class="btn-admin btn-admin--secondary" (click)="ask('external-restored')">{{ t.incActRestored }}</button> }
+                @if (d.can.resolve) { <button class="btn-admin btn-admin--primary" (click)="ask('resolve')" data-testid="incident-resolve">{{ t.incActResolve }}</button> }
+                @if (d.can.reopen) { <button class="btn-admin btn-admin--secondary" (click)="ask('reopen')">{{ t.incActReopen }}</button> }
+                @if (d.can.edit) { <button class="btn-admin btn-admin--ghost" (click)="startEdit()">{{ t.incActEdit }}</button> }
+              </div>
+            }
+
+            @if (editing()) {
+              <div class="inc-edit">
+                <label class="inc-field inc-field--wide">
+                  <span class="inc-field__label">{{ t.incFieldTitle }}</span>
+                  <input class="inc-field__input" type="text" maxlength="200" [value]="edit().title" (input)="patchEdit({ title: $any($event.target).value })"
+                         [attr.aria-invalid]="rescopeMissing().includes('title') ? 'true' : null"
+                         [attr.aria-describedby]="rescopeFrom() !== null ? 'inc-rescope-hint' : null" />
+                </label>
+                <label class="inc-field">
+                  <span class="inc-field__label">{{ t.incFieldLevel }}</span>
+                  <select class="inc-field__input" (change)="patchEdit({ level: $any($event.target).value })">
+                    @for (l of levels; track l) { <option [value]="l" [selected]="edit().level === l">{{ l }}</option> }
+                  </select>
+                </label>
+                <label class="inc-field">
+                  <span class="inc-field__label">{{ t.incFieldFault }}</span>
+                  <select class="inc-field__input" (change)="patchEdit({ fault: $any($event.target).value })">
+                    @for (f of faults; track f) { <option [value]="f" [selected]="edit().fault === f">{{ faultLabel(f) }}</option> }
+                  </select>
+                </label>
+                <label class="inc-field inc-field--wide">
+                  <span class="inc-field__label">{{ t.incFieldPark }}</span>
+                  <select class="inc-field__input" (change)="patchEdit({ parkId: $any($event.target).value })">
+                    <option value="" [selected]="edit().parkId === ''">{{ t.incidentAllParks }}</option>
+                    @for (p of parks(); track p.id) { <option [value]="p.id" [selected]="edit().parkId === p.id">{{ p.name }}</option> }
+                  </select>
+                </label>
+                <label class="inc-field inc-field--wide">
+                  <span class="inc-field__label">{{ t.incFieldCause }}</span>
+                  <input class="inc-field__input" type="text" maxlength="1000" [value]="edit().cause" [placeholder]="t.incFieldCausePh" (input)="patchEdit({ cause: $any($event.target).value })" />
+                </label>
+                <label class="inc-field inc-field--wide">
+                  <span class="inc-field__label">{{ t.incFieldDescription }}</span>
+                  <textarea class="inc-field__input inc-field__input--area" rows="3" maxlength="4000" [value]="edit().description" (input)="patchEdit({ description: $any($event.target).value })"
+                            [attr.aria-invalid]="rescopeMissing().includes('description') ? 'true' : null"
+                            [attr.aria-describedby]="rescopeFrom() !== null ? 'inc-rescope-hint' : null"></textarea>
+                </label>
+                @if (rescopeFrom() !== null) {
+                  <!-- Moving it away from its park shows it to other parks' managers: neutral text first (the server insists too). -->
+                  <p class="inc-rescope" id="inc-rescope-hint" data-testid="incident-rescope-hint" role="status"
+                     [attr.data-ready]="rescopeMissing().length === 0 ? 'true' : 'false'">{{ t.incRescopeHint.replace('{park}', rescopeFrom() || t.incRescopeThisPark) }}</p>
+                }
+                <div class="inc-edit__foot">
+                  <button class="btn-admin btn-admin--secondary" (click)="editing.set(false)" [disabled]="busy()">{{ t.cancel }}</button>
+                  <button class="btn-admin btn-admin--primary" (click)="saveEdit()" [disabled]="busy() || !edit().title.trim() || rescopeMissing().length > 0"
+                          data-testid="incident-edit-save">{{ t.save }}</button>
+                </div>
+              </div>
+            }
+          </section>
+        }
+
+        <!-- Facts -->
+        <section class="drawer__section">
+          <h3 class="drawer__section-title">{{ t.incFacts }}</h3>
+          <dl class="inc-facts">
+            <div><dt>{{ t.incFactImpact }}</dt><dd>{{ when(d.incident.startedAt) }}</dd></div>
+            <div><dt>{{ t.incFactReported }}</dt><dd>{{ when(d.incident.reportedAt) }} <small>{{ actor(d.incident.reportedBy) }}</small></dd></div>
+            @if (raisedLater(d.incident)) {
+              <div data-testid="incident-level-since"><dt>{{ t.incFactLevelSince.replace('{level}', d.incident.level) }}</dt>
+                <dd>{{ when(d.incident.levelSince) }} <small>{{ t.incFactLevelSinceNote.replace('{level}', d.incident.level) }}</small></dd></div>
+            }
+            <div><dt>{{ t.incFactAcknowledged }}</dt><dd>{{ when(d.incident.acknowledgedAt) }} @if (d.incident.acknowledgedBy) { <small>{{ actor(d.incident.acknowledgedBy) }}</small> }</dd></div>
+            @if (isExternalCause(d.incident) || d.incident.externalRestoredAt) {
+              <div><dt>{{ t.incFactRestored }}</dt><dd>{{ when(d.incident.externalRestoredAt) }} @if (d.incident.externalRestoredBy) { <small>{{ actor(d.incident.externalRestoredBy) }}</small> }</dd></div>
+            }
+            <div><dt>{{ t.incFactResolved }}</dt><dd>{{ when(d.incident.resolvedAt) }} @if (d.incident.resolvedBy) { <small>{{ actor(d.incident.resolvedBy) }}</small> }</dd></div>
+            <div><dt>{{ t.incFactDuration }}</dt><dd>{{ duration(d.incident.durationMinutes) }}</dd></div>
+            <div><dt>{{ t.incFactFault }}</dt><dd [class.inc-row__fault--owner]="d.incident.fault === 'Platform'">{{ faultLabel(d.incident.fault) }}</dd></div>
+            <!-- Swich and the licensee only: the API never gives a park manager the cause (another account's failure detail, Swich's diagnosis). -->
+            @if (seesAll()) {
+              <div class="inc-facts__wide"><dt>{{ t.incFactCause }}</dt><dd>{{ d.incident.cause ?? '—' }}</dd></div>
+            }
+          </dl>
+          @if (d.description) { <p class="inc-description">{{ d.description }}</p> }
+        </section>
+
+        <!-- Timeline -->
+        <section class="drawer__section">
+          <h3 class="drawer__section-title">{{ t.incTimeline }}</h3>
+          <ol class="inc-timeline">
+            @for (e of d.timeline; track $index) {
+              <li class="inc-timeline__item" [attr.data-kind]="e.kind">
+                <span class="inc-timeline__head">
+                  <b>{{ timelineLabel(e.kind) }}</b>
+                  <span>{{ when(e.at) }} · {{ actor(e.by) }}</span>
+                </span>
+                <span class="inc-timeline__text">{{ timelineText(e) }}</span>
+              </li>
+            }
+          </ol>
+          @if (d.can.note) {
+            <div class="inc-note">
+              <textarea class="inc-field__input inc-field__input--area" rows="2" maxlength="2000" [placeholder]="t.incNotePh"
+                        [value]="noteText()" (input)="noteText.set($any($event.target).value)" [attr.aria-label]="t.incNotePh"></textarea>
+              <button class="btn-admin btn-admin--secondary" (click)="addNote()" [disabled]="busy() || !noteText().trim()">{{ t.incAddNote }}</button>
+            </div>
+          }
+        </section>
+      } @else if (detailError()) {
+        <p class="inc-error inc-error--pad" role="alert">{{ detailError() }}</p>
+      } @else {
+        <div class="skel-stack"><div class="skel skel--title"></div><div class="skel skel--card"></div></div>
+      }
+    </aside>
+  }
+</div>

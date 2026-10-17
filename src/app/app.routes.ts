@@ -11,6 +11,29 @@ export const routes: Routes = [
     path: 'login',
     loadComponent: () => import('./features/auth/login/login').then(m => m.LoginComponent),
   },
+
+  // ── Public legal pages (no login): Georgian at /privacy and /terms, translations at /…/en|ru.
+  // One page component; `data.doc` picks the document.
+  {
+    path: 'privacy',
+    data: { doc: 'privacy' },
+    loadComponent: () => import('./features/legal/legal-page').then(m => m.LegalPageComponent),
+  },
+  {
+    path: 'privacy/:lang',
+    data: { doc: 'privacy' },
+    loadComponent: () => import('./features/legal/legal-page').then(m => m.LegalPageComponent),
+  },
+  {
+    path: 'terms',
+    data: { doc: 'terms' },
+    loadComponent: () => import('./features/legal/legal-page').then(m => m.LegalPageComponent),
+  },
+  {
+    path: 'terms/:lang',
+    data: { doc: 'terms' },
+    loadComponent: () => import('./features/legal/legal-page').then(m => m.LegalPageComponent),
+  },
   {
     path: '',
     canActivate: [authGuard],
@@ -76,6 +99,10 @@ export const routes: Routes = [
       {
         path: 'reconciliation',
         loadComponent: () => import('./admin/pages/reconciliation/reconciliation').then(m => m.ReconciliationComponent),
+      },
+      {
+        path: 'incidents',
+        loadComponent: () => import('./admin/pages/incidents/incidents').then(m => m.IncidentsComponent),
       },
       {
         path: 'reports',

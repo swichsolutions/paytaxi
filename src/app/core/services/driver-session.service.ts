@@ -45,6 +45,13 @@ export class DriverSessionService {
   readonly minCashout = computed(() => this.park()?.minCashoutAmount ?? 5);
   readonly maxCashout = computed(() => this.park()?.maxCashoutAmount ?? null);
   readonly supportedBanks = computed(() => this.park()?.supportedBanks ?? []);
+  /** The park is not active (suspended by PayTaxi, or not onboarded yet): the saga would refuse any cashout. */
+  readonly cashoutsPaused = computed(() => this.park()?.cashoutsPaused === true);
+  /**
+   * The park revoked the service's authorisation to pay from its account (Annex 3 §7) — lasting, unlike a pause,
+   * so the app says so instead of "paused for now".
+   */
+  readonly cashoutsRevoked = computed(() => this.park()?.cashoutsPausedReason === 'authorisation_revoked');
 
   private bootstrapping: Promise<void> | null = null;
 
@@ -160,12 +167,19 @@ export interface SessionBank {
 export interface SessionPark {
   id: string;
   name: string;
+  /** The park's legal identity — it is the controller of the driver's data (Profile → Your park). Null until entered. */
+  legalEntityName?: string | null;
+  taxId?: string | null;
+  phone?: string | null;
   operatingModel: string;
   cashoutFee: number;
   minCashoutAmount: number;
   maxCashoutAmount: number | null;
   dailyCashoutLimitPerDriver: number | null;
   supportedBanks: SessionBank[];
+  cashoutsPaused?: boolean;
+  /** Why cashouts are refused: 'authorisation_revoked' | 'park_inactive' (null when they are not). */
+  cashoutsPausedReason?: string | null;
 }
 
 export interface SessionCard {

@@ -9,6 +9,7 @@ import { AdminAlertBannerComponent } from '../shared/alert-banner/alert-banner';
 import { AdminAlertsService } from '../services/admin-alerts.service';
 import { AdminParkContextService } from '../services/admin-park-context.service';
 import { AdminI18nService } from '../services/admin-i18n.service';
+import { AdminAuthService } from '../services/admin-auth.service';
 
 @Component({
   selector: 'app-admin-layout',
@@ -24,6 +25,7 @@ export class AdminLayoutComponent implements OnInit {
   private i18n = inject(AdminI18nService);
   // Instantiated here so polling starts the moment the console shell exists.
   readonly alerts = inject(AdminAlertsService);
+  private auth = inject(AdminAuthService);
 
   get t() { return this.i18n.t; }
 
@@ -54,7 +56,9 @@ export class AdminLayoutComponent implements OnInit {
   }
 
   parkErrorText(): string {
-    return this.parkCtx.error() === 'no_parks' ? this.t.noParksAccessible : this.t.errLoadParks;
+    if (this.parkCtx.error() !== 'no_parks') return this.t.errLoadParks;
+    // An operator reaches its own licensee's parks only, while the licence agreement is in force.
+    return this.auth.admin()?.role === 'operator' ? this.t.noParksOperator : this.t.noParksAccessible;
   }
 
   retryParks() {

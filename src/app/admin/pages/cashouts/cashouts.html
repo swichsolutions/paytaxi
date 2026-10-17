@@ -185,6 +185,9 @@
             <span class="status-pill__dot"></span>
             {{ statusLabel(c.status) }}
           </span>
+          @if (c.waitCause) {
+            <span class="queue__wait" [attr.data-cause]="c.waitCause">{{ waitShort(c) }}</span>
+          }
         </div>
         <div class="queue__cell queue__cell--action">
           @if (c.status === 'failed' && c.retriedByCashoutId) {
@@ -246,13 +249,65 @@
               }
             </div>
             @if (c.rawStatus === 'Queued') {
-              <div class="detail-actions">
-                <button class="btn-admin btn-admin--brand" (click)="processNow(c.id, $event)" [disabled]="retrying() !== null">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <polygon points="5 3 19 12 5 21 5 3"/>
-                  </svg>
-                  <span>@if (retrying() === c.id) { {{ t.updating }} } @else { {{ t.processNow }} }</span>
-                </button>
+              <div class="detail-review detail-review--wait" [attr.data-cause]="c.waitCause" (click)="$event.stopPropagation()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/>
+                  <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                <div class="detail-review__text">
+                  <b>{{ waitText(c) }}</b>
+                  @if (c.waitCause !== 'revoked') { <span>{{ t.waitGoesOutAutomatically }}</span> }
+                  @if (c.errorMessage) { <code>{{ c.errorMessage }}</code> }
+                </div>
+              </div>
+              @if (confirmCancelId() !== c.id) {
+                <div class="detail-actions detail-actions--wrap">
+                  @if (canCancel()) {
+                    <button class="btn-admin btn-admin--danger queue__cancel" (click)="askCancel(c.id, $event)"
+                      [disabled]="retrying() !== null || cancelling() || c.outcomeUnknown"
+                      [title]="c.outcomeUnknown ? t.cancelBlockedUnresolved : ''">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+                        <path d="M3 3v5h5"/>
+                      </svg>
+                      <span>{{ t.cancelQueued }}</span>
+                    </button>
+                  }
+                  <!-- A revoked authorisation (Annex 3 §7) is not a wait that "process now" can end: only a cancel. -->
+                  @if (c.waitCause !== 'revoked') {
+                    <button class="btn-admin btn-admin--brand" (click)="processNow(c.id, $event)" [disabled]="retrying() !== null || cancelling()">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                      </svg>
+                      <span>@if (retrying() === c.id) { {{ t.updating }} } @else { {{ t.processNow }} }</span>
+                    </button>
+                  }
+                </div>
+                @if (!canCancel()) {
+                  <p class="detail-hint">{{ t.cancelOnlySwichOperator }}</p>
+                } @else if (c.outcomeUnknown) {
+                  <p class="detail-hint">{{ t.cancelBlockedUnresolved }}</p>
+                }
+              }
+            }
+            @if (canCancel() && confirmCancelId() === c.id && c.rawStatus === 'Queued') {
+              <div class="confirm-inline confirm-inline--cancel" (click)="$event.stopPropagation()">
+                <span class="confirm-inline__text">{{ t.confirmCancelQueued.replace('{amount}', formatGel(c.amount, 2)) }}</span>
+                <label class="cancel-reason">
+                  <span class="detail-label">{{ t.cancelReasonLabel }}</span>
+                  <textarea rows="2" maxlength="500"
+                    [value]="cancelReason()" (input)="cancelReason.set($any($event.target).value)"
+                    [placeholder]="t.cancelReasonPlaceholder"></textarea>
+                </label>
+                @if (cancelError()) {
+                  <span class="cancel-reason__error" role="alert">{{ cancelError() }}</span>
+                }
+                <span class="confirm-inline__actions">
+                  <button class="btn-admin btn-admin--secondary" (click)="dismissCancel($event)" [disabled]="cancelling()">{{ t.keepWaiting }}</button>
+                  <button class="btn-admin btn-admin--danger-solid" (click)="submitCancel(c, $event)" [disabled]="!canSubmitCancel()">
+                    @if (cancelling()) { {{ t.cancelling }} } @else { {{ t.cancelQueuedSubmit }} }
+                  </button>
+                </span>
               </div>
             }
             @if (c.status === 'review') {
@@ -269,7 +324,7 @@
                 <a class="btn-admin btn-admin--secondary" routerLink="/admin/reconciliation">{{ t.openReconciliation }}</a>
               </div>
             }
-            @if (c.errorMessage) {
+            @if (c.errorMessage && c.status !== 'queued') {
               <div class="detail-error">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"/>

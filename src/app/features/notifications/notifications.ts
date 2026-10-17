@@ -78,7 +78,27 @@ export class NotificationsComponent implements OnInit {
     }
   }
 
+  /**
+   * A payout account added, made the default or removed. The driver's own change is information; the park's is a
+   * warning — where the money goes changed without the driver doing it, and the text says to call the park if unasked.
+   */
+  private renderAccountChange(n: DriverNotification): NotificationView | null {
+    const p = n.payload;
+    if (!p?.change || !p.by || !p.destination) return null;
+    const byPark = p.by === 'park';
+    const key = { added: 'Added', default: 'Default', removed: 'Removed' }[p.change];
+    // Added as the default says so: that is where the payouts go now (the console's add is the default unless it says not).
+    const bodyKey = key === 'Added' && p.isDefault ? 'AddedDefault' : key;
+    return {
+      n,
+      tone: byPark ? 'warning' : 'info',
+      title: this.svc.tr(`notifAccount${key}Title`),
+      body: this.svc.tr(`notifAccount${bodyKey}By${byPark ? 'Park' : 'You'}`, { destination: p.destination }),
+    };
+  }
+
   private render(n: DriverNotification): NotificationView {
+    if (n.type === 'payout_account_changed') return this.renderAccountChange(n) ?? { n, title: n.title, body: n.body, tone: 'info' };
     const tone = this.toneFor(n.type);
     const p = n.payload;
     if (!p || p.amount === null) {
@@ -91,8 +111,11 @@ export class NotificationsComponent implements OnInit {
       case 'cashout_queued':
         return { n, tone, title: this.t.cashoutQueuedTitle, body: this.svc.tr('notifCashoutQueuedBody', params) };
       case 'cashout_failed': {
-        const base = this.svc.tr('notifCashoutFailedBody', params);
-        return { n, tone, title: this.t.cashoutFailedTitle, body: p.reason ? `${base} ${p.reason}` : base };
+        // Cancelled from the console while it waited in the queue: the money is back on Yandex.
+        if (p.code === 'CANCELLED')
+          return { n, tone: 'warning', title: this.t.cashoutCancelledTitle, body: this.svc.tr('notifCashoutCancelledBody', params) };
+        // Translated text only — never a server-side reason (a bank's internals, an admin's note).
+        return { n, tone, title: this.t.cashoutFailedTitle, body: this.svc.tr('notifCashoutFailedBody', params) };
       }
       case 'cashout_review':
         return { n, tone, title: this.t.cashoutReviewTitle, body: this.svc.tr('notifCashoutReviewBody', params) };

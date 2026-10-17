@@ -333,3 +333,23 @@
   color: var(--color-text-3);
   text-align: center;
 }
+
+// Terms of use + privacy policy — quiet, but named and one tap away before sign-in.
+.legal-accept {
+  max-width: 34ch;
+  margin: var(--space-4) auto 0;
+  padding: var(--space-1) 0;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-text-2);   // #64748B on white ≈ 4.8:1 — a notice that binds must be readable (WCAG AA)
+  text-align: center;
+
+  a {
+    // Taller hit area without moving the text.
+    padding: 6px 0;
+    font-weight: 600;
+    color: var(--color-text-2);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+}

@@ -1,0 +1,175 @@
+// The monthly contract card of the incident log (Annex 1 §5–§7): a dark ledger panel with a
+// rubber-stamp verdict. Split from incidents.scss to keep each stylesheet inside the component budget.
+$p1: #c62828;
+$mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+:host { display: block; }
+
+// ── Contract card (Annex 1 §5–§7) ─────────────────────────────────
+.inc-contract {
+  position: relative;
+  border-radius: 16px;
+  color: #fff;
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(255, 184, 0, 0.09) 0%, transparent 46%),
+    linear-gradient(135deg, #1a2e47 0%, var(--color-dark) 70%);
+  overflow: hidden;
+  animation: inc-rise 0.25s ease;
+
+  // A hairline grid, like ruled ledger paper — barely there.
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 100% 28px;
+    pointer-events: none;
+  }
+
+  &--alarm { box-shadow: inset 0 3px 0 $p1; }
+
+  &__head {
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-5) var(--space-4);
+  }
+
+  &__heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+  &__eyebrow {
+    font-family: $mono;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-brand);
+  }
+
+  &__month {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    h2 { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.03em; text-transform: capitalize; min-width: 0; }
+  }
+
+  &__step {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.07);
+    cursor: pointer;
+    flex-shrink: 0;
+    svg { width: 15px; height: 15px; }
+    &:hover:not(:disabled) { background: rgba(255, 255, 255, 0.16); color: #fff; }
+    &:disabled { opacity: 0.3; cursor: default; }
+    &:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  }
+
+  &__grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    @media (max-width: 1100px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (max-width: 560px) { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  &__note {
+    position: relative;
+    padding: 12px var(--space-5) var(--space-4);
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: rgba(255, 255, 255, 0.55);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+}
+
+.inc-stamps { display: flex; gap: 8px; flex-wrap: wrap; }
+
+// A rubber-stamp verdict — the one thing on the card that should be read first.
+.inc-stamp {
+  display: inline-flex;
+  padding: 5px 10px;
+  border: 1.5px solid currentColor;
+  border-radius: 5px;
+  font-family: $mono;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transform: rotate(-1.5deg);
+
+  &--ok { color: #4ee0b6; }
+  &--bad { color: #ff8a80; background: rgba(229, 57, 53, 0.12); }
+}
+
+.inc-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-4) var(--space-5);
+  min-width: 0;
+  // One outset hairline per cell draws every divider at any column count; the card clips the outer ones.
+  box-shadow: -1px -1px 0 rgba(255, 255, 255, 0.09);
+
+  &__clause { font-family: $mono; font-size: 10.5px; font-weight: 700; color: rgba(255, 255, 255, 0.45); letter-spacing: 0.06em; }
+  &__label { font-size: 12px; font-weight: 700; color: rgba(255, 255, 255, 0.78); line-height: 1.35; }
+
+  &__value {
+    font-size: 1.7rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    color: var(--color-brand);
+    font-variant-numeric: tabular-nums;
+    small { font-size: 0.9rem; font-weight: 600; color: rgba(255, 255, 255, 0.5); letter-spacing: 0; }
+
+    &--text { font-size: 1.05rem; letter-spacing: -0.01em; color: #fff; }
+  }
+
+  &__sub { font-size: 11.5px; color: rgba(255, 255, 255, 0.6); line-height: 1.4; &--warn { color: #ffd166; } &--good { color: #4ee0b6; font-weight: 700; } }
+
+  &--bad {
+    background: rgba(229, 57, 53, 0.1);
+    .inc-cell__value { color: #ff8a80; }
+    .inc-seg i.on, .inc-bar i { background: #ff6b5f; }
+  }
+}
+
+.inc-seg {
+  display: flex;
+  gap: 4px;
+  i { flex: 1; height: 6px; border-radius: 2px; background: rgba(255, 255, 255, 0.12); max-width: 44px; &.on { background: var(--color-brand); } }
+}
+
+.inc-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  i { display: block; height: 100%; background: var(--color-brand); border-radius: 3px; transition: width 0.4s ease; }
+}
+
+.inc-refs { display: flex; flex-wrap: wrap; gap: 4px; }
+.inc-ref {
+  font-family: $mono;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  &:hover { background: rgba(255, 255, 255, 0.2); }
+  &:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+}
+
+@keyframes inc-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .inc-contract { animation: none; } }

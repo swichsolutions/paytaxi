@@ -8,19 +8,34 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { AdminAuthService } from './admin-auth.service';
 
-export type AlertKind = 'settlement_failed' | 'settlement_stuck' | 'cashout_review' | 'reconciliation_open';
+export type AlertKind = 'settlement_failed' | 'settlement_stuck' | 'cashout_review' | 'reconciliation_open' | 'park_suspended'
+  | 'payout_waiting' | 'incident_open' | 'authorisation_revoked' | 'signin_locked';
 
 export interface AdminAlert {
   kind: AlertKind;
   severity: 'danger' | 'warning';
-  parkId: string;
-  parkName: string;
+  /** Null for a platform-wide incident (incident_open only). */
+  parkId: string | null;
+  parkName: string | null;
   count: number;
   amount: number | null;
   since: string;
   code: string | null;
   detail: string | null;
   link: string;
+  /**
+   * authorisation_revoked only (Swich and the operator): the park revoked the platform's authorisations (Annex 3 §7)
+   * and payouts or shares still wait on its account — payouts to cancel, shares owed outside the platform.
+   */
+  revocation?: {
+    revokedFrom: string;
+    payouts: number;
+    payoutsNet: number;
+    settlements: number;
+    owed: number;
+    /** The part the licensee answers for (§2.5); the rest is a Swich-direct park's own debt. */
+    licenseeOwed: number;
+  } | null;
 }
 
 interface AlertsResponse {

@@ -8,22 +8,16 @@ namespace PayTaxi.Infrastructure.Security;
 /// One-time (idempotent) upgrade of a database that predates field encryption: loads every row
 /// of the tables with protected columns and re-saves the ones still holding plaintext. Because
 /// the value converter encrypts on write, simply marking the property modified is enough.
-/// Also back-fills <c>BankCards.IbanHash</c>. Runs at startup after migrations; cheap when there
-/// is nothing to do (a few indexed scans on small tables).
+/// First brings the lookup hashes beside the encrypted columns (PhoneHash, IbanHash) to the current hash key — see
+/// <see cref="LookupHashMigrator"/>. Runs at startup after migrations; cheap when there is nothing to do (a few
+/// scans on small tables).
 /// </summary>
 public static class EncryptionMigrator
 {
     public static async Task EnsureEncryptedAsync(AppDbContext db, ILogger log, CancellationToken ct = default)
     {
-        // IbanHash back-fill works with or without a key.
-        var cards = await db.BankCards.Where(b => b.IbanHash == "").ToListAsync(ct);
-        foreach (var c in cards)
-            if (!string.IsNullOrEmpty(c.Iban)) c.IbanHash = FieldEncryptor.Hash(c.Iban);
-        if (cards.Count > 0)
-        {
-            await db.SaveChangesAsync(ct);
-            log.LogInformation("Back-filled IbanHash on {Count} payout destinations", cards.Count);
-        }
+        // Lookup hashes (with or without an encryption key; it back-fills a missing IbanHash too).
+        await LookupHashMigrator.EnsureCurrentAsync(db, log, ct);
 
         if (!FieldEncryptor.Enabled)
         {

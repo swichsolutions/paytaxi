@@ -22,6 +22,8 @@ namespace PayTaxi.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence<int>("IncidentNumberSeq");
+
             modelBuilder.HasSequence("InvoiceNumberSeq")
                 .StartsAt(1000000L);
 
@@ -47,6 +49,9 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("LicenseeId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("LockedUntil")
                         .HasColumnType("timestamp with time zone");
@@ -76,11 +81,66 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.HasIndex("Email")
                         .IsUnique();
 
+                    b.HasIndex("LicenseeId");
+
                     b.HasIndex("ParkId");
 
                     b.ToTable("AdminUsers", t =>
                         {
                             t.HasCheckConstraint("CK_AdminUsers_Role", "\"Role\" IN ('super_admin', 'operator', 'park_admin')");
+                        });
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.AgreementEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("LicenseeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("ReferenceId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReferenceId");
+
+                    b.HasIndex("LicenseeId", "At");
+
+                    b.ToTable("AgreementEvents", t =>
+                        {
+                            t.HasCheckConstraint("CK_AgreementEvents_Kind", "\"Kind\" IN ('launch_date', 'terms', 'cost_added', 'cost_edited', 'cost_deleted', 'cost_held', 'cost_released', 'correction_added')");
+
+                            t.HasCheckConstraint("CK_AgreementEvents_Reason", "\"Kind\" NOT IN ('launch_date', 'cost_deleted', 'cost_held', 'correction_added') OR \"Reason\" IS NOT NULL");
                         });
                 });
 
@@ -138,6 +198,10 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.HasIndex("CorrelationId");
 
+                    b.HasIndex("Timestamp");
+
+                    b.HasIndex("ApiProvider", "Timestamp");
+
                     b.HasIndex("ParkId", "Timestamp");
 
                     b.ToTable("ApiAuditLogs");
@@ -179,8 +243,8 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<string>("IbanHash")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
                         .HasDefaultValue("");
 
                     b.Property<bool>("IsActive")
@@ -234,6 +298,9 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<Guid>("BankCardId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("BankDocumentSeq")
+                        .HasColumnType("integer");
+
                     b.Property<string>("BankTransferId")
                         .HasColumnType("text");
 
@@ -252,6 +319,12 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<decimal>("Fee")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("FeeLicenseeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("FeeRegimeStamped")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
@@ -285,6 +358,12 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<string>("UnknownOutcomeDocument")
+                        .HasColumnType("text");
+
+                    b.Property<int>("UnresolvedAttempts")
+                        .HasColumnType("integer");
+
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -298,6 +377,8 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("BankCardId");
+
+                    b.HasIndex("FeeLicenseeId");
 
                     b.HasIndex("IdempotencyKey")
                         .IsUnique();
@@ -317,7 +398,120 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.HasIndex("Status", "NextAttemptAt");
 
-                    b.ToTable("Cashouts");
+                    b.ToTable("Cashouts", t =>
+                        {
+                            t.HasCheckConstraint("CK_Cashouts_FeeRegime", "\"FeeLicenseeId\" IS NULL OR \"FeeRegimeStamped\"");
+                        });
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.CommonCost", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid?>("CorrectsId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("DeleteReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("EnteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("HeldAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HeldBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("HoldReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateOnly>("InvoiceDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("LicenseeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("PaidBy")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("StatementId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Vendor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CorrectsId");
+
+                    b.HasIndex("StatementId");
+
+                    b.HasIndex("LicenseeId", "StatementId", "InvoiceDate");
+
+                    b.ToTable("CommonCosts", t =>
+                        {
+                            t.HasCheckConstraint("CK_CommonCosts_Amount", "\"Amount\" > 0 OR (\"CorrectsId\" IS NOT NULL AND \"Amount\" <> 0)");
+
+                            t.HasCheckConstraint("CK_CommonCosts_Category", "\"Category\" IN ('bank', 'sms', 'payment_provider', 'support_comms', 'hosting', 'domain')");
+
+                            t.HasCheckConstraint("CK_CommonCosts_Correction_Reason", "\"CorrectsId\" IS NULL OR \"Reason\" IS NOT NULL");
+
+                            t.HasCheckConstraint("CK_CommonCosts_Deleted", "\"DeletedAt\" IS NULL OR (\"StatementId\" IS NULL AND \"DeletedBy\" IS NOT NULL AND \"DeleteReason\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_CommonCosts_Held", "\"HeldAt\" IS NULL OR (\"StatementId\" IS NULL AND \"HeldBy\" IS NOT NULL AND \"HoldReason\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_CommonCosts_PaidBy", "\"PaidBy\" IN ('swich', 'licensee')");
+                        });
                 });
 
             modelBuilder.Entity("PayTaxi.Core.Entities.Driver", b =>
@@ -347,8 +541,12 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.Property<string>("PhoneHash")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("PreferredLanguage")
+                        .HasMaxLength(2)
+                        .HasColumnType("character varying(2)");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -366,7 +564,10 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.HasIndex("ParkId", "YandexDriverProfileId");
 
-                    b.ToTable("Drivers");
+                    b.ToTable("Drivers", t =>
+                        {
+                            t.HasCheckConstraint("CK_Drivers_PreferredLanguage", "\"PreferredLanguage\" IS NULL OR \"PreferredLanguage\" IN ('ka', 'en', 'ru')");
+                        });
                 });
 
             modelBuilder.Entity("PayTaxi.Core.Entities.DriverSession", b =>
@@ -422,6 +623,203 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.ToTable("DriverSessions");
                 });
 
+            modelBuilder.Entity("PayTaxi.Core.Entities.DriverSignIn", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("DeviceLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("DriverId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ParkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SignedInAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SignedInAt");
+
+                    b.HasIndex("DriverId", "SignedInAt");
+
+                    b.ToTable("DriverSignIns");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.Incident", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AcknowledgedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Cause")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DedupeKey")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<DateTime?>("ExternalRestoredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExternalRestoredBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Fault")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<int>("Number")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValueSql("nextval('\"IncidentNumberSeq\"')");
+
+                    b.Property<Guid?>("ParkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReachedP1At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReachedP2At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("ReportedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ReportedBy")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResolvedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DedupeKey")
+                        .IsUnique()
+                        .HasFilter("\"DedupeKey\" IS NOT NULL AND \"Status\" <> 'resolved'");
+
+                    b.HasIndex("Number")
+                        .IsUnique();
+
+                    b.HasIndex("ParkId", "ReportedAt");
+
+                    b.HasIndex("Status", "ReportedAt");
+
+                    b.ToTable("Incidents", t =>
+                        {
+                            t.HasCheckConstraint("CK_Incidents_Fault", "\"Fault\" IN ('platform', 'external', 'park', 'unknown')");
+
+                            t.HasCheckConstraint("CK_Incidents_Level", "\"Level\" IN ('p1', 'p2', 'p3')");
+
+                            t.HasCheckConstraint("CK_Incidents_Resolved", "(\"Status\" = 'resolved') = (\"ResolvedAt\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_Incidents_Source", "\"Source\" IN ('manual', 'auto')");
+
+                            t.HasCheckConstraint("CK_Incidents_Status", "\"Status\" IN ('reported', 'acknowledged', 'resolved')");
+                        });
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.IncidentUpdate", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("By")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Data")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("IncidentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid?>("ParkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IncidentId", "At");
+
+                    b.ToTable("IncidentUpdates", t =>
+                        {
+                            t.HasCheckConstraint("CK_IncidentUpdates_Kind", "\"Kind\" IN ('reported', 'acknowledged', 'updated', 'note', 'external_restored', 'resolved', 'reopened')");
+                        });
+                });
+
             modelBuilder.Entity("PayTaxi.Core.Entities.LedgerEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -471,6 +869,178 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.ToTable("LedgerEntries", t =>
                         {
                             t.HasCheckConstraint("CK_LedgerEntries_Owner", "(\"CashoutId\" IS NOT NULL) <> (\"SettlementId\" IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.Licensee", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BarrierGel")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Iban")
+                        .HasMaxLength(34)
+                        .HasColumnType("character varying(34)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateOnly?>("LaunchDate")
+                        .HasColumnType("date");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("SwichSharePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<string>("TaxId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Licensees_SingleActive")
+                        .HasFilter("\"IsActive\" = TRUE");
+
+                    b.ToTable("Licensees", t =>
+                        {
+                            t.HasCheckConstraint("CK_Licensees_Barrier_NonNegative", "\"BarrierGel\" >= 0");
+
+                            t.HasCheckConstraint("CK_Licensees_SwichShare_Percent", "\"SwichSharePercent\" >= 0 AND \"SwichSharePercent\" <= 100");
+                        });
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.MonthlyStatement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BarrierBefore")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<bool>("BarrierFilledBefore")
+                        .HasColumnType("boolean");
+
+                    b.Property<decimal>("BarrierFraction")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)");
+
+                    b.Property<decimal>("BarrierGel")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("CarryIn")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("CarryOut")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int>("CashoutCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("Due")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("Entitlement")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime?>("ExecutedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("FeeIncome")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("InitiatedBy")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("InvoiceRef")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("LicenseeCosts")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("LicenseeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<DateTime>("PeriodFromUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("PeriodToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Phase")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<decimal>("SwichCosts")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("SwichSharePercent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LicenseeId", "Month")
+                        .IsUnique();
+
+                    b.ToTable("MonthlyStatements", t =>
+                        {
+                            t.HasCheckConstraint("CK_MonthlyStatements_Due_NonNegative", "\"Due\" >= 0");
+
+                            t.HasCheckConstraint("CK_MonthlyStatements_Phase", "\"Phase\" IN ('barrier', 'crossing', 'normal')");
+
+                            t.HasCheckConstraint("CK_MonthlyStatements_Status", "\"Status\" IN ('pending', 'completed', 'failed')");
                         });
                 });
 
@@ -547,8 +1117,8 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.Property<string>("PhoneHash")
                         .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
 
                     b.Property<bool>("Used")
                         .HasColumnType("boolean");
@@ -565,6 +1135,23 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<DateOnly?>("AuthorisationNoticeOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("AuthorisationRevocationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("AuthorisationRevocationRecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AuthorisationRevocationRecordedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateOnly?>("AuthorisationRevokedFrom")
+                        .HasColumnType("date");
 
                     b.Property<string>("BankAccountIban")
                         .HasMaxLength(34)
@@ -603,6 +1190,9 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<string>("LegalEntityName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("LicenseeId")
+                        .HasColumnType("uuid");
 
                     b.Property<decimal?>("MaxCashoutAmount")
                         .HasPrecision(18, 2)
@@ -646,6 +1236,17 @@ namespace PayTaxi.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<DateTime?>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("StatusChangedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("StatusReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<decimal>("SwichSharePercent")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(5, 2)
@@ -674,11 +1275,15 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("LicenseeId");
+
                     b.HasIndex("Slug")
                         .IsUnique();
 
                     b.ToTable("Parks", t =>
                         {
+                            t.HasCheckConstraint("CK_Parks_AuthorisationRevocation", "\"AuthorisationRevokedFrom\" IS NULL OR (\"AuthorisationNoticeOn\" IS NOT NULL AND \"AuthorisationRevokedFrom\" > \"AuthorisationNoticeOn\" AND \"AuthorisationRevocationReason\" IS NOT NULL AND \"AuthorisationRevocationRecordedBy\" IS NOT NULL)");
+
                             t.HasCheckConstraint("CK_Parks_CashoutFee_NonNegative", "\"CashoutFee\" >= 0");
 
                             t.HasCheckConstraint("CK_Parks_MinCashout_Positive", "\"MinCashoutAmount\" > 0");
@@ -752,6 +1357,95 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.ToTable("ParkBankAccounts");
                 });
 
+            modelBuilder.Entity("PayTaxi.Core.Entities.ParkConfigEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ChangedFields")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("ParkId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid?>("SubjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SubjectId");
+
+                    b.HasIndex("ParkId", "At");
+
+                    b.ToTable("ParkConfigEvents", t =>
+                        {
+                            t.HasCheckConstraint("CK_ParkConfigEvents_Action", "\"Action\" IN ('created', 'updated')");
+
+                            t.HasCheckConstraint("CK_ParkConfigEvents_Subject", "\"Subject\" IN ('bank_account', 'park', 'driver')");
+                        });
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.PhoneSignInEvent", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("PhoneHash")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<DateTime?>("Until")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("At");
+
+                    b.HasIndex("PhoneHash", "At");
+
+                    b.ToTable("PhoneSignInEvents", t =>
+                        {
+                            t.HasCheckConstraint("CK_PhoneSignInEvents_Kind", "\"Kind\" IN ('code_issued', 'failed', 'locked')");
+
+                            t.HasCheckConstraint("CK_PhoneSignInEvents_Until", "(\"Kind\" = 'locked') = (\"Until\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("PayTaxi.Core.Entities.ReconciliationDiscrepancy", b =>
                 {
                     b.Property<Guid>("Id")
@@ -786,6 +1480,17 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.Property<Guid>("ParkId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ParkNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("ParkNoteAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ParkNoteBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<decimal?>("PaytaxiAmount")
                         .HasPrecision(18, 4)
@@ -893,6 +1598,9 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Property<int>("AttemptCount")
                         .HasColumnType("integer");
 
+                    b.Property<int>("BankDocumentSeq")
+                        .HasColumnType("integer");
+
                     b.Property<string>("BankTransferId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -914,6 +1622,28 @@ namespace PayTaxi.Infrastructure.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ExternalNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateOnly?>("ExternalPaidOn")
+                        .HasColumnType("date");
+
+                    b.Property<string>("ExternalPayer")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime?>("ExternalRecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExternalRecordedBy")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<string>("ExternalReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("FailureReason")
                         .HasMaxLength(1000)
@@ -937,8 +1667,14 @@ namespace PayTaxi.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<bool>("IsMonthly")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("LastAttemptAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("MonthlyStatementId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("ParkBankAccountId")
                         .HasColumnType("uuid");
@@ -968,6 +1704,7 @@ namespace PayTaxi.Infrastructure.Migrations
                         .HasColumnType("date");
 
                     b.Property<string>("Status")
+                        .IsConcurrencyToken()
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
@@ -990,14 +1727,18 @@ namespace PayTaxi.Infrastructure.Migrations
 
                     b.HasIndex("ParkBankAccountId");
 
-                    b.HasIndex("ParkId", "SettlementDate")
+                    b.HasIndex("MonthlyStatementId", "ParkId")
                         .IsUnique();
+
+                    b.HasIndex("ParkId", "SettlementDate")
+                        .IsUnique()
+                        .HasFilter("\"IsMonthly\" = TRUE AND \"MonthlyStatementId\" IS NULL");
 
                     b.HasIndex("Status", "SettlementDate");
 
                     b.ToTable("Settlements", t =>
                         {
-                            t.HasCheckConstraint("CK_Settlements_Status", "\"Status\" IN ('pending', 'processing', 'completed', 'failed')");
+                            t.HasCheckConstraint("CK_Settlements_Status", "\"Status\" IN ('pending', 'processing', 'completed', 'failed', 'settled_externally')");
                         });
                 });
 
@@ -1027,12 +1768,30 @@ namespace PayTaxi.Infrastructure.Migrations
 
             modelBuilder.Entity("PayTaxi.Core.Entities.AdminUser", b =>
                 {
+                    b.HasOne("PayTaxi.Core.Entities.Licensee", "Licensee")
+                        .WithMany()
+                        .HasForeignKey("LicenseeId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("PayTaxi.Core.Entities.Park", "Park")
                         .WithMany()
                         .HasForeignKey("ParkId")
                         .OnDelete(DeleteBehavior.SetNull);
 
+                    b.Navigation("Licensee");
+
                     b.Navigation("Park");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.AgreementEvent", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.Licensee", "Licensee")
+                        .WithMany("Events")
+                        .HasForeignKey("LicenseeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Licensee");
                 });
 
             modelBuilder.Entity("PayTaxi.Core.Entities.BankCard", b =>
@@ -1059,6 +1818,11 @@ namespace PayTaxi.Infrastructure.Migrations
                         .HasForeignKey("DriverId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("PayTaxi.Core.Entities.Licensee", null)
+                        .WithMany()
+                        .HasForeignKey("FeeLicenseeId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("PayTaxi.Core.Entities.ParkBankAccount", "ParkBankAccount")
                         .WithMany()
@@ -1087,6 +1851,31 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Navigation("Settlement");
                 });
 
+            modelBuilder.Entity("PayTaxi.Core.Entities.CommonCost", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.CommonCost", "Corrects")
+                        .WithMany("Corrections")
+                        .HasForeignKey("CorrectsId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("PayTaxi.Core.Entities.Licensee", "Licensee")
+                        .WithMany("Costs")
+                        .HasForeignKey("LicenseeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("PayTaxi.Core.Entities.MonthlyStatement", "Statement")
+                        .WithMany("Costs")
+                        .HasForeignKey("StatementId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Corrects");
+
+                    b.Navigation("Licensee");
+
+                    b.Navigation("Statement");
+                });
+
             modelBuilder.Entity("PayTaxi.Core.Entities.Driver", b =>
                 {
                     b.HasOne("PayTaxi.Core.Entities.Park", "Park")
@@ -1109,6 +1898,38 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Navigation("Driver");
                 });
 
+            modelBuilder.Entity("PayTaxi.Core.Entities.DriverSignIn", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.Driver", "Driver")
+                        .WithMany()
+                        .HasForeignKey("DriverId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Driver");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.Incident", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.Park", "Park")
+                        .WithMany()
+                        .HasForeignKey("ParkId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Park");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.IncidentUpdate", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.Incident", "Incident")
+                        .WithMany("Updates")
+                        .HasForeignKey("IncidentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Incident");
+                });
+
             modelBuilder.Entity("PayTaxi.Core.Entities.LedgerEntry", b =>
                 {
                     b.HasOne("PayTaxi.Core.Entities.Cashout", "Cashout")
@@ -1126,6 +1947,17 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Navigation("Settlement");
                 });
 
+            modelBuilder.Entity("PayTaxi.Core.Entities.MonthlyStatement", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.Licensee", "Licensee")
+                        .WithMany("Statements")
+                        .HasForeignKey("LicenseeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Licensee");
+                });
+
             modelBuilder.Entity("PayTaxi.Core.Entities.Notification", b =>
                 {
                     b.HasOne("PayTaxi.Core.Entities.Driver", "Driver")
@@ -1135,6 +1967,16 @@ namespace PayTaxi.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Driver");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.Park", b =>
+                {
+                    b.HasOne("PayTaxi.Core.Entities.Licensee", "Licensee")
+                        .WithMany("Parks")
+                        .HasForeignKey("LicenseeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Licensee");
                 });
 
             modelBuilder.Entity("PayTaxi.Core.Entities.ParkBankAccount", b =>
@@ -1179,6 +2021,11 @@ namespace PayTaxi.Infrastructure.Migrations
 
             modelBuilder.Entity("PayTaxi.Core.Entities.Settlement", b =>
                 {
+                    b.HasOne("PayTaxi.Core.Entities.MonthlyStatement", "MonthlyStatement")
+                        .WithMany("Settlements")
+                        .HasForeignKey("MonthlyStatementId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("PayTaxi.Core.Entities.ParkBankAccount", "ParkBankAccount")
                         .WithMany()
                         .HasForeignKey("ParkBankAccountId")
@@ -1189,6 +2036,8 @@ namespace PayTaxi.Infrastructure.Migrations
                         .HasForeignKey("ParkId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("MonthlyStatement");
 
                     b.Navigation("Park");
 
@@ -1211,6 +2060,11 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Navigation("LedgerEntries");
                 });
 
+            modelBuilder.Entity("PayTaxi.Core.Entities.CommonCost", b =>
+                {
+                    b.Navigation("Corrections");
+                });
+
             modelBuilder.Entity("PayTaxi.Core.Entities.Driver", b =>
                 {
                     b.Navigation("BalanceCache");
@@ -1218,6 +2072,29 @@ namespace PayTaxi.Infrastructure.Migrations
                     b.Navigation("BankCards");
 
                     b.Navigation("Cashouts");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.Incident", b =>
+                {
+                    b.Navigation("Updates");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.Licensee", b =>
+                {
+                    b.Navigation("Costs");
+
+                    b.Navigation("Events");
+
+                    b.Navigation("Parks");
+
+                    b.Navigation("Statements");
+                });
+
+            modelBuilder.Entity("PayTaxi.Core.Entities.MonthlyStatement", b =>
+                {
+                    b.Navigation("Costs");
+
+                    b.Navigation("Settlements");
                 });
 
             modelBuilder.Entity("PayTaxi.Core.Entities.Park", b =>

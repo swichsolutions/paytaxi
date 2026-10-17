@@ -26,6 +26,15 @@ export class ReconciliationComponent {
   private i18n = inject(AdminI18nService);
 
   readonly canRunNow = computed(() => { const r = this.auth.admin()?.role; return r === 'super_admin' || r === 'operator'; });
+  /**
+   * Who closes a discrepancy: Swich, or the operator of the park's licensee — every kind is about money, and the check
+   * exists for the platform side. The park's manager explains instead (Add note); the item stays open until resolved.
+   * The API says so with the list (canResolve); the role is the answer until it has loaded.
+   */
+  readonly canResolve = computed(() => this.resolveAllowed() ?? this.canRunNow());
+  private readonly resolveAllowed = signal<boolean | null>(null);
+  /** A resolution's reason must say something (the API's minimum). */
+  readonly minReason = 5;
   running = signal(false);
   runError = signal<string | null>(null);
   /** Discrepancy count of the run just triggered, shown briefly as feedback. */
@@ -65,6 +74,10 @@ export class ReconciliationComponent {
   resolving = signal<string | null>(null);
   resolveNotes = signal('');
   openResolveFor = signal<string | null>(null);
+  /** The item whose form shows an error (reason missing, save failed), and the error. */
+  formError = signal<{ id: string; text: string } | null>(null);
+
+  readonly reasonOk = computed(() => this.resolveNotes().trim().length >= this.minReason);
 
   filteredDiscrepancies = computed(() => {
     const list = this.discrepancies();
@@ -95,6 +108,7 @@ export class ReconciliationComponent {
       })));
       this.discrepancies.set(discResp.discrepancies);
       this.openCount.set(discResp.openCount);
+      if (typeof discResp.canResolve === 'boolean') this.resolveAllowed.set(discResp.canResolve);
       this.loadedOnce.set(true);
     } catch (err: any) {
       this.loadError.set(err?.error?.message ?? this.t.errLoadReconciliation);
@@ -108,27 +122,40 @@ export class ReconciliationComponent {
     if (parkId) await this.fetchFor(parkId);
   }
 
+  /** Opens the item's form — Resolve for Swich and the operator, Add note for the park (prefilled with its note). */
   toggleResolveFor(id: string) {
+    this.formError.set(null);
     if (this.openResolveFor() === id) {
       this.openResolveFor.set(null);
       this.resolveNotes.set('');
     } else {
       this.openResolveFor.set(id);
-      this.resolveNotes.set('');
+      const d = this.discrepancies().find(x => x.id === id);
+      this.resolveNotes.set(this.canResolve() ? '' : (d?.parkNote ?? ''));
     }
   }
 
   async submitResolve(id: string) {
     const parkId = this.parkCtx.currentParkId();
     if (!parkId || this.resolving()) return;
+    if (this.canResolve() && !this.reasonOk()) {
+      this.formError.set({ id, text: this.t.recReasonRequired.replace('{n}', String(this.minReason)) });
+      return;
+    }
+    if (!this.canResolve() && this.resolveNotes().trim() === '') return;
     this.resolving.set(id);
+    this.formError.set(null);
     try {
-      await this.api.resolveDiscrepancy(parkId, id, this.resolveNotes());
+      if (this.canResolve()) await this.api.resolveDiscrepancy(parkId, id, this.resolveNotes().trim());
+      else await this.api.noteDiscrepancy(parkId, id, this.resolveNotes().trim());
       this.openResolveFor.set(null);
       this.resolveNotes.set('');
       await this.fetchFor(parkId);
     } catch (err: any) {
-      this.loadError.set(err?.error?.message ?? this.t.errResolve);
+      const code = err?.error?.error;
+      const text = code === 'reason_required' ? this.t.recReasonRequired.replace('{n}', String(err?.error?.minLength ?? this.minReason))
+        : this.canResolve() ? this.t.errResolve : this.t.errNote;
+      this.formError.set({ id, text });
     } finally {
       this.resolving.set(null);
     }

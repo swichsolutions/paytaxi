@@ -3,6 +3,10 @@
 **/.vs/
 **/*.user
 PayTaxi.Tests/
-appsettings.Development.json
-*.pfx
-*.p12
+# "**/" or the pattern matches only at the context root: PayTaxi.Api/appsettings.Development.json (local dev keys)
+# would be copied by COPY . . and published into the image.
+**/appsettings.Development.json
+**/*.pfx
+**/*.p12
+**/.env
+**/.env.*

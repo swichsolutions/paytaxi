@@ -269,7 +269,8 @@ public class InvoiceOptions
     public const string SectionName = "Invoice";
 
     /// <summary>The platform operator named on invoices (not the payer — the park pays from its own account).</summary>
-    public string OperatingEntityName { get; set; } = "Swich Solutions LLC";
+    // The registered name, exactly as in the licence agreement (Georgian invoices carry the legal name).
+    public string OperatingEntityName { get; set; } = "შპს სვიჩსოლუშენსი";
 
     /// <summary>Georgian tax-payer ID (s/k) of the operating entity.</summary>
     public string OperatingEntityTaxId { get; set; } = "405848882";

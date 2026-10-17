@@ -20,4 +20,10 @@ public enum LedgerEntryType
 
     /// <summary>Cashout parked for a human (outcome of an external step unknown). Amount = gross, informational.</summary>
     ReviewFlagged,
+
+    /// <summary>
+    /// A failed park → Swich transfer that was paid outside the platform (licensee under §2.5/§4.1.2, or the
+    /// park by hand), recorded by Swich. Amount = the settlement's share; Reference = the payment's bank reference.
+    /// </summary>
+    SettlementPaidExternally,
 }

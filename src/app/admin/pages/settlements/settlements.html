@@ -2,17 +2,9 @@
   <header class="page-head">
     <div class="page-head__left">
       <h1 class="page-head__title">{{ t.navSettlements }}</h1>
-      <p class="page-head__sub">{{ t.settlementsSub }}</p>
+      <p class="page-head__sub">{{ seesAllParks() ? t.settlementsSub : t.stlParkViewSub }}</p>
     </div>
     <div class="page-head__actions">
-      @if (isSuperAdmin()) {
-        <button class="btn-admin btn-admin--brand" (click)="askRunNow()" [disabled]="busy() !== null || confirmRun()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="5 3 19 12 5 21 5 3"/>
-          </svg>
-          <span>@if (busy() === 'run') { {{ t.runningSettlement }} } @else { {{ t.runSettlementNow }} }</span>
-        </button>
-      }
       <button class="btn-admin btn-admin--secondary" (click)="refresh()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12a9 9 0 1 1-3-6.7L21 8"/>
@@ -29,147 +21,600 @@
       <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="loading()">{{ t.tryAgain }}</button>
     </div>
   }
-  @if (message()) { <div class="stl-message">{{ message() }}</div> }
-  @if (confirmRun()) {
-    <div class="confirm-inline">
-      <span class="confirm-inline__text">{{ t.confirmSettleNow }}</span>
-      <span class="confirm-inline__actions">
-        <button class="btn-admin btn-admin--secondary" (click)="cancelRunNow()">{{ t.cancel }}</button>
-        <button class="btn-admin btn-admin--brand" (click)="runNow()" [disabled]="busy() !== null">{{ t.confirm }}</button>
-      </span>
-    </div>
+  @if (message(); as msg) {
+    <div class="stl-message" [class.stl-message--error]="msg.error" role="status">{{ msg.text }}</div>
   }
 
-  @if (summary(); as s) {
-    <!-- ── Tiles ─────────────────────────────────────────────────── -->
-    <section class="stl-tiles">
-      <div class="stl-tile stl-tile--dark">
-        <span class="stl-tile__label">{{ t.settledToSwich }}</span>
-        <span class="stl-tile__value gel">{{ formatGel(s.settledToSwich, 2) }}</span>
-        <span class="stl-tile__sub">{{ s.park.name }} · {{ t.allTime }}</span>
-      </div>
-
-      <div class="stl-tile stl-tile--phase">
-        @if (hasPhase1()) {
-          <span class="stl-tile__label">{{ t.phase1Progress }}</span>
-          <span class="stl-tile__value gel">
-            {{ formatGel(s.phase1Progress ?? 0, 0) }}
-            <span class="stl-tile__of">{{ t.phase1Of }} {{ formatGel(s.park.phase1CapGel ?? 0, 0) }}</span>
-          </span>
-          <div class="stl-bar"><div class="stl-bar__fill" [style.width.%]="phasePct()"></div></div>
-          <span class="stl-tile__sub">
-            @if (s.inPhase1) {
-              {{ formatGel(s.phase1Remaining ?? 0, 0) }} {{ t.phase1Remaining }} {{ s.park.phase1SharePercent }}% → {{ s.park.swichSharePercent }}%
-            } @else { {{ t.phase1Done }} {{ s.park.swichSharePercent }}% }
-          </span>
-        } @else {
-          <span class="stl-tile__label">{{ t.steadyShare }}</span>
-          <span class="stl-tile__value gel">{{ s.park.swichSharePercent }}%</span>
-          <span class="stl-tile__sub">{{ t.ofEveryFee }}</span>
-        }
-      </div>
-
-      <div class="stl-tile">
-        <span class="stl-tile__label">{{ t.waitingTonight }}</span>
-        <span class="stl-tile__value gel">{{ formatGel(s.unsettled.fees, 2) }}</span>
-        <span class="stl-tile__sub">{{ s.unsettled.count }} {{ t.cashoutsLabel }} · {{ t.unsettledFees }}</span>
-      </div>
-
-      <div class="stl-tile" [class.stl-tile--alert]="parkFailed().count > 0">
-        <span class="stl-tile__label">{{ t.failedSettlements }}</span>
-        <span class="stl-tile__value gel">{{ parkFailed().count }}</span>
-        <span class="stl-tile__sub">{{ formatGel(parkFailed().swichShare, 2) }} {{ t.needsRetry }}</span>
-      </div>
-    </section>
-
-    <!-- ── Daily fees ─────────────────────────────────────────────── -->
-    <section class="stl-card">
-      <header class="stl-card__head"><h2>{{ t.dailyFees }} · {{ s.park.name }}</h2></header>
-      <div class="stl-table stl-table--daily">
-        <div class="stl-table__head">
-          <span>{{ t.colDate }}</span><span>{{ t.cashoutsLabel }}</span><span>{{ t.colVolume }}</span>
-          <span>{{ t.colFees }}</span><span>{{ t.colSettlement }}</span><span>{{ t.colSwichShare }}</span>
-        </div>
-        @for (d of s.daily; track d.date) {
-          <div class="stl-table__row" [class.stl-table__row--muted]="d.cashouts === 0">
-            <span class="stl-table__cell stl-table__cell--date" [attr.data-label]="t.colDate">{{ formatDate(d.date) }}</span>
-            <span class="stl-table__cell gel" [attr.data-label]="t.cashoutsLabel">{{ d.cashouts }}</span>
-            <span class="stl-table__cell gel" [attr.data-label]="t.colVolume">{{ formatGel(d.volume, 0) }}</span>
-            <span class="stl-table__cell gel" [attr.data-label]="t.colFees">{{ formatGel(d.fees, 2) }}</span>
-            <span class="stl-table__cell" [attr.data-label]="t.colSettlement">
-              @if (d.settlementStatus) {
-                <span class="stl-pill" [attr.data-status]="statusKey(d.settlementStatus)">{{ statusLabel(d.settlementStatus) }}</span>
-                @if (coversOtherDays(d)) {
-                  <span class="stl-covers">{{ t.settlementCovers }} {{ d.settlementCashouts }} {{ t.cashoutsLabel }} · {{ formatGel(d.settlementFees ?? 0, 2) }}</span>
-                }
-              } @else if (d.cashouts > 0) { <span class="stl-muted">{{ t.notSettled }}</span> } @else { — }
-            </span>
-            <span class="stl-table__cell gel" [attr.data-label]="t.colSwichShare">{{ d.swichShare !== null ? formatGel(d.swichShare, 2) : '—' }}</span>
-          </div>
-        }
-      </div>
-    </section>
-  }
-
-  <!-- ── Monthly invoices ─────────────────────────────────────────── -->
-  @if (summary(); as s) {
-    <section class="stl-card stl-card--months">
-      <header class="stl-card__head">
-        <div>
-          <h2>{{ t.monthlyInvoices }} · {{ s.park.name }}</h2>
-          <p class="stl-card__sub">{{ t.monthlyInvoicesSub }}</p>
-        </div>
-      </header>
-      @if (monthError()) { <div class="stl-message stl-message--error">{{ monthError() }}</div> }
-      @if (months().length === 0 && !loading()) {
-        <p class="stl-empty">{{ t.noMonthlyInvoices }}</p>
+  @if (seesAllParks()) {
+    <!-- ── Month picker ─────────────────────────────────────────── -->
+    <section class="stl-monthbar" [attr.aria-label]="t.stlMonthLabel">
+      <button class="stl-monthbar__step" (click)="prevMonth()" [attr.aria-label]="t.stlPrevMonth" [title]="t.stlPrevMonth">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <label class="stl-monthbar__pick">
+        <span class="stl-monthbar__label">{{ t.stlMonthLabel }}</span>
+        <select class="stl-monthbar__select" [value]="month()" (change)="pickMonth($any($event.target).value)">
+          @for (m of monthOptions(); track m) {
+            <option [value]="m" [selected]="m === month()">{{ formatMonthLong(m) }}</option>
+          }
+        </select>
+      </label>
+      <button class="stl-monthbar__step" (click)="nextMonth()" [disabled]="!canGoNext()" [attr.aria-label]="t.stlNextMonth" [title]="t.stlNextMonth">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+      @if (view(); as v) {
+        <span class="stl-monthbar__ref"><code>{{ v.invoiceRef }}</code> · {{ t.stlDueBy }} {{ formatDate(v.dueDate) }}</span>
       }
-      <div class="stl-months">
-        @for (m of months(); track m.month) {
-          <div class="stl-month" [class.stl-month--attention]="m.outstanding > 0" [attr.data-month]="m.month">
-            <div class="stl-month__main">
-              <span class="stl-month__title">
-                {{ formatMonth(m.month) }}
-                <code class="stl-month__ref">{{ m.invoiceRef }}</code>
-                @if (m.isCurrent) { <span class="stl-pill" data-status="pending">{{ t.interimMonth }}</span> }
-              </span>
-              <span class="stl-month__desc">
-                {{ m.settlements }} {{ t.settlementsLabel }} · {{ m.cashouts }} {{ t.cashoutsLabel }} · {{ t.colFees }} <b class="gel">{{ formatGel(m.feeTotal, 2) }}</b>
+    </section>
+
+    @if (viewError()) {
+      <div class="load-banner" role="alert">
+        <span class="load-banner__text">{{ viewError() }}</span>
+        <button class="btn-admin btn-admin--secondary" (click)="refresh()" [disabled]="viewLoading()">{{ t.tryAgain }}</button>
+      </div>
+    }
+    @if (viewLoading() && !view()) {
+      <div class="skel skel--card"></div>
+    }
+
+    @if (view(); as v) {
+      @if (v.statements.length === 0 && !licEditing()) {
+        <div class="stl-card stl-empty stl-nolicensee">
+          <span>{{ t.stlNoLicensee }}</span>
+          @if (isSuperAdmin()) {
+            <button class="btn-admin btn-admin--brand btn-admin--sm" (click)="startLicCreate()">{{ t.stlLicCreate }}</button>
+          }
+        </div>
+      }
+
+      <!-- ── Licensee statement ──────────────────────────────────── -->
+      @for (s of v.statements; track s.licenseeId) {
+        <section class="stl-card stl-statement" [attr.data-preview]="s.isPreview" [attr.data-status]="s.status ?? 'preview'">
+          <header class="stl-card__head stl-statement__head">
+            <div class="stl-statement__title">
+              <h2>{{ t.stlStatementTitle }} · {{ s.licenseeName }}</h2>
+              <p class="stl-card__sub">
+                <code>{{ s.invoiceRef }}</code> · {{ formatMonthLong(s.month) }} · {{ s.cashoutCount }} {{ t.cashoutsLabel }}
+              </p>
+            </div>
+            <div class="stl-statement__badges">
+              <span class="stl-phase" [attr.data-phase]="s.phase">{{ phaseLabel(s.phase) }}</span>
+              @if (s.isPreview) {
+                <span class="stl-pill" data-status="preview">{{ t.stlPreviewBadge }}</span>
+              } @else {
+                <span class="stl-pill" [attr.data-status]="statusKey(s.status ?? '')">{{ statusLabel(s.status ?? '') }}</span>
+              }
+            </div>
+          </header>
+
+          @if (previewNote(s); as note) { <p class="stl-note">{{ note }}</p> }
+
+          <!-- Figures -->
+          <div class="stl-figures">
+            <div class="stl-figure">
+              <span class="stl-figure__label">{{ t.stlFeeIncome }} · F</span>
+              <span class="stl-figure__value gel">{{ formatGel(s.feeIncome) }}</span>
+              <span class="stl-figure__sub">{{ s.cashoutCount }} {{ t.cashoutsLabel }}</span>
+            </div>
+            <div class="stl-figure">
+              <span class="stl-figure__label">{{ t.stlLicenseeCosts }} · CL</span>
+              <span class="stl-figure__value gel">{{ formatGel(s.licenseeCosts) }}</span>
+              <span class="stl-figure__sub">{{ t.stlInvoicesCount.replace('{n}', '' + costsOf(s, 'Licensee').length) }}</span>
+            </div>
+            <div class="stl-figure">
+              <span class="stl-figure__label">{{ t.stlSwichCosts }} · CS</span>
+              <span class="stl-figure__value gel">{{ formatGel(s.swichCosts) }}</span>
+              <span class="stl-figure__sub">{{ t.stlInvoicesCount.replace('{n}', '' + costsOf(s, 'Swich').length) }}</span>
+            </div>
+            <div class="stl-figure stl-figure--due">
+              <span class="stl-figure__label">{{ t.stlDueToSwich }} · D</span>
+              <span class="stl-figure__value gel">{{ formatGel(s.due) }}</span>
+              <span class="stl-figure__sub">
+                @if (s.isPreview) { {{ t.stlDueBy }} {{ formatDate(s.dueDate) }} }
+                @else { {{ transferredText(s) }} }
               </span>
             </div>
-            <div class="stl-month__figures">
-              <span class="stl-month__figure">
-                <span class="stl-month__figure-label">{{ t.colSwichShare }}</span>
-                <span class="stl-month__figure-value gel">{{ formatGel(m.swichShare, 2) }}</span>
-              </span>
-              <span class="stl-month__figure">
-                <span class="stl-month__figure-label">{{ t.transferredLabel }}</span>
-                <span class="stl-month__figure-value gel">{{ formatGel(m.transferred, 2) }}</span>
-              </span>
-              <span class="stl-month__figure" [class.stl-month__figure--warn]="m.outstanding > 0">
-                <span class="stl-month__figure-label">{{ t.outstandingLabel }}</span>
-                <span class="stl-month__figure-value gel">{{ formatGel(m.outstanding, 2) }}</span>
-              </span>
+          </div>
+
+          <div class="stl-statement__body">
+            <!-- Calculation -->
+            <div class="stl-formula">
+              <h3 class="stl-section-title">{{ t.stlFormula }}</h3>
+              <dl class="stl-formula__list">
+                @if (s.carryIn !== 0) {
+                  <div class="stl-formula__line">
+                    <dt>{{ t.stlCarryIn }}</dt><dd class="gel">{{ formatGel(s.carryIn) }}</dd>
+                  </div>
+                }
+                @for (line of formulaLines(s); track $index) {
+                  <div class="stl-formula__line" [class.stl-formula__line--strong]="line.strong">
+                    <dt>{{ line.label }}</dt><dd class="gel">{{ line.expr }}</dd>
+                  </div>
+                }
+                @if (s.carryOut !== 0) {
+                  <div class="stl-formula__line">
+                    <dt>{{ t.stlCarryOut }}</dt><dd class="gel">{{ formatGel(s.carryOut) }}</dd>
+                  </div>
+                }
+              </dl>
+              @if (carryNote(s); as cn) { <p class="stl-note stl-note--inline">{{ cn }}</p> }
             </div>
-            <div class="stl-month__action">
-              <button class="btn-admin btn-admin--secondary" (click)="openMonthly(m, $event)" [disabled]="openingMonth() !== null">
+
+            <!-- Barrier -->
+            <div class="stl-barrier">
+              <h3 class="stl-section-title">{{ t.stlBarrierProgress }}</h3>
+              <div class="stl-barrier__value gel">
+                {{ formatGel(barrierFilled(s), 2) }} <span class="stl-barrier__of">/ {{ formatGel(s.barrierGel, 0) }}</span>
+              </div>
+              <div class="stl-bar stl-bar--split" role="img"
+                   [attr.aria-label]="t.stlBarrierProgress + ' ' + formatGel(barrierFilled(s)) + ' / ' + formatGel(s.barrierGel, 0)">
+                <div class="stl-bar__fill" [style.width.%]="barrierBefore(s)"></div>
+                <div class="stl-bar__fill stl-bar__fill--month" [style.width.%]="barrierThisMonth(s)"></div>
+              </div>
+              <div class="stl-barrier__legend">
+                <span><i class="stl-dot"></i>{{ formatGel(s.barrierBefore) }}</span>
+                <span><i class="stl-dot stl-dot--month"></i>{{ t.stlBarrierThisMonth }} {{ formatGel(s.entitlement) }}</span>
+              </div>
+              <p class="stl-barrier__state">
+                @if (s.barrierRemaining > 0) { {{ t.stlBarrierRemaining.replace('{amount}', formatGel(s.barrierRemaining)) }} }
+                @else { {{ t.stlBarrierFilled }} }
+              </p>
+              <p class="stl-muted">{{ t.stlBarrierNote }}</p>
+            </div>
+          </div>
+
+          <!-- Per-park split -->
+          <div class="stl-split">
+            <div class="stl-split__head">
+              <h3 class="stl-section-title">{{ t.stlParks }}</h3>
+              <span class="stl-muted">{{ t.stlParksSub }}</span>
+            </div>
+            @if (s.parks.length === 0) {
+              <p class="stl-empty stl-empty--tight">{{ t.stlNoParkFees }}</p>
+            } @else {
+              <div class="stl-table stl-table--split">
+                <div class="stl-table__head">
+                  <span>{{ t.stlColPark }}</span><span>{{ t.cashoutsLabel }}</span><span>{{ t.colFees }}</span>
+                  <span>{{ t.stlColShare }}</span><span>{{ t.colSwichShare }}</span><span>{{ t.stlColStatus }}</span><span></span>
+                </div>
+                @for (p of s.parks; track p.parkId) {
+                  <div class="stl-table__row" [class.stl-table__row--failed]="p.status === 'Failed'" [attr.data-park]="p.parkName">
+                    <span class="stl-table__cell stl-table__cell--date" [attr.data-label]="t.stlColPark">{{ p.parkName }}</span>
+                    <span class="stl-table__cell gel" [attr.data-label]="t.cashoutsLabel">{{ p.cashoutCount }}</span>
+                    <span class="stl-table__cell gel" [attr.data-label]="t.colFees">{{ formatGel(p.fees) }}</span>
+                    <span class="stl-table__cell gel" [attr.data-label]="t.stlColShare">{{ p.feeSharePercent }}%</span>
+                    <span class="stl-table__cell gel stl-strong" [attr.data-label]="t.colSwichShare">{{ formatGel(p.swichShare) }}</span>
+                    <span class="stl-table__cell" [attr.data-label]="t.stlColStatus">
+                      <span class="stl-pill" [attr.data-status]="parkStatusKey(p)">{{ parkStatusLabel(p, s) }}</span>
+                      @if (p.bankTransferId) { <code class="stl-ref">{{ p.bankTransferId }}</code> }
+                      @if (revokedNote(p.failureCode, true); as rn) { <span class="stl-revoked">{{ rn }}</span> }
+                      @else if (p.failureReason) { <span class="stl-fail">{{ p.failureReason }}</span> }
+                      @if (externalText(p.external); as ex) {
+                        <span class="stl-external">{{ ex }}@if (p.external?.reference) { · <code>{{ p.external?.reference }}</code> }</span>
+                      }
+                      @if (overdueText(p.overdue); as od) {
+                        <span class="stl-overdue">{{ od }}</span>
+                        @if (overdueTechnicalText(p.overdue); as tech) { <span class="stl-muted">{{ tech }}</span> }
+                      }
+                    </span>
+                    <span class="stl-table__cell stl-table__cell--actions">
+                      @if (p.status === 'Failed' && isSuperAdmin() && p.settlementId) {
+                        @if (!isRevoked(p.failureCode)) {
+                          <button class="btn-admin btn-admin--brand btn-admin--sm" (click)="retryPark(p)" [disabled]="busy() !== null">
+                            @if (busy() === p.settlementId) { {{ t.runningSettlement }} } @else { {{ t.retrySettlement }} }
+                          </button>
+                        }
+                        <button class="btn-admin btn-admin--secondary btn-admin--sm stl-ext-btn" (click)="openExternal('statement', p.settlementId, p.swichShare, true)"
+                                [disabled]="busy() !== null || extOpenAt('statement', p.settlementId)">{{ t.stlExtOpen }}</button>
+                      }
+                      @if (p.settlementId) {
+                        <button class="btn-admin btn-admin--secondary btn-admin--sm" (click)="openParkInvoice(p.parkId, s.month)"
+                                [disabled]="openingMonth() !== null">{{ t.stlInvoice }}</button>
+                      }
+                    </span>
+                  </div>
+                  @if (extOpenAt('statement', p.settlementId)) {
+                    <ng-container [ngTemplateOutlet]="extFormTpl" />
+                  }
+                }
+              </div>
+            }
+          </div>
+
+          <!-- Actions -->
+          <footer class="stl-statement__actions">
+            @if (canSettle(s)) {
+              @if (confirmRun() === s.licenseeId) {
+                <div class="confirm-inline">
+                  <span class="confirm-inline__text">{{ t.stlConfirmSettleMonth.replace('{ref}', s.invoiceRef) }}</span>
+                  <span class="confirm-inline__actions">
+                    <button class="btn-admin btn-admin--secondary" (click)="cancelSettle()">{{ t.cancel }}</button>
+                    <button class="btn-admin btn-admin--brand" (click)="settle(s)" [disabled]="busy() !== null">{{ t.confirm }}</button>
+                  </span>
+                </div>
+              } @else {
+                <button class="btn-admin btn-admin--brand stl-settle-btn" (click)="askSettle(s)" [disabled]="busy() !== null">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>@if (busy() === 'run') { {{ t.runningSettlement }} } @else { {{ t.runSettlementNow }} }</span>
+                </button>
+              }
+            }
+            @if (!s.isPreview && s.statementId) {
+              <button class="btn-admin btn-admin--secondary stl-report-btn" (click)="openReport(s)" [disabled]="busy() !== null">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
                 </svg>
-                <span>@if (openingMonth() === m.month) { {{ t.openingPdf }} } @else { {{ t.openPdf }} }</span>
+                <span>{{ t.stlDownloadReport }}</span>
               </button>
+            }
+          </footer>
+        </section>
+
+        <!-- ── Shared costs ──────────────────────────────────────── -->
+        <section class="stl-card stl-costs">
+          <header class="stl-card__head">
+            <div>
+              <h2>{{ t.stlCosts }} · {{ s.invoiceRef }}</h2>
+              <p class="stl-card__sub">{{ t.stlCostsSub }}</p>
             </div>
-          </div>
-        }
-      </div>
-    </section>
+            <button class="btn-admin btn-admin--secondary stl-add-cost" (click)="toggleCostForm()" [disabled]="busy() !== null">
+              {{ showCostForm() ? t.cancel : t.stlAddCost }}
+            </button>
+          </header>
+
+          <!-- Disputed entries first, to both sides: nothing counts them until the side that held them lets go. -->
+          @if (s.heldCosts.length > 0) {
+            <div class="stl-held" role="status">
+              <p class="stl-held__title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="10" y1="9" x2="10" y2="15"/><line x1="14" y1="9" x2="14" y2="15"/></svg>
+                <span>{{ t.stlHeldTitle.replace('{n}', '' + s.heldCosts.length) }}</span>
+              </p>
+              <p class="stl-held__sub">{{ t.stlHeldSub }}</p>
+              <ul class="stl-cost-list">
+                @for (c of s.heldCosts; track c.id) {
+                  <ng-container [ngTemplateOutlet]="costRowTpl" [ngTemplateOutletContext]="{ $implicit: c, where: 'held', showSide: true }" />
+                }
+              </ul>
+            </div>
+          }
+
+          @if (showCostForm()) {
+            <form class="stl-cost-form" (submit)="$event.preventDefault(); addCost()">
+              <p class="stl-muted stl-cost-form__side">{{ isSuperAdmin() ? t.stlAddCostSwichHint : t.stlAddCostLicenseeHint }} {{ cutoffHint() }}</p>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlCostCategory }}</span>
+                <select class="stl-field__input" name="category" [value]="costForm().category" (change)="setCostField('category', $any($event.target).value)">
+                  @for (c of categories; track c) { <option [value]="c" [selected]="c === costForm().category">{{ categoryLabel(c) }}</option> }
+                </select>
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlCostVendor }}</span>
+                <input class="stl-field__input" name="vendor" maxlength="200" [value]="costForm().vendor" (input)="setCostField('vendor', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlCostInvoiceNo }}</span>
+                <input class="stl-field__input" name="invoiceNumber" maxlength="100" [value]="costForm().invoiceNumber" (input)="setCostField('invoiceNumber', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlCostDate }}</span>
+                <input class="stl-field__input" type="date" name="invoiceDate" [max]="today" [value]="costForm().invoiceDate" (input)="setCostField('invoiceDate', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlCostAmount }}</span>
+                <input class="stl-field__input gel" name="amount" inputmode="decimal" [value]="costForm().amount" (input)="setCostField('amount', $any($event.target).value)" />
+              </label>
+              <label class="stl-field stl-field--wide">
+                <span class="stl-field__label">{{ t.stlCostNote }}</span>
+                <input class="stl-field__input" name="note" maxlength="500" [value]="costForm().note" (input)="setCostField('note', $any($event.target).value)" />
+              </label>
+              @if (costError()) { <p class="stl-fail stl-field--wide" role="alert">{{ costError() }}</p> }
+              <div class="stl-cost-form__actions stl-field--wide">
+                <button type="submit" class="btn-admin btn-admin--brand" [disabled]="busy() !== null">
+                  @if (busy() === 'cost') { {{ t.saving }} } @else { {{ t.stlCostAdd }} }
+                </button>
+              </div>
+            </form>
+          }
+
+          @if (s.costs.length === 0 && s.lateCosts.length === 0 && s.deletedCosts.length === 0) {
+            <p class="stl-empty">{{ t.stlNoCosts }}</p>
+          } @else {
+            @for (side of ['Licensee', 'Swich']; track side) {
+              @if (costsOf(s, $any(side)).length > 0) {
+                <h3 class="stl-costs__side">
+                  {{ side === 'Swich' ? t.stlPaidBySwich : t.stlPaidByLicensee }}
+                  <span class="gel">{{ formatGel(side === 'Swich' ? s.swichCosts : s.licenseeCosts) }}</span>
+                </h3>
+                <ul class="stl-cost-list">
+                  @for (c of costsOf(s, $any(side)); track c.id) {
+                    <ng-container [ngTemplateOutlet]="costRowTpl" [ngTemplateOutletContext]="{ $implicit: c, where: 'list', showSide: false }" />
+                  }
+                </ul>
+              }
+            }
+            @if (s.lateCosts.length > 0) {
+              <h3 class="stl-costs__side">{{ lateCostsTitle(s) }}</h3>
+              <ul class="stl-cost-list">
+                @for (c of s.lateCosts; track c.id) {
+                  <ng-container [ngTemplateOutlet]="costRowTpl" [ngTemplateOutletContext]="{ $implicit: c, where: 'list', showSide: true }" />
+                }
+              </ul>
+            }
+            @if (s.deletedCosts.length > 0) {
+              <h3 class="stl-costs__side">{{ t.stlDeletedCosts }}</h3>
+              <ul class="stl-cost-list">
+                @for (c of s.deletedCosts; track c.id) {
+                  <ng-container [ngTemplateOutlet]="costRowTpl" [ngTemplateOutletContext]="{ $implicit: c, where: 'list', showSide: true }" />
+                }
+              </ul>
+            }
+          }
+        </section>
+      }
+
+      <!-- ── Licensee details ──────────────────────────────────────── -->
+      @if (licensee() || licEditing()) {
+        <section class="stl-card stl-licensee">
+          <header class="stl-card__head">
+            <div>
+              <h2>{{ t.stlLicensee }}@if (licensee(); as l0) { · {{ l0.name }} }</h2>
+              <p class="stl-card__sub">{{ t.stlLicenseeSub }}</p>
+            </div>
+            @if (isSuperAdmin() && !licEditing()) {
+              <button class="btn-admin btn-admin--secondary" (click)="startLicEdit()">{{ t.edit }}</button>
+            }
+          </header>
+
+          @if (!licEditing() && licensee(); as l) {
+            <dl class="stl-facts">
+              <div><dt>{{ t.stlLicTaxId }}</dt><dd>{{ l.taxId ?? t.stlLicNotSet }}</dd></div>
+              <div><dt>{{ t.stlLicEmail }}</dt><dd>{{ l.email ?? t.stlLicNotSet }}</dd></div>
+              <div><dt>{{ t.stlLicIban }}</dt><dd><code>{{ l.iban ?? t.stlLicNotSet }}</code></dd></div>
+              <div>
+                <dt>{{ t.stlLicLaunch }}</dt>
+                <dd>
+                  {{ l.launchDate ? formatDate(l.launchDate) : t.stlLicNotSet }}
+                  @if (launchLockText(l); as lt) {
+                    <span class="stl-lock stl-lock--launch" [class.stl-lock--open]="!l.launchDateLocked">
+                      @if (l.launchDateLocked) {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+                      }
+                      {{ lt }}
+                    </span>
+                  }
+                </dd>
+              </div>
+              <div><dt>{{ t.stlLicBarrier }}</dt><dd class="gel">{{ formatGel(l.barrierGel, 0) }}</dd></div>
+              <div><dt>{{ t.stlLicShare }}</dt><dd class="gel">{{ l.swichSharePercent }}%</dd></div>
+              <div><dt>{{ t.stlLicEntitled }}</dt><dd class="gel">{{ formatGel(l.barrier.entitled) }}</dd></div>
+              <div><dt>{{ t.stlLicTransferred }}</dt><dd class="gel">{{ formatGel(l.barrier.transferred) }}</dd></div>
+              @if (l.barrier.paidExternally) {
+                <div><dt>{{ t.stlLicPaidExternally }}</dt><dd class="gel">{{ formatGel(l.barrier.paidExternally) }}</dd></div>
+              }
+            </dl>
+            @if (l.launchDateHistory.length > 0) {
+              <div class="stl-licensee__history">
+                <span class="stl-section-title">{{ t.stlLicLaunchHistory }}</span>
+                <ul class="stl-launch-log">
+                  @for (h of l.launchDateHistory; track h.id) {
+                    <li class="stl-launch-log__item">
+                      <span class="stl-launch-log__move">{{ launchMoveText(h) }}</span>
+                      <span class="stl-muted">{{ formatStamp(h.at) }} · {{ actorLabel(h.actor) }}</span>
+                      @if (h.reason) { <span class="stl-launch-log__why">{{ h.reason }}</span> }
+                    </li>
+                  }
+                </ul>
+              </div>
+            }
+            <div class="stl-licensee__parks">
+              <span class="stl-section-title">{{ t.stlLicParks }}</span>
+              @if (l.parks.length === 0) { <span class="stl-muted">{{ t.stlLicNoParks }}</span> }
+              <ul class="stl-chips">
+                @for (p of l.parks; track p.id) { <li class="stl-chip">{{ p.name }}</li> }
+              </ul>
+            </div>
+          } @else {
+            <form class="stl-lic-form" (submit)="$event.preventDefault(); saveLicensee()">
+              <label class="stl-field stl-field--wide">
+                <span class="stl-field__label">{{ t.stlLicName }}</span>
+                <input class="stl-field__input" maxlength="200" [value]="licForm().name" (input)="setLicField('name', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlLicTaxId }}</span>
+                <input class="stl-field__input" inputmode="numeric" [value]="licForm().taxId" (input)="setLicField('taxId', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlLicEmail }}</span>
+                <input class="stl-field__input" type="email" [value]="licForm().email" (input)="setLicField('email', $any($event.target).value)" />
+              </label>
+              <label class="stl-field stl-field--wide">
+                <span class="stl-field__label">{{ t.stlLicIban }}</span>
+                <input class="stl-field__input" [value]="licForm().iban" (input)="setLicField('iban', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlLicLaunch }}</span>
+                <!-- Once its day has passed the launch date is locked; before that it moves only to a day still ahead. -->
+                <input class="stl-field__input" type="date" name="launchDate" [min]="today" [disabled]="licensee()?.launchDateLocked ?? false"
+                       [value]="licForm().launchDate" (input)="setLicField('launchDate', $any($event.target).value)" />
+                <span class="stl-field__hint">{{ licensee()?.launchDateLocked ? t.stlLicLaunchLockedHint : t.stlLicLaunchHint }}</span>
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlLicBarrier }}</span>
+                <input class="stl-field__input gel" type="number" min="0" step="100" [value]="licForm().barrierGel" (input)="setLicField('barrierGel', $any($event.target).value)" />
+              </label>
+              <label class="stl-field">
+                <span class="stl-field__label">{{ t.stlLicShare }}</span>
+                <input class="stl-field__input gel" type="number" min="0" max="100" step="1" [value]="licForm().swichSharePercent" (input)="setLicField('swichSharePercent', $any($event.target).value)" />
+              </label>
+              @if (reasonShown()) {
+                <label class="stl-field stl-field--wide">
+                  <span class="stl-field__label">{{ launchChanged() ? t.stlLicReasonRequired : t.stlLicReasonOptional }}</span>
+                  <input class="stl-field__input" name="reason" maxlength="500" [value]="licForm().reason" (input)="setLicField('reason', $any($event.target).value)" />
+                  <span class="stl-field__hint">{{ t.stlLicReasonHint }}</span>
+                </label>
+              }
+              @if (licError()) { <p class="stl-fail stl-field--wide" role="alert">{{ licError() }}</p> }
+              <div class="stl-cost-form__actions stl-field--wide">
+                <button type="button" class="btn-admin btn-admin--secondary" (click)="cancelLicEdit()">{{ t.cancel }}</button>
+                <button type="submit" class="btn-admin btn-admin--brand" [disabled]="busy() !== null">
+                  @if (busy() === 'lic') { {{ t.saving }} } @else { {{ t.save }} }
+                </button>
+              </div>
+            </form>
+          }
+        </section>
+      }
+
+      <!-- ── Change history (Swich + operator: the same record, §2.6) ── -->
+      @if (licenseeId(); as lid) {
+        <app-agreement-history [licenseeId]="lid" [refreshKey]="historyKey()" />
+      }
+
+      <!-- ── Swich-direct parks (Swich only) ───────────────────────── -->
+      @if (isSuperAdmin()) {
+        <section class="stl-card stl-direct">
+          <header class="stl-card__head">
+            <div>
+              <h2>{{ t.stlDirect }}</h2>
+              <p class="stl-card__sub">{{ t.stlDirectSub }}</p>
+            </div>
+          </header>
+          @if (v.direct.length === 0) {
+            <p class="stl-empty">{{ t.stlNoDirect }}</p>
+          } @else {
+            <div class="stl-table stl-table--split">
+              <div class="stl-table__head">
+                <span>{{ t.stlColPark }}</span><span>{{ t.cashoutsLabel }}</span><span>{{ t.colFees }}</span>
+                <span>{{ t.swichShareLabel }}</span><span>{{ t.colSwichShare }}</span><span>{{ t.stlColStatus }}</span><span></span>
+              </div>
+              @for (d of v.direct; track d.parkId) {
+                <div class="stl-table__row" [class.stl-table__row--failed]="d.status === 'Failed'">
+                  <span class="stl-table__cell stl-table__cell--date" [attr.data-label]="t.stlColPark">{{ d.parkName }}</span>
+                  <span class="stl-table__cell gel" [attr.data-label]="t.cashoutsLabel">{{ d.cashoutCount }}</span>
+                  <span class="stl-table__cell gel" [attr.data-label]="t.colFees">{{ formatGel(d.feeTotal) }}</span>
+                  <span class="stl-table__cell gel" [attr.data-label]="t.swichShareLabel">
+                    {{ d.swichSharePercent }}%@if (d.phase1CapGel !== null) { · {{ t.phase1Label }} {{ d.phase1SharePercent }}% }
+                  </span>
+                  <span class="stl-table__cell gel stl-strong" [attr.data-label]="t.colSwichShare">{{ formatGel(d.swichShare) }}</span>
+                  <span class="stl-table__cell" [attr.data-label]="t.stlColStatus">
+                    @if (d.status) {
+                      <span class="stl-pill" [attr.data-status]="statusKey(d.status)">{{ statusLabel(d.status) }}</span>
+                    } @else {
+                      <span class="stl-pill" data-status="preview">{{ t.stlPreviewBadge }}</span>
+                    }
+                    @if (revokedNote(d.failureCode, false); as rn) { <span class="stl-revoked">{{ rn }}</span> }
+                    @else if (d.failureReason) { <span class="stl-fail">{{ d.failureReason }}</span> }
+                    @if (externalText(d.external); as ex) {
+                      <span class="stl-external">{{ ex }}@if (d.external?.reference) { · <code>{{ d.external?.reference }}</code> }</span>
+                    }
+                    @if (overdueText(d.overdue); as od) { <span class="stl-overdue">{{ od }}</span> }
+                    @if (directBlockedText(d); as why) { <span class="stl-muted stl-blocked">{{ why }}</span> }
+                  </span>
+                  <span class="stl-table__cell stl-table__cell--actions">
+                    @if (canSettleDirect(d) && confirmDirect() !== d.parkId) {
+                      <button class="btn-admin btn-admin--brand btn-admin--sm" (click)="askSettleDirect(d)" [disabled]="busy() !== null">
+                        @if (busy() === 'direct:' + d.parkId) { {{ t.runningSettlement }} } @else { {{ t.runSettlementNow }} }
+                      </button>
+                    }
+                    @if (d.status === 'Failed' && d.settlementId) {
+                      @if (!isRevoked(d.failureCode)) {
+                        <button class="btn-admin btn-admin--brand btn-admin--sm" (click)="retryById(d.settlementId)" [disabled]="busy() !== null">{{ t.retrySettlement }}</button>
+                      }
+                      <button class="btn-admin btn-admin--secondary btn-admin--sm stl-ext-btn" (click)="openExternal('direct', d.settlementId, d.swichShare, false)"
+                              [disabled]="busy() !== null || extOpenAt('direct', d.settlementId)">{{ t.stlExtOpen }}</button>
+                    }
+                    @if (d.settlementId) {
+                      <button class="btn-admin btn-admin--secondary btn-admin--sm" (click)="openParkInvoice(d.parkId, d.month)" [disabled]="openingMonth() !== null">{{ t.stlInvoice }}</button>
+                    }
+                  </span>
+                </div>
+                @if (confirmDirect() === d.parkId) {
+                  <div class="confirm-inline stl-direct__confirm">
+                    <span class="confirm-inline__text">
+                      {{ t.stlConfirmSettleDirect.replace('{park}', d.parkName).replace('{ref}', v.invoiceRef).replace('{amount}', formatGel(d.swichShare)) }}
+                    </span>
+                    <span class="confirm-inline__actions">
+                      <button class="btn-admin btn-admin--secondary" (click)="cancelSettleDirect()">{{ t.cancel }}</button>
+                      <button class="btn-admin btn-admin--brand" (click)="settleDirect(d)" [disabled]="busy() !== null">{{ t.confirm }}</button>
+                    </span>
+                  </div>
+                }
+                @if (extOpenAt('direct', d.settlementId)) {
+                  <ng-container [ngTemplateOutlet]="extFormTpl" />
+                }
+              }
+            </div>
+          }
+        </section>
+      }
+    }
   }
 
-  <!-- ── History ──────────────────────────────────────────────────── -->
+  <!-- ── Monthly invoices of the current park (everyone) ──────────── -->
+  <section class="stl-card stl-card--months">
+    <header class="stl-card__head">
+      <div>
+        <h2>{{ t.monthlyInvoices }} · {{ currentParkName() }}</h2>
+        <p class="stl-card__sub">{{ t.monthlyInvoicesSub }}</p>
+      </div>
+    </header>
+    @if (monthError()) { <div class="stl-message stl-message--error">{{ monthError() }}</div> }
+    @if (months().length === 0 && !loading()) {
+      <p class="stl-empty">{{ t.noMonthlyInvoices }}</p>
+    }
+    <div class="stl-months">
+      @for (m of months(); track m.month) {
+        <div class="stl-month" [class.stl-month--attention]="m.outstanding > 0" [attr.data-month]="m.month">
+          <div class="stl-month__main">
+            <span class="stl-month__title">
+              {{ formatMonth(m.month) }}
+              <code class="stl-month__ref">{{ m.invoiceRef }}</code>
+              @if (m.isCurrent) { <span class="stl-pill" data-status="pending">{{ t.interimMonth }}</span> }
+              @if (m.status) { <span class="stl-pill" [attr.data-status]="statusKey(m.status)">{{ statusLabel(m.status) }}</span> }
+            </span>
+            <span class="stl-month__desc">
+              {{ m.cashouts }} {{ t.cashoutsLabel }} · {{ t.colFees }} <b class="gel">{{ formatGel(m.feeTotal, 2) }}</b>
+            </span>
+            @if (externalText(m.external); as ex) {
+              <span class="stl-external">{{ ex }}@if (m.external?.reference) { · <code>{{ m.external?.reference }}</code> }</span>
+            }
+            @if (revokedNote(m.failureCode, !!m.viaLicensee); as rn) { <span class="stl-revoked">{{ rn }}</span> }
+            @if (overdueText(m.overdue); as od) { <span class="stl-overdue">{{ od }}</span> }
+            @if (m.splitRegimes) { <span class="stl-muted stl-blocked">{{ t.stlSplitRegimes }}</span> }
+          </div>
+          <div class="stl-month__figures">
+            <span class="stl-month__figure">
+              <span class="stl-month__figure-label">{{ t.colSwichShare }}</span>
+              <span class="stl-month__figure-value gel">{{ formatGel(m.swichShare, 2) }}</span>
+            </span>
+            <span class="stl-month__figure">
+              <span class="stl-month__figure-label">{{ t.transferredLabel }}</span>
+              <span class="stl-month__figure-value gel">{{ formatGel(m.transferred, 2) }}</span>
+            </span>
+            <span class="stl-month__figure" [class.stl-month__figure--warn]="m.outstanding > 0">
+              <span class="stl-month__figure-label">{{ t.outstandingLabel }}</span>
+              <span class="stl-month__figure-value gel">{{ formatGel(m.outstanding, 2) }}</span>
+            </span>
+          </div>
+          <div class="stl-month__action">
+            <button class="btn-admin btn-admin--secondary" (click)="openMonthly(m, $event)" [disabled]="openingMonth() !== null">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                <line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
+              </svg>
+              <span>@if (openingMonth() === m.month) { {{ t.openingPdf }} } @else { {{ t.openPdf }} }</span>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </section>
+
+  <!-- ── Transfer history ─────────────────────────────────────────── -->
   <section class="stl-card">
     <header class="stl-card__head">
-      <h2>{{ t.settlementHistory }}</h2>
+      <h2>{{ t.stlTransferHistory }}</h2>
       @if (seesAllParks()) {
         <div class="stl-scope">
           <button class="stl-scope__btn" [class.stl-scope__btn--on]="!scopeAll()" (click)="setScopeAll(false)">{{ t.thisPark }}</button>
@@ -186,11 +631,10 @@
       @for (st of settlements(); track st.id) {
         <div class="stl-row" [class.stl-row--failed]="st.status === 'Failed'" [class.stl-row--open]="expanded() === st.id" (click)="toggleExpand(st)">
           <div class="stl-row__main">
-            <span class="stl-row__date">{{ formatDate(st.settlementDate) }}</span>
+            <span class="stl-row__date">{{ rowDate(st) }}</span>
             @if (scopeAll()) { <span class="stl-row__park">{{ st.parkName }}</span> }
-            <span class="stl-row__desc">{{ st.cashoutCount }} {{ t.cashoutsLabel }} · {{ t.colFees }} <b class="gel">{{ formatGel(st.feeTotal, 2) }}</b>
-              @if (st.phase1Fees > 0 && st.phase2Fees > 0) { <span class="stl-muted">({{ t.phaseSplit }}: {{ formatGel(st.phase1Fees, 2) }} / {{ formatGel(st.phase2Fees, 2) }})</span> }
-            </span>
+            <span class="stl-row__desc">{{ st.cashoutCount }} {{ t.cashoutsLabel }} · {{ t.colFees }} <b class="gel">{{ formatGel(st.feeTotal, 2) }}</b></span>
+            @if (overdueText(st.overdue); as od) { <span class="stl-overdue">{{ od }}</span> }
           </div>
           <div class="stl-row__amount">
             <span class="stl-row__swich gel">{{ formatGel(st.swichShare, 2) }}</span>
@@ -198,15 +642,25 @@
           </div>
           <div class="stl-row__status">
             <span class="stl-pill" [attr.data-status]="statusKey(st.status)">{{ statusLabel(st.status) }}</span>
-            <span class="stl-row__ref">{{ st.bankTransferId ?? st.invoiceRef }}</span>
+            <span class="stl-row__ref">{{ rowRef(st) }}</span>
+            @if (revokedNote(st.failureCode, !!st.monthlyStatementId); as rn) { <span class="stl-revoked">{{ rn }}</span> }
           </div>
           <div class="stl-row__action" (click)="$event.stopPropagation()">
             @if (st.status === 'Failed' && isSuperAdmin()) {
-              <button class="btn-admin btn-admin--brand" (click)="retry(st, $event)" [disabled]="busy() !== null">
-                @if (busy() === st.id) { {{ t.runningSettlement }} } @else { {{ t.retrySettlement }} }
-              </button>
+              @if (!isRevoked(st.failureCode)) {
+                <button class="btn-admin btn-admin--brand" (click)="retry(st, $event)" [disabled]="busy() !== null">
+                  @if (busy() === st.id) { {{ t.runningSettlement }} } @else { {{ t.retrySettlement }} }
+                </button>
+              }
+              <button class="btn-admin btn-admin--secondary stl-ext-btn" (click)="openExternal('history', st.id, st.swichShare, !!st.monthlyStatementId)"
+                      [disabled]="busy() !== null || extOpenAt('history', st.id)">{{ t.stlExtOpen }}</button>
             }
           </div>
+          @if (extOpenAt('history', st.id)) {
+            <div class="stl-row__ext" (click)="$event.stopPropagation()">
+              <ng-container [ngTemplateOutlet]="extFormTpl" />
+            </div>
+          }
 
           @if (expanded() === st.id) {
             <div class="stl-row__detail" (click)="$event.stopPropagation()">
@@ -214,10 +668,23 @@
                 <div><span class="stl-detail__label">{{ t.colTransfer }}</span><code>{{ st.bankTransferId ?? '—' }}</code></div>
                 <div><span class="stl-detail__label">{{ t.colIbanRoute }}</span><code>{{ st.sourceIban ?? '—' }} → {{ st.swichIban ?? '—' }}</code></div>
                 <div><span class="stl-detail__label">{{ t.attempts }}</span><span>{{ st.attemptCount }} · {{ formatDateTime(st.lastAttemptAt) }}</span></div>
-                <div><span class="stl-detail__label">{{ t.phaseSplit }}</span><span class="gel">{{ formatGel(st.phase1Fees, 2) }} / {{ formatGel(st.phase2Fees, 2) }}</span></div>
+                @if (st.phase1Fees !== null && st.phase2Fees !== null) {
+                  <!-- Absent for a park manager on a licensee park's row: the split is the licensee's barrier phase. -->
+                  <div><span class="stl-detail__label">{{ t.phaseSplit }}</span><span class="gel">{{ formatGel(st.phase1Fees, 2) }} / {{ formatGel(st.phase2Fees, 2) }}</span></div>
+                }
               </div>
               <p class="stl-detail__desc">{{ st.description }}</p>
               @if (st.failureReason) { <p class="stl-detail__error">{{ st.failureReason }}</p> }
+              @if (externalText(st.external); as ex) {
+                <!-- §2.6: Swich and the operator see the whole record; a park manager who paid and when. -->
+                <div class="stl-detail__external">
+                  <span class="stl-external">{{ ex }}@if (st.external?.reference) { · <code>{{ st.external?.reference }}</code> }</span>
+                  @if (st.external?.note) { <span class="stl-detail__desc">{{ st.external?.note }}</span> }
+                  @if (st.external?.recordedBy) {
+                    <span class="stl-muted">{{ t.stlExtRecordedBy.replace('{who}', st.external?.recordedBy ?? '').replace('{when}', formatDateTime(st.external?.recordedAt)) }}</span>
+                  }
+                </div>
+              }
 
               <h4 class="stl-detail__sub">{{ t.coveredCashouts }}</h4>
               @if (expandedLoading()) { <p class="stl-muted">{{ t.loadingCashouts }}</p> }
@@ -244,4 +711,129 @@
       }
     </div>
   </section>
+
+  <!-- ── One shared-cost entry: its state, its corrections, and what this side may do with it (inline forms) ── -->
+  <ng-template #costRowTpl let-c let-where="where" let-showSide="showSide">
+    <li class="stl-cost" [class.stl-cost--deleted]="c.state === 'deleted'" [class.stl-cost--held]="c.state === 'held'"
+        [class.stl-cost--correction]="c.isCorrection" [attr.data-cost]="c.invoiceNumber" [attr.data-state]="c.state">
+      <div class="stl-cost__main">
+        <span class="stl-cost__title">
+          @if (c.isCorrection) { <span class="stl-pill stl-tag" data-status="preview">{{ t.stlCorrectionTag }}</span> }
+          <span class="stl-cost__vendor">{{ c.vendor }}</span> <code>№ {{ c.invoiceNumber }}</code>
+        </span>
+        <span class="stl-cost__meta">
+          @if (showSide) { {{ sideLabel(c) }} · }{{ categoryLabel(c.category) }} · {{ formatDate(c.invoiceDate) }}@if (c.note) { · {{ c.note }} }
+        </span>
+        @if (c.isCorrection) {
+          <span class="stl-cost__meta">{{ correctionOfText(c) }}@if (c.reason) { — {{ c.reason }} }</span>
+        }
+        @if (c.held; as h) {
+          <span class="stl-cost__hold">{{ t.stlHeldBy.replace('{who}', actorLabel(h.by)).replace('{when}', formatDateTime(h.at)) }}: {{ h.reason }}</span>
+        }
+        @if (c.deleted; as d) {
+          <span class="stl-cost__deleted">{{ t.stlDeletedBy.replace('{who}', actorLabel(d.by)).replace('{when}', formatDateTime(d.at)) }}: {{ d.reason }}</span>
+        }
+        <!-- Corrections sit under the original they correct, whatever statement counts them. -->
+        @for (x of c.corrections; track x.id) {
+          <span class="stl-cost__fix">
+            {{ t.stlCorrectionTag }} <b class="gel">{{ signedGel(x.amount) }}</b>@if (x.reason) { — {{ x.reason }} } · {{ correctionStateText(x) }}
+          </span>
+        }
+      </div>
+      <span class="stl-cost__amount gel">{{ c.isCorrection ? signedGel(c.amount) : formatGel(c.amount) }}</span>
+      <div class="stl-cost__state">
+        @if (c.state === 'included') {
+          <span class="stl-lock" [title]="t.stlCostErr_cost_included">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            {{ costStateText(c) }}
+          </span>
+        } @else if (c.state === 'held') {
+          <span class="stl-pill" data-status="held">{{ t.stlCostHeldShort }}</span>
+        } @else if (c.state === 'deleted') {
+          <span class="stl-pill" data-status="deleted">{{ t.stlCostDeletedShort }}</span>
+        } @else if (costStateText(c); as st) {
+          <span class="stl-muted" [class.stl-cost__late]="c.missesNextRun">{{ st }}</span>
+        }
+        <!-- A held entry is acted on in the hold box at the top, not in its month's list. -->
+        @if (!actionOpenOn(c, where) && (c.state !== 'held' || where === 'held')) {
+          @if (c.canCorrect) {
+            <button class="btn-admin btn-admin--secondary btn-admin--sm" (click)="openCostAction(c, 'correct')" [disabled]="busy() !== null">{{ t.stlCorrect }}</button>
+          }
+          @if (c.canHold) {
+            <button class="btn-admin btn-admin--secondary btn-admin--sm" (click)="openCostAction(c, 'hold')" [disabled]="busy() !== null">{{ t.stlCostHold }}</button>
+          }
+          @if (c.canRelease) {
+            <button class="btn-admin btn-admin--brand btn-admin--sm" (click)="openCostAction(c, 'release')" [disabled]="busy() !== null">{{ t.stlCostRelease }}</button>
+          }
+          @if (c.canDelete) {
+            <button class="btn-admin btn-admin--danger btn-admin--sm" (click)="openCostAction(c, 'delete')" [disabled]="busy() !== null">{{ t.stlCostDelete }}</button>
+          }
+        }
+      </div>
+      @if (actionOpenOn(c, where) && costAction(); as a) {
+        <form class="stl-cost-action" [attr.data-action]="a.kind" (submit)="$event.preventDefault(); submitCostAction(c)">
+          <p class="stl-cost-action__title">{{ costActionTitle(a.kind) }}</p>
+          @if (a.kind === 'correct') {
+            <label class="stl-field">
+              <span class="stl-field__label">{{ t.stlCorrectAmount }}</span>
+              <input class="stl-field__input gel" name="amount" inputmode="decimal" [value]="a.amount" (input)="setCostActionField('amount', $any($event.target).value)" />
+              <span class="stl-field__hint">{{ t.stlCorrectAmountHint }}</span>
+            </label>
+          }
+          <label class="stl-field stl-cost-action__reason">
+            <span class="stl-field__label">{{ a.kind === 'release' ? t.stlReasonOptional : t.stlReasonRequired }}</span>
+            <input class="stl-field__input" name="reason" maxlength="500" [value]="a.reason" (input)="setCostActionField('reason', $any($event.target).value)" />
+          </label>
+          @if (costActionError()) { <p class="stl-fail stl-field--wide" role="alert">{{ costActionError() }}</p> }
+          <div class="stl-cost-form__actions stl-field--wide">
+            <button type="button" class="btn-admin btn-admin--secondary btn-admin--sm" (click)="cancelCostAction()">{{ t.cancel }}</button>
+            <button type="submit" class="btn-admin btn-admin--sm" [class.btn-admin--danger]="a.kind === 'delete'" [class.btn-admin--brand]="a.kind !== 'delete'"
+                    [disabled]="busy() !== null">
+              @if (busy() === c.id) { {{ t.saving }} } @else { {{ costActionSubmit(a.kind) }} }
+            </button>
+          </div>
+        </form>
+      }
+    </li>
+  </ng-template>
+
+  <!-- ── "Paid outside the platform" form (Swich), shown under the failed transfer it is opened for ── -->
+  <ng-template #extFormTpl>
+    @if (extForm(); as f) {
+      <form class="stl-ext-form" (submit)="$event.preventDefault(); saveExternal()">
+        <p class="stl-ext-form__intro">{{ t.stlExtIntro }}</p>
+        @if (f.payers.length > 1) {
+          <label class="stl-field">
+            <span class="stl-field__label">{{ t.stlExtPayer }}</span>
+            <select class="stl-field__input" name="payer" (change)="setExtField('payer', $any($event.target).value)">
+              @for (p of f.payers; track p) { <option [value]="p" [selected]="p === f.payer">{{ extPayerLabel(p) }}</option> }
+            </select>
+          </label>
+        }
+        <label class="stl-field">
+          <span class="stl-field__label">{{ t.stlExtAmount }}</span>
+          <input class="stl-field__input gel" name="amount" inputmode="decimal" [value]="f.amount" (input)="setExtField('amount', $any($event.target).value)" />
+        </label>
+        <label class="stl-field">
+          <span class="stl-field__label">{{ t.stlExtPaidOn }}</span>
+          <input class="stl-field__input" type="date" name="paidOn" [max]="today" [value]="f.paidOn" (input)="setExtField('paidOn', $any($event.target).value)" />
+        </label>
+        <label class="stl-field">
+          <span class="stl-field__label">{{ t.stlExtReference }}</span>
+          <input class="stl-field__input" name="reference" maxlength="100" [value]="f.reference" (input)="setExtField('reference', $any($event.target).value)" />
+        </label>
+        <label class="stl-field stl-field--wide">
+          <span class="stl-field__label">{{ t.stlCostNote }}</span>
+          <input class="stl-field__input" name="note" maxlength="500" [value]="f.note" (input)="setExtField('note', $any($event.target).value)" />
+        </label>
+        @if (extError()) { <p class="stl-fail stl-field--wide" role="alert">{{ extError() }}</p> }
+        <div class="stl-cost-form__actions stl-field--wide">
+          <button type="button" class="btn-admin btn-admin--secondary" (click)="cancelExternal()">{{ t.cancel }}</button>
+          <button type="submit" class="btn-admin btn-admin--brand" [disabled]="busy() !== null">
+            @if (busy() === 'ext:' + f.settlementId) { {{ t.saving }} } @else { {{ t.stlExtSave }} }
+          </button>
+        </div>
+      </form>
+    }
+  </ng-template>
 </div>

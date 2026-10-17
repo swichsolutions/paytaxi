@@ -1,0 +1,36 @@
+<section class="hist">
+  <header class="hist__head">
+    <div class="hist__intro">
+      <h2>{{ t.stlHistTitle }}</h2>
+      <p class="hist__sub">{{ t.stlHistSub }}</p>
+    </div>
+    <label class="hist__filter">
+      <span class="hist__label">{{ t.stlHistFilter }}</span>
+      <select class="hist__select" name="eventKind" (change)="setKind($any($event.target).value)">
+        <option value="" [selected]="kind() === ''">{{ t.stlHistAll }}</option>
+        @for (k of kinds; track k) { <option [value]="k" [selected]="kind() === k">{{ kindLabel(k) }}</option> }
+      </select>
+    </label>
+  </header>
+
+  @if (error()) { <p class="hist__error" role="alert">{{ error() }}</p> }
+  @if (events().length === 0 && !loading() && !error()) {
+    <p class="hist__empty">{{ t.stlHistEmpty }}</p>
+  }
+  <ol class="hist__list">
+    @for (e of events(); track e.id) {
+      <li class="hist-event" [attr.data-kind]="e.kind">
+        <div class="hist-event__when">
+          <span class="hist-event__stamp">{{ stamp(e.at) }}</span>
+          <span class="hist-event__actor">{{ actorLabel(e.actor) }}</span>
+        </div>
+        <div class="hist-event__what">
+          <span class="hist-event__kind" [attr.data-kind]="e.kind">{{ kindLabel(e.kind) }}</span>
+          @if (costRef(e); as ref) { <span class="hist-event__ref">{{ ref }}</span> }
+          @if (summary(e); as sum) { <span class="hist-event__change">{{ sum }}</span> }
+          @if (e.reason) { <span class="hist-event__why">{{ e.reason }}</span> }
+        </div>
+      </li>
+    }
+  </ol>
+</section>

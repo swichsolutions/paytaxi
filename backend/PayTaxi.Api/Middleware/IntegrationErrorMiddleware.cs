@@ -32,12 +32,16 @@ public class IntegrationErrorMiddleware
         {
             _log.LogWarning(ex, "Upstream integration failure on {Path}: {Provider} {Code}", ctx.Request.Path, mapped.provider, mapped.code);
             ctx.Response.StatusCode = mapped.status;
+            // The upstream's own words (Yandex's error body, a host and port from a failed connection) are for the park
+            // staff who fix their own credentials from them, not for drivers: the driver app gets the code only, the
+            // log keeps the rest.
+            var forDriver = ctx.Request.Path.StartsWithSegments("/api/driver");
             await ctx.Response.WriteAsJsonAsync(new
             {
                 error = mapped.status == 503 ? "upstream_unavailable" : "upstream_rejected",
                 provider = mapped.provider,
                 code = mapped.code,
-                message = ex.Message,
+                message = forDriver ? null : ex.Message,
             });
         }
     }

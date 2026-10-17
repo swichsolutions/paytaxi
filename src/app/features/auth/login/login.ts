@@ -1,8 +1,10 @@
 import { Component, inject, signal, computed, ViewChildren, QueryList, ElementRef, OnDestroy } from '@angular/core';
-import { Router, ActivatedRoute } from '@angular/router';
+import { Router, ActivatedRoute, RouterLink } from '@angular/router';
 import { MockDataService } from '../../../core/services/mock-data.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { DriverSessionService } from '../../../core/services/driver-session.service';
+import { legalLink } from '../../legal/legal-doc';
+import { typedBeforeHydration } from '../../../core/typed-before-hydration';
 
 type Step = 'phone' | 'otp';
 
@@ -11,6 +13,7 @@ const LOCAL_DIGITS = 9;
 
 @Component({
   selector: 'app-login',
+  imports: [RouterLink],
   templateUrl: './login.html',
   styleUrl: './login.scss',
 })
@@ -29,6 +32,7 @@ export class LoginComponent implements OnDestroy {
   resending = signal(false);
   errorMessage = signal<string | null>(null);
   private readonly route = inject(ActivatedRoute);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   constructor() {
     // Already signed in on this device (90-day trusted session) → skip the OTP screen.
@@ -41,6 +45,9 @@ export class LoginComponent implements OnDestroy {
     if (this.route.snapshot.queryParamMap.get('reason') === 'expired') {
       this.errorMessage.set(this.t.sessionExpired);
     }
+    // The page is prerendered: keep a number typed before the app took over (normalised like any other
+    // input), or the first render clears the field.
+    this.phone.set(LoginComponent.sanitizePhone(typedBeforeHydration(this.host, 'input.phone-input')));
   }
   devCode = signal<string | null>(null);
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -48,6 +55,20 @@ export class LoginComponent implements OnDestroy {
   @ViewChildren('digitInput') digitInputs!: QueryList<ElementRef<HTMLInputElement>>;
 
   get t() { return this.svc.t; }
+
+  /** Georgian documents at /terms and /privacy, translations at /…/en|ru — matching the app language. */
+  readonly termsLink = computed(() => legalLink('terms', this.svc.lang()));
+  readonly privacyLink = computed(() => legalLink('privacy', this.svc.lang()));
+
+  /**
+   * "By signing in you accept the {terms} and the {privacy}." cut around its two links, so each
+   * language keeps its own word order and case endings ("…პირობებს და … პოლიტიკას").
+   */
+  readonly acceptParts = computed(() =>
+    this.t.loginAccept.split(/(\{terms\}|\{privacy\})/).filter(s => s !== '').map(s =>
+      s === '{terms}' ? { link: 'terms' as const, text: this.t.loginAcceptTerms }
+        : s === '{privacy}' ? { link: 'privacy' as const, text: this.t.loginAcceptPrivacy }
+          : { link: null, text: s }));
 
   otp = computed(() => this.digits().join(''));
   phoneValid = computed(() => /^\d{9}$/.test(this.phone()));
@@ -178,6 +199,9 @@ export class LoginComponent implements OnDestroy {
     const code = e?.error?.error;
     if (status === 0) return this.t.errLoginNetwork;
     if (status === 429) {
+      // The day limits name themselves (sign_in_locked, daily_code_limit) and say how long — hours, not seconds.
+      const limit = this.dayLimitMessage(code, e?.error?.retryAfterSeconds);
+      if (limit) return limit;
       // Per-phone cap returns { error: 'too_many_requests', retryAfterSeconds }; the per-IP limiter returns an empty body.
       const secs = e?.error?.retryAfterSeconds;
       return typeof secs === 'number' && secs > 0
@@ -193,9 +217,9 @@ export class LoginComponent implements OnDestroy {
   }
 
   private mapVerifyError(err: unknown): string {
-    const e = err as { status?: number; error?: { error?: string } | null } | null;
+    const e = err as { status?: number; error?: { error?: string; retryAfterSeconds?: number } | null } | null;
     if (e?.status === 0) return this.t.errLoginNetwork;
-    if (e?.status === 429) return this.t.errLoginTooManyRequestsNoRetry;
+    if (e?.status === 429) return this.dayLimitMessage(e?.error?.error, e?.error?.retryAfterSeconds) ?? this.t.errLoginTooManyRequestsNoRetry;
     switch (e?.error?.error) {
       case 'invalid_code':      return this.t.errInvalidCode;
       case 'no_active_code':    return this.t.errCodeExpired;
@@ -204,6 +228,24 @@ export class LoginComponent implements OnDestroy {
       case 'driver_inactive':   return this.t.errLoginDriverInactive;
       default:                  return this.t.errVerifyFailed;
     }
+  }
+
+  /**
+   * The per-phone day limits: too many wrong codes lock the number for hours (sign_in_locked), and a number gets at most
+   * a few codes a day (daily_code_limit). Null for any other answer.
+   */
+  private dayLimitMessage(code: string | undefined, retryAfterSeconds: number | undefined): string | null {
+    const key = code === 'sign_in_locked' ? 'errLoginSignInLocked' : code === 'daily_code_limit' ? 'errLoginDailyCodeLimit' : null;
+    if (!key) return null;
+    return this.svc.tr(key, { time: this.duration(retryAfterSeconds ?? 0) });
+  }
+
+  /** "3 h 59 min" / "12 min" in the app's language, rounded up to the minute. */
+  private duration(seconds: number): string {
+    const minutes = Math.max(1, Math.ceil(seconds / 60));
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return h > 0 ? this.svc.tr('durationHoursMinutes', { h, m }) : this.svc.tr('durationMinutes', { m });
   }
 
   private startResendTimer() {

@@ -23,6 +23,7 @@
       @if (c.managerEmail) {
         <p class="ap-success__cred">{{ t.managerEmailLabel }}: <code>{{ c.managerEmail }}</code></p>
       }
+      <p class="ap-success__cred">{{ t.setSettlementMode }}: <strong>{{ settledUnder(c) }}</strong></p>
       <div class="ap-success__actions">
         <button class="btn-admin btn-admin--secondary" (click)="addAnother()">{{ t.addAnotherPark }}</button>
         <button class="btn-admin btn-admin--brand" (click)="goToConsole()">{{ t.navOverview }}</button>
@@ -99,21 +100,22 @@
 
       <div class="ap-section">
         <h2 class="ap-section__title">{{ t.secPark }}</h2>
+        <p class="ap-section__hint">{{ t.legalDetailsWhy }}</p>
         <div class="ap-grid">
           <label class="ap-field ap-field--wide">
-            <span class="ap-field__label">{{ t.legalEntity }}</span>
-            <input type="text" class="ap-input" [value]="form().legalEntityName"
+            <span class="ap-field__label">{{ t.legalEntity }} <span class="ap-req">{{ t.legalRequiredTag }}</span></span>
+            <input type="text" class="ap-input" [value]="form().legalEntityName" required aria-required="true"
               (input)="setField('legalEntityName', $any($event.target).value)" [placeholder]="t.legalEntityPlaceholder" />
             <span class="ap-field__note">{{ t.legalEntityHint }}</span>
           </label>
           <label class="ap-field">
-            <span class="ap-field__label">{{ t.identificationCode }}</span>
-            <input type="text" inputmode="numeric" class="ap-input gel" [value]="form().taxId"
+            <span class="ap-field__label">{{ t.identificationCode }} <span class="ap-req">{{ t.legalRequiredTag }}</span></span>
+            <input type="text" inputmode="numeric" class="ap-input gel" [value]="form().taxId" required aria-required="true"
               (input)="setField('taxId', $any($event.target).value)" [placeholder]="t.taxIdPlaceholder" />
           </label>
           <label class="ap-field">
-            <span class="ap-field__label">{{ t.phone }}</span>
-            <input type="tel" class="ap-input gel" [value]="form().phone"
+            <span class="ap-field__label">{{ t.phone }} <span class="ap-req">{{ t.legalRequiredTag }}</span></span>
+            <input type="tel" class="ap-input gel" [value]="form().phone" required aria-required="true"
               (input)="setField('phone', $any($event.target).value)" [placeholder]="t.phonePlaceholder" />
           </label>
           <label class="ap-field">
@@ -128,10 +130,31 @@
               (change)="setField('bankProvider', $any($event.target).value)">
               <option value="tbc">TBC</option>
               <option value="bog">BOG</option>
-              <option value="mock">{{ t.providerMockDev }}</option>
+              @if (offerMock) { <option value="mock">{{ t.providerMockDev }}</option> }
             </select>
           </label>
         </div>
+      </div>
+
+      <div class="ap-section">
+        <h2 class="ap-section__title">{{ t.setSettlementMode }}</h2>
+        <p class="ap-section__hint">{{ t.apSettlementHint }}</p>
+        @if (licenseesFailed()) {
+          <p class="ap-hint">{{ t.apSettlementLoadFailed }}</p>
+        } @else {
+          <div class="ap-grid">
+            <label class="ap-field ap-field--wide">
+              <span class="ap-field__label">{{ t.setAssignTo }}</span>
+              <select class="ap-input" name="settlement" (change)="settlement.set($any($event.target).value)">
+                @if (settlement() === '') { <option value="" selected disabled>{{ t.apSettlementChoose }}</option> }
+                @for (l of licensees(); track l.id) {
+                  <option [value]="l.id" [selected]="settlement() === l.id">{{ t.setViaLicensee.replace('{name}', l.name) }}</option>
+                }
+                <option value="direct" [selected]="settlement() === 'direct'">{{ t.setSwichDirect }}</option>
+              </select>
+            </label>
+          </div>
+        }
       </div>
 
       <div class="ap-section">

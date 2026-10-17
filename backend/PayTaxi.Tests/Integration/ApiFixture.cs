@@ -4,8 +4,10 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using PayTaxi.Infrastructure.Adapters.Banks;
 using PayTaxi.Core.Interfaces;
 using PayTaxi.Infrastructure.Data;
 using PayTaxi.Infrastructure.Security;
@@ -34,6 +36,12 @@ public class ApiFixture : IAsyncLifetime
     /// database left by an earlier run must still be able to decrypt it. Never used outside tests.
     /// </summary>
     private const string ProcessEncryptionKey = "dGVzdC1vbmx5LWtleS1mb3ItcGF5dGF4aS10ZXN0cyE=";
+
+    /// <summary>
+    /// Fixed (non-secret) lookup-hash key for the same reason, and so the tests run keyed like production (which refuses to
+    /// start without one). Different from the encryption key, as production requires. Never used outside tests.
+    /// </summary>
+    private const string ProcessHashKey = "dGVzdC1vbmx5LWhhc2gta2V5LXBheXRheGktdGVzdHM=";
 
     /// <summary>The primary host drops and recreates the database; a secondary host (see <see cref="Secondary"/>) reuses it.</summary>
     protected virtual bool RecreateDatabase => true;
@@ -79,6 +87,7 @@ public class ApiFixture : IAsyncLifetime
             ["Jwt__Issuer"] = "paytaxi-api",
             ["Jwt__Audience"] = "paytaxi-clients",
             ["Encryption__Key"] = encryptionKey,
+            ["Encryption__HashKey"] = ProcessHashKey,
             ["Cors__AllowedOrigins__0"] = "http://localhost:4200",
 
             // Deterministic mocks.
@@ -101,12 +110,26 @@ public class ApiFixture : IAsyncLifetime
             ["BalanceSync__Enabled"] = "false",
             ["Reconciliation__Enabled"] = "false",
             ["Settlement__Enabled"] = "false",
+            ["Incidents__Monitor__Enabled"] = "false",   // the incident tests call IncidentMonitor.RunOnceAsync themselves
+            ["Retention__Enabled"] = "false",            // the retention tests call RetentionWorker.RunOnceAsync themselves
             ["Settlement__SwichIban"] = "GE12TB7100000000000001",
+            // No SMS gateway, whatever a developer's appsettings.Development.json holds: a test run must never send real SMS,
+            // and every test reads the sign-in code from devCode. The gateway tests build their own host over a fake one.
+            ["Sms__Provider"] = "log",
 
             // Let tests log in as often as they like; the cap itself has its own test.
             ["RateLimit__AuthPerMinute"] = "100000",
             ["Auth__OtpMaxPerWindow"] = "5",   // the 4-spelling login theory needs 4 codes for one phone
             ["Auth__OtpWindowMinutes"] = "10",
+            // The per-phone day limits at their production values, whatever a developer's appsettings.Development.json
+            // raises them to for e2e reruns (docs/TESTING.md): SignInLimitTests count on 10 / 10 / 4 h.
+            ["Auth__OtpMaxPerDay"] = "10",
+            ["Auth__SignInFailuresBeforeLock"] = "10",
+            ["Auth__SignInLockHours"] = "4",
+            // Tests change accounts, bindings and drivers straight in the database and expect the next request to see it:
+            // no caching of the admin/driver state the token checks read (production: 30 s).
+            ["Auth__AdminRecheckSeconds"] = "0",
+            ["Auth__DriverRecheckSeconds"] = "0",
         };
         foreach (var (k, v) in ExtraSettings) settings[k] = v;
         foreach (var (k, v) in settings) Environment.SetEnvironmentVariable(k, v);
@@ -121,7 +144,54 @@ public class ApiFixture : IAsyncLifetime
     public virtual async Task DisposeAsync()
     {
         Client?.Dispose();
+        if (_realRails is not null) await _realRails.DisposeAsync();
         if (_factory is not null) await _factory.DisposeAsync();
+    }
+
+    private WebApplicationFactory<Program>? _realRails;
+
+    /// <summary>
+    /// The same API on the same database, answering as a server with real rails does (<see cref="BankRailPolicy.RealRails"/>:
+    /// no mock provider, no sandbox credentials) — what Production and a staging host without the switches decide. Built on
+    /// first use; without a payout queue worker of its own (this host's already runs against the database — the fixture
+    /// turns every other worker off).
+    /// </summary>
+    public WebApplicationFactory<Program> RealRails => _realRails ??= Derive(s => s.AddSingleton(BankRailPolicy.RealRails));
+
+    /// <summary>
+    /// Another host of the API on the same database with <paramref name="services"/> replaced (the caller disposes it). It runs
+    /// no payout queue worker of its own — this host's already works the queue (the fixture turns every other worker off).
+    /// </summary>
+    public WebApplicationFactory<Program> Derive(Action<IServiceCollection> services) => _factory!.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+    {
+        foreach (var d in s.Where(d => d.ImplementationType == typeof(PayTaxi.Infrastructure.Services.PayoutQueueWorker)).ToList())
+            s.Remove(d);
+        services(s);
+    }));
+
+    /// <summary>A client of <paramref name="factory"/> with a driver token minted for the driver with this Yandex profile id.</summary>
+    public async Task<HttpClient> DriverClientAsync(WebApplicationFactory<Program> factory, string yandexProfileId)
+    {
+        var (id, parkId, phoneHash) = await DbAsync(async db =>
+        {
+            var d = await db.Drivers.AsNoTracking().FirstAsync(x => x.YandexDriverProfileId == yandexProfileId);
+            return (d.Id, d.ParkId, d.PhoneHash);
+        });
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+            Services.GetRequiredService<IJwtTokenService>().IssueDriverToken(id, parkId, phoneHash).Token);
+        return client;
+    }
+
+    /// <summary>An admin client of <paramref name="factory"/> logged in through its real endpoint.</summary>
+    public static async Task<HttpClient> AdminClientAsync(WebApplicationFactory<Program> factory, string email, string password)
+    {
+        var client = factory.CreateClient();
+        var res = await client.PostAsJsonAsync("/api/admin/auth/login", new { email, password });
+        res.EnsureSuccessStatusCode();
+        var json = await res.Content.ReadFromJsonAsync<JsonElement>();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", json.GetProperty("token").GetString());
+        return client;
     }
 
     /// <summary>A secondary host reuses the database if it is there, or creates an empty one for the app to migrate + seed.</summary>

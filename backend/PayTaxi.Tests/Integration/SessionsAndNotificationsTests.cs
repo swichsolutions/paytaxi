@@ -50,7 +50,15 @@ public class SessionsAndNotificationsTests
         Assert.NotEqual(refreshA, refreshA2);
         Assert.False(string.IsNullOrEmpty(rotated.GetProperty("token").GetString()));
 
-        // Replay the OLD A token → treated as theft: A2 and B are both revoked.
+        // Within seconds of its rotation the old token is taken for a second tab that raced (409, nothing issued) —
+        // see SecurityReviewTests. Later it can only be a copy:
+        var raced = await _f.Client.PostAsJsonAsync("/api/driver/auth/refresh", new { refreshToken = refreshA });
+        Assert.Equal(HttpStatusCode.Conflict, raced.StatusCode);
+        await _f.DbAsync(db => db.DriverSessions
+            .Where(s => s.Driver.YandexDriverProfileId == "yp_tb3_006" && s.RevokedReason == "rotated")
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.RevokedAt, DateTime.UtcNow.AddMinutes(-1))));
+
+        // Replay the OLD A token after that → treated as theft: A2 and B are both revoked.
         var replay = await _f.Client.PostAsJsonAsync("/api/driver/auth/refresh", new { refreshToken = refreshA });
         Assert.Equal(HttpStatusCode.Unauthorized, replay.StatusCode);
         Assert.Equal("session_revoked", ApiFixture.Code(await replay.Content.ReadFromJsonAsync<JsonElement>()));

@@ -1,12 +1,9 @@
-using System.Security.Cryptography;
-using System.Text;
-
 namespace PayTaxi.Core.Identity;
 
 /// <summary>
 /// The one phone normaliser. Login, admin onboarding, CSV import and the seed must all
-/// produce the same canonical string, because <c>Drivers.PhoneHash</c> is SHA-256 of it and
-/// the encrypted phone column can't be searched. Canonical form: <c>+995XXXXXXXXX</c>.
+/// produce the same canonical string, because <c>Drivers.PhoneHash</c> is the keyed lookup hash of it
+/// (Infrastructure <c>LookupHash.Phone</c>) and the encrypted phone column can't be searched. Canonical form: <c>+995XXXXXXXXX</c>.
 ///
 /// Accepted inputs (all → +995599123456): "599123456", "599 12 34 56", "+995 599 123 456",
 /// "995599123456", "00995599123456", "0599123456". Foreign numbers keep their own country
@@ -52,10 +49,6 @@ public static class GeorgianPhone
     /// <summary>True when the canonical form is a Georgian mobile/landline (+995 + 9 digits).</summary>
     public static bool IsGeorgian(string canonical) =>
         canonical.StartsWith("+" + CountryCode) && canonical.Length == 1 + CountryCode.Length + LocalDigits;
-
-    /// <summary>SHA-256 hex (lowercase) of the canonical phone — the lookup column.</summary>
-    public static string Hash(string canonical) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
 
     /// <summary>"+995 599 *** 456" — for logs and UI.</summary>
     public static string Mask(string canonical)

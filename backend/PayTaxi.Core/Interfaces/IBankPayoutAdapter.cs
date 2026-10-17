@@ -23,6 +23,16 @@ public interface IBankPayoutAdapter
         BankAccountContext source, string transferId, CancellationToken ct = default);
 
     /// <summary>
+    /// <see cref="GetTransferStatusAsync"/> plus, for a failed transfer, the bank's reason mapped to our
+    /// codes — so a payout the bank accepted and only later refused for lack of funds can wait for a
+    /// top-up (<see cref="BankErrorCodes.InsufficientFunds"/>) instead of being given back. Rails that
+    /// cannot say why answer with the status alone.
+    /// </summary>
+    async Task<BankTransferOutcome> GetTransferOutcomeAsync(
+        BankAccountContext source, string transferId, CancellationToken ct = default) =>
+        new(await GetTransferStatusAsync(source, transferId, ct));
+
+    /// <summary>
     /// Look up a transfer by the document id we assigned (the idempotency key).
     /// Used after a timeout / ambiguous response so we never blindly re-fire.
     /// Returns null when the bank has no record of it.
@@ -78,7 +88,8 @@ public record BankTransferRequest(
 /// <param name="IsRetryable">
 /// True when the bank said "not now" (gateway down, insufficient funds, rate limit)
 /// rather than "never" (invalid IBAN, closed account). Retryable failures park the
-/// cashout in the payout queue; non-retryable ones reverse the Yandex debit.
+/// cashout in the payout queue — for as long as the cause lasts; non-retryable ones
+/// reverse the Yandex debit.
 /// </param>
 /// <param name="IsPending">
 /// With <c>Success = true</c>: the bank accepted the order but has not executed it yet
@@ -98,6 +109,28 @@ public record BankTransferLookup(
     string TransferId,
     BankTransferStatus Status,
     decimal Amount);
+
+/// <summary>A polled transfer's status, with the bank's reason (our code + its text) when it failed.</summary>
+public record BankTransferOutcome(
+    BankTransferStatus Status,
+    string? ErrorCode = null,
+    string? ErrorMessage = null);
+
+/// <summary>
+/// Bank result codes the rest of the system keys on (the saga, the alert banner, the incident log).
+/// Adapter-specific codes keep their rail prefix ("BANK_", "TBC_", "BOG_"); these two are shared.
+/// </summary>
+public static class BankErrorCodes
+{
+    /// <summary>
+    /// The park's account cannot cover the payout. Retryable: the payout waits in the queue and goes
+    /// out automatically after a top-up (Annex 3 §5). Never a reason to give the driver's money back.
+    /// </summary>
+    public const string InsufficientFunds = "INSUFFICIENT_FUNDS";
+
+    /// <summary>The park has no active payout account at the driver's bank. Park-side; the payout waits.</summary>
+    public const string NoParkAccount = "NO_PARK_ACCOUNT";
+}
 
 public enum BankTransferStatus
 {

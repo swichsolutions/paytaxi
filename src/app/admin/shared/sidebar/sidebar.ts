@@ -42,6 +42,7 @@ export class AdminSidebarComponent {
   secondary: NavItem[] = [
     { path: '/admin/settlements',    key: 'navSettlements',    icon: 'settlements' },
     { path: '/admin/reconciliation', key: 'navReconciliation', icon: 'reconcile' },
+    { path: '/admin/incidents',      key: 'navIncidents',      icon: 'incidents' },
     { path: '/admin/reports',        key: 'navReports',        icon: 'reports' },
     { path: '/admin/settings',       key: 'navSettings',       icon: 'settings' },
   ];

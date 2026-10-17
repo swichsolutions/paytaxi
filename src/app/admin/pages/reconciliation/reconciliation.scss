@@ -300,6 +300,19 @@
 
     p { margin: 6px 0 0; font-style: italic; }
   }
+
+  // The park's own explanation: amber, not green — it explains, it does not close anything.
+  &__park-note {
+    padding: 10px 12px;
+    background: #fffbeb;
+    border-radius: 8px;
+    border: 1px solid #fde68a;
+    font-size: 12.5px;
+    color: #78350f;
+    overflow-wrap: anywhere;
+
+    p { margin: 6px 0 0; white-space: pre-line; }
+  }
 }
 
 .rec-resolve {
@@ -326,6 +339,15 @@
       border-color: var(--color-brand, #FFB800);
     }
   }
+
+  &__hint,
+  &__error {
+    margin: -4px 0 0;
+    font-size: 12px;
+  }
+
+  &__hint { color: var(--color-text-3, #9ca3af); }
+  &__error { color: #b91c1c; font-weight: 600; }
 }
 
 // ── Phone polish ──────────────────────────────────────────────────

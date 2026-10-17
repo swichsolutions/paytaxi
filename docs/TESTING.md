@@ -20,8 +20,10 @@ npm run e2e          # or: npm run e2e:ui  for the interactive runner
 ```
 
 The e2e suite logs drivers in through the real OTP screen using the dev code the API echoes. A phone
-gets 3 codes per 10 minutes by default; `appsettings.Development.json` raises `Auth:OtpMaxPerWindow`
-so repeated local runs do not trip it. Production keeps the default.
+gets 3 codes per 10 minutes by default and 10 codes (and 10 wrong codes) per rolling day; raise
+`Auth:OtpMaxPerWindow`, `Auth:OtpMaxPerDay` and `Auth:SignInFailuresBeforeLock` in your
+`appsettings.Development.json` (as CI's e2e job does) so repeated local runs on the same database do not trip them — the
+day limits are kept in `PhoneSignInEvents` for 24 hours. Production keeps the defaults.
 
 ## Conventions
 

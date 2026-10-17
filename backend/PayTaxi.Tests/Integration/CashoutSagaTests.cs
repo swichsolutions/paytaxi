@@ -43,6 +43,44 @@ public class CashoutSagaTests
         Assert.True(b2.GetProperty("params").GetProperty("min").GetDecimal() > 0.70m);
     }
 
+    /// <summary>
+    /// Decided by the owner: while Yandex Fleet does not answer, a cashout request is REFUSED, not queued. The
+    /// balance cannot be checked, so nothing is debited and nothing is reserved or left waiting; the driver is
+    /// told exactly that and to try again later. (Bank and park-funds outages are different: the payout was
+    /// debited already and waits — Annex 1 §3.2 has to say so; docs/LAWYER-NOTES.md.)
+    /// </summary>
+    [Fact]
+    public async Task While_Yandex_does_not_answer_a_cashout_is_refused_with_nothing_deducted_and_nothing_queued()
+    {
+        const string profile = "yp_bt1_004";
+        var (driver, driverId, _) = await _f.DriverClientAsync(profile);
+        var (cardId, _) = await DefaultCardAsync(driver);
+        var before = await _f.DbAsync(db => db.Cashouts.CountAsync(c => c.DriverId == driverId));
+        // The mock throws for a profile it does not know — to the saga, exactly what a Yandex outage looks like.
+        await _f.DbAsync(async db => { (await db.Drivers.FirstAsync(d => d.Id == driverId)).YandexDriverProfileId = profile + "_unreachable"; return await db.SaveChangesAsync(); });
+        try
+        {
+            var key = Guid.NewGuid().ToString();
+            var res = await CashoutAsync(driver, cardId, 5m, key);
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+            var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("cashout_rejected", body.GetProperty("error").GetString());
+            Assert.Equal("balance_unavailable", body.GetProperty("code").GetString());
+            var message = body.GetProperty("message").GetString()!;
+            Assert.Contains("nothing was deducted", message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("try again later", message, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("queue", message.Replace("not queued", ""), StringComparison.OrdinalIgnoreCase);
+
+            // Nothing reserved, debited or waiting.
+            Assert.False(await _f.DbAsync(db => db.Cashouts.AnyAsync(c => c.IdempotencyKey == key)));
+            Assert.Equal(before, await _f.DbAsync(db => db.Cashouts.CountAsync(c => c.DriverId == driverId)));
+        }
+        finally
+        {
+            await _f.DbAsync(async db => { (await db.Drivers.FirstAsync(d => d.Id == driverId)).YandexDriverProfileId = profile; return await db.SaveChangesAsync(); });
+        }
+    }
+
     [Fact]
     public async Task Amounts_with_more_than_two_decimals_are_rejected_not_rounded()
     {

@@ -21,7 +21,10 @@ public class BankCard : BaseEntity
     /// <summary>Driver's account IBAN — the transfer destination. Encrypted at rest.</summary>
     public string Iban { get; set; } = default!;
 
-    /// <summary>SHA-256 of the IBAN — the equality-lookup companion of the encrypted column (duplicate detection).</summary>
+    /// <summary>
+    /// Keyed hash of the IBAN (HMAC, Infrastructure LookupHash) — the equality-lookup companion of the encrypted column
+    /// (duplicate detection). Keyed because Georgian account numbers are structured enough to enumerate.
+    /// </summary>
     public string IbanHash { get; set; } = "";
 
     /// <summary>Two-letter bank code parsed from the IBAN ("TB", "BG", …). Drives payout routing.</summary>

@@ -10,11 +10,18 @@ using QuestPDF.Infrastructure;
 namespace PayTaxi.Infrastructure.Services;
 
 /// <summary>
-/// The monthly invoice PT-YYYY-MM from the platform operator (Swich) to one park
-/// (PAYTAXI-CONTEXT.md §4: "paperwork follows money"). Every nightly settlement of the
-/// month is one line; the bank transfers already carried "inv ref PT-YYYY-MM" in their
-/// description, so the park's accountant can tie each line to a statement entry.
-/// Georgian only, like the per-cashout invoice.
+/// The monthly invoice PT-YYYY-MM from the platform owner (Swich) to one park — licence agreement
+/// §2.5: "a monthly invoice summarises the settlement made". Paperwork follows money: the transfer
+/// already carried "inv ref PT-YYYY-MM" in its bank description, so the park's accountant can tie the
+/// invoice to the statement line.
+///
+/// A park of the licensee sees its own part only: its fees, its part of the month's settlement and the
+/// transfer — never the licensee's shared costs, totals or barrier phase (those are between the licensee and
+/// Swich; the licensee's own report has them). No share percentage, no phase sentence and no barrier/rest
+/// split is printed for such a park: with the pro-rata rule each of them lets the park back out the
+/// licensee's total fee income, the total due and — with the phase — its costs. Georgian only, like the
+/// per-cashout invoice.
+/// Months settled under the old nightly rule (legacy rows) still render, one line per day.
 /// </summary>
 public partial class InvoiceGenerator
 {
@@ -86,6 +93,7 @@ public partial class InvoiceGenerator
     {
         var lines = rows.Select(s => new MonthlyLine(
             Date: s.SettlementDate,
+            IsMonthly: s.IsMonthly,
             Cashouts: s.CashoutCount,
             FeeTotal: s.FeeTotal,
             Phase1Fees: s.Phase1Fees,
@@ -94,14 +102,22 @@ public partial class InvoiceGenerator
             Status: s.Status,
             TransferId: s.BankTransferId,
             TransferredAtLocal: s.CompletedAt is { } at ? TimeZoneInfo.ConvertTimeFromUtc(at, tz) : null,
-            FailureCode: s.FailureReason?.Split(':')[0].Trim())).ToList();
+            FailureCode: SettlementMath.FailureCode(s.FailureReason),
+            PaidExternallyOn: s.Status == SettlementStatus.SettledExternally ? s.ExternalPaidOn : null,
+            ExternalPayer: s.ExternalPayer,
+            ViaLicensee: s.MonthlyStatementId is not null)).ToList();
 
         var completed = lines.Where(l => l.Status == SettlementStatus.Completed).ToList();
-        var outstanding = lines.Where(l => l.Status != SettlementStatus.Completed).ToList();
+        var paidExternally = lines.Where(l => l.Status == SettlementStatus.SettledExternally).ToList();
+        var outstanding = lines.Where(l => l.Status is not (SettlementStatus.Completed or SettlementStatus.SettledExternally)).ToList();
 
         // Phase-1 progress at the end of the month = cumulative before the last settlement + its fees.
         var last = rows[^1];
         var cumulativeAtEnd = last.CumulativeFeesBefore + last.FeeTotal;
+
+        // Whether the month's row is the park's part of a licensee statement (§2.5, pro rata). Only that fact is
+        // used — none of the statement's own figures reach the park's document.
+        var viaLicensee = rows.Any(r => r.MonthlyStatementId is not null);
 
         var isCurrentMonth = nowLocal.Year == from.Year && nowLocal.Month == from.Month;
 
@@ -112,6 +128,7 @@ public partial class InvoiceGenerator
             PeriodTo: to,
             MonthTitle: $"{from.Year} წლის {GeorgianMonths[from.Month - 1]}",
             IsInterim: isCurrentMonth,
+            DueDate: SettlementService.DueDate(from, _settlement.DueDays),
             OperatorName: _opts.OperatingEntityName,
             OperatorTaxId: _opts.OperatingEntityTaxId,
             OperatorIban: string.IsNullOrWhiteSpace(_settlement.SwichIban) ? "—" : _settlement.SwichIban,
@@ -126,8 +143,11 @@ public partial class InvoiceGenerator
             SwichShareTotal: lines.Sum(l => l.SwichShare),
             ParkShareTotal: lines.Sum(l => l.FeeTotal - l.SwichShare),
             TransferredTotal: completed.Sum(l => l.SwichShare),
+            PaidExternallyTotal: paidExternally.Sum(l => l.SwichShare),
             OutstandingTotal: outstanding.Sum(l => l.SwichShare),
             OutstandingCount: outstanding.Count,
+            ViaLicensee: viaLicensee,
+            PaidOutsideNote: ParkInvoiceText.PaidOutsideNoteFor(rows),
             SwichSharePercent: park.SwichSharePercent,
             Phase1SharePercent: park.Phase1SharePercent,
             Phase1CapGel: park.Phase1CapGel,
@@ -228,10 +248,10 @@ public partial class InvoiceGenerator
             {
                 row.RelativeItem().Column(c =>
                 {
-                    c.Item().Text("PayTaxi პლატფორმის მომსახურება — გამოტანის საკომისიოს Swich-ის წილი").FontSize(11);
-                    c.Item().Text($"{m.CashoutCount} გამოტანა · მძღოლების საკომისიო სულ {Gel(m.FeeTotal)} · " +
-                                  $"პარკს რჩება {Gel(m.ParkShareTotal)}")
-                        .FontSize(9).FontColor(Colors.Grey.Darken1);
+                    c.Item().Text(m.ViaLicensee
+                        ? "PayTaxi პლატფორმის მომსახურება — პლატფორმის მფლობელის კუთვნილი თანხა, პარკის წილი"
+                        : "PayTaxi პლატფორმის მომსახურება — გამოტანის საკომისიოს Swich-ის წილი").FontSize(11);
+                    c.Item().Text(ParkInvoiceText.ServiceDetail(m.CashoutCount, m.FeeTotal)).FontSize(9).FontColor(Colors.Grey.Darken1);
                 });
                 row.ConstantItem(90).AlignRight().Text(Gel(m.SwichShareTotal)).FontSize(11).Bold();
             });
@@ -245,14 +265,20 @@ public partial class InvoiceGenerator
             });
             col.Item().PaddingTop(3).Row(row =>
             {
-                row.RelativeItem().Text("მათ შორის უკვე ჩარიცხული (ღამის ავტომატური ანგარიშსწორება)").FontSize(10).FontColor(Colors.Grey.Darken1);
+                row.RelativeItem().Text("მათ შორის უკვე ჩარიცხული (ყოველთვიური ავტომატური ანგარიშსწორება)").FontSize(10).FontColor(Colors.Grey.Darken1);
                 row.ConstantItem(90).AlignRight().Text(Gel(m.TransferredTotal)).FontSize(10).Bold();
             });
+            if (m.PaidExternallyTotal > 0)
+                col.Item().PaddingTop(2).Row(row =>
+                {
+                    row.RelativeItem().Text("მათ შორის დაფარულია პლატფორმის გარეთ (პარკის ანგარიშიდან აღარ ჩამოიჭრება)").FontSize(10).FontColor(Colors.Grey.Darken1);
+                    row.ConstantItem(90).AlignRight().Text(Gel(m.PaidExternallyTotal)).FontSize(10).Bold();
+                });
             col.Item().PaddingTop(2).Row(row =>
             {
                 var color = m.OutstandingTotal > 0 ? Colors.Red.Darken2 : Colors.Grey.Darken1;
                 row.RelativeItem().Text(m.OutstandingCount > 0
-                        ? $"გადასარიცხი — {m.OutstandingCount} ანგარიშსწორება ვერ შესრულდა ან მიმდინარეობს"
+                        ? $"გადასარიცხი — გადარიცხვა ვერ შესრულდა ან მიმდინარეობს (ვადა: {m.DueDate.ToString("dd.MM.yyyy", Inv)})"
                         : "გადასარიცხი")
                     .FontSize(10).FontColor(color);
                 row.ConstantItem(90).AlignRight().Text(Gel(m.OutstandingTotal)).FontSize(10).Bold().FontColor(color);
@@ -264,16 +290,19 @@ public partial class InvoiceGenerator
     {
         container.Column(col =>
         {
-            col.Item().Text("დღიური ანგარიშსწორებები").FontSize(11).Bold();
+            col.Item().Text("ანგარიშსწორება").FontSize(11).Bold();
             col.Item().PaddingTop(6);
+            // A licensee park's barrier/rest split is the statement's barrier fraction — the phase — so the column
+            // exists only for a Swich-direct park, whose phase 1 / 2 is its own.
+            var phaseColumn = !m.ViaLicensee;
             col.Item().Table(table =>
             {
                 table.ColumnsDefinition(cols =>
                 {
-                    cols.ConstantColumn(58);   // date
+                    cols.ConstantColumn(58);   // period
                     cols.ConstantColumn(52);   // cashouts
                     cols.ConstantColumn(62);   // fees
-                    cols.ConstantColumn(78);   // phase split
+                    if (phaseColumn) cols.ConstantColumn(78);   // phase split
                     cols.ConstantColumn(66);   // swich share
                     cols.RelativeColumn(1.1f); // status
                     cols.RelativeColumn(1.4f); // transfer ref
@@ -281,10 +310,10 @@ public partial class InvoiceGenerator
 
                 table.Header(h =>
                 {
-                    h.Cell().Element(Head).Text("თარიღი");
+                    h.Cell().Element(Head).Text("პერიოდი");
                     h.Cell().Element(Head).AlignRight().Text("გამოტანა");
                     h.Cell().Element(Head).AlignRight().Text("საკომისიო");
-                    h.Cell().Element(Head).AlignRight().Text("ფაზა 1 / 2");
+                    if (phaseColumn) h.Cell().Element(Head).AlignRight().Text("ფაზა 1 / 2");
                     h.Cell().Element(Head).AlignRight().Text("Swich-ის წილი");
                     h.Cell().Element(Head).PaddingLeft(8).Text("სტატუსი");
                     h.Cell().Element(Head).PaddingLeft(8).Text("გადარიცხვა");
@@ -293,10 +322,11 @@ public partial class InvoiceGenerator
                 foreach (var l in m.Lines)
                 {
                     var failed = l.Status == SettlementStatus.Failed;
-                    table.Cell().Element(Body).Text(l.Date.ToString("dd.MM", Inv));
+                    table.Cell().Element(Body).Text(l.IsMonthly ? l.Date.ToString("MM.yyyy", Inv) : l.Date.ToString("dd.MM", Inv));
                     table.Cell().Element(Body).AlignRight().Text(l.Cashouts.ToString(Inv));
                     table.Cell().Element(Body).AlignRight().Text(Gel(l.FeeTotal));
-                    table.Cell().Element(Body).AlignRight().Text($"{Num(l.Phase1Fees)} / {Num(l.Phase2Fees)}").FontColor(Colors.Grey.Darken1);
+                    if (phaseColumn)
+                        table.Cell().Element(Body).AlignRight().Text($"{Num(l.Phase1Fees)} / {Num(l.Phase2Fees)}").FontColor(Colors.Grey.Darken1);
                     table.Cell().Element(Body).AlignRight().Text(Gel(l.SwichShare)).Bold();
                     table.Cell().Element(Body).PaddingLeft(8).Text(StatusLabel(l))
                         .FontColor(failed ? Colors.Red.Darken2 : Colors.Black);
@@ -304,14 +334,19 @@ public partial class InvoiceGenerator
                         .FontSize(8.5f).FontColor(Colors.Grey.Darken2);
                 }
 
-                // Totals row
-                table.Cell().Element(Foot).Text("სულ").Bold();
-                table.Cell().Element(Foot).AlignRight().Text(m.CashoutCount.ToString(Inv)).Bold();
-                table.Cell().Element(Foot).AlignRight().Text(Gel(m.FeeTotal)).Bold();
-                table.Cell().Element(Foot).AlignRight().Text($"{Num(m.Lines.Sum(l => l.Phase1Fees))} / {Num(m.Lines.Sum(l => l.Phase2Fees))}").FontColor(Colors.Grey.Darken1);
-                table.Cell().Element(Foot).AlignRight().Text(Gel(m.SwichShareTotal)).Bold();
-                table.Cell().ColumnSpan(2).Element(Foot).PaddingLeft(8)
-                    .Text($"ჩარიცხულია {Gel(m.TransferredTotal)} · გადასარიცხი {Gel(m.OutstandingTotal)}").FontSize(9);
+                if (m.Lines.Count > 1)
+                {
+                    table.Cell().Element(Foot).Text("სულ").Bold();
+                    table.Cell().Element(Foot).AlignRight().Text(m.CashoutCount.ToString(Inv)).Bold();
+                    table.Cell().Element(Foot).AlignRight().Text(Gel(m.FeeTotal)).Bold();
+                    if (phaseColumn)
+                        table.Cell().Element(Foot).AlignRight().Text($"{Num(m.Lines.Sum(l => l.Phase1Fees))} / {Num(m.Lines.Sum(l => l.Phase2Fees))}").FontColor(Colors.Grey.Darken1);
+                    table.Cell().Element(Foot).AlignRight().Text(Gel(m.SwichShareTotal)).Bold();
+                    table.Cell().ColumnSpan(2).Element(Foot).PaddingLeft(8)
+                        .Text($"ჩარიცხულია {Gel(m.TransferredTotal)}"
+                              + (m.PaidExternallyTotal > 0 ? $" · დაფარულია გარეთ {Gel(m.PaidExternallyTotal)}" : "")
+                              + $" · გადასარიცხი {Gel(m.OutstandingTotal)}").FontSize(9);
+                }
             });
         });
 
@@ -335,7 +370,11 @@ public partial class InvoiceGenerator
             col.Item().Text("განაწილების პირობები").FontSize(11).Bold();
             col.Item().PaddingTop(6);
             string terms;
-            if (m.Phase1CapGel is { } cap && m.Phase1SharePercent is { } p1)
+            if (m.ViaLicensee)
+            {
+                terms = ParkInvoiceText.LicenseeParkTerms;
+            }
+            else if (m.Phase1CapGel is { } cap && m.Phase1SharePercent is { } p1)
             {
                 var reached = m.CumulativeFeesAtEnd >= cap;
                 terms =
@@ -360,17 +399,19 @@ public partial class InvoiceGenerator
             col.Item().Text("შენიშვნა").FontSize(11).Bold();
             col.Item().PaddingTop(6);
             var note =
-                $"თანხები Swich-ს ერიცხება ყოველდღიური ავტომატური ანგარიშსწორებით {m.ParkLegalName}-ის საბანკო ანგარიშიდან, " +
-                $"გადარიცხვის დანიშნულებით „PayTaxi settlement YYYY-MM-DD, N tx, inv ref {m.InvoiceRef}“. " +
-                "ეს ინვოისი აღრიცხავს უკვე შესრულებულ გადარიცხვებს — დამატებითი გადახდა საჭირო არ არის. " +
+                $"თანხა Swich-ს ერიცხება ყოველთვიური ავტომატური ანგარიშსწორებით {m.ParkLegalName}-ის საბანკო ანგარიშიდან, " +
+                $"თვის დასრულებიდან არაუგვიანეს {m.DueDate.ToString("dd.MM.yyyy", Inv)}-ისა, დანიშნულებით " +
+                $"„PayTaxi settlement YYYY-MM, N tx, inv ref {m.InvoiceRef}“. " +
+                "ეს ინვოისი აღრიცხავს უკვე შესრულებულ გადარიცხვას — დამატებითი გადახდა საჭირო არ არის. " +
                 (m.OutstandingTotal > 0
-                    ? "„გადასარიცხი“ თანხა ავტომატურად გადაირიცხება მომდევნო ღამის ანგარიშსწორებით, როგორც კი პარკის ანგარიშზე საკმარისი ნაშთი იქნება. "
+                    ? "„გადასარიცხი“ თანხის გადარიცხვა ავტომატურად მეორდება ყოველ ღამე, სანამ პარკის ანგარიშზე საკმარისი ნაშთი არ იქნება. "
                     : string.Empty) +
-                "თითოეული ანგარიშსწორების მიერ დაფარული გამოტანების სია ხელმისაწვდომია PayTaxi ადმინ-პანელში (ანგარიშსწორებები → ჩანაწერის გახსნა).";
+                (m.PaidOutsideNote is { } outside ? outside + " " : string.Empty) +
+                "ანგარიშსწორებით დაფარული გამოტანების სია ხელმისაწვდომია PayTaxi ადმინ-პანელში (ანგარიშსწორებები → ჩანაწერის გახსნა).";
             col.Item().Text(note).FontSize(10).LineHeight(1.4f).FontColor(Colors.Grey.Darken2);
             col.Item().PaddingTop(8);
             col.Item().Text($"გენერირებულია PayTaxi პლატფორმაზე {m.GeneratedAtLocal.ToString("dd.MM.yyyy HH:mm", Inv)}. " +
-                            $"პლატფორმის ოპერატორი: {m.OperatorName} (ს/კ: {m.OperatorTaxId}).")
+                            $"პლატფორმის მფლობელი: {m.OperatorName} (ს/კ: {m.OperatorTaxId}).")
                 .FontSize(8.5f).FontColor(Colors.Grey.Darken1);
         });
     }
@@ -384,6 +425,8 @@ public partial class InvoiceGenerator
     private static string StatusLabel(MonthlyLine l) => l.Status switch
     {
         SettlementStatus.Completed => l.TransferredAtLocal is { } at ? $"ჩარიცხულია {at.ToString("dd.MM", Inv)}" : "ჩარიცხულია",
+        SettlementStatus.SettledExternally => ParkInvoiceText.PaidOutsideLabel(l.ExternalPayer, l.ViaLicensee)
+                                              + (l.PaidExternallyOn is { } on ? $" {on.ToString("dd.MM", Inv)}" : ""),
         SettlementStatus.Failed => string.IsNullOrEmpty(l.FailureCode) ? "ვერ შესრულდა" : $"ვერ შესრულდა ({FailureLabel(l.FailureCode)})",
         SettlementStatus.Processing => "მიმდინარეობს",
         _ => "მოლოდინში",
@@ -398,8 +441,9 @@ public partial class InvoiceGenerator
     };
 
     private sealed record MonthlyLine(
-        DateOnly Date, int Cashouts, decimal FeeTotal, decimal Phase1Fees, decimal Phase2Fees, decimal SwichShare,
-        SettlementStatus Status, string? TransferId, DateTime? TransferredAtLocal, string? FailureCode);
+        DateOnly Date, bool IsMonthly, int Cashouts, decimal FeeTotal, decimal Phase1Fees, decimal Phase2Fees, decimal SwichShare,
+        SettlementStatus Status, string? TransferId, DateTime? TransferredAtLocal, string? FailureCode,
+        DateOnly? PaidExternallyOn, string? ExternalPayer, bool ViaLicensee);
 
     private sealed record MonthlyModel(
         string InvoiceRef,
@@ -408,6 +452,7 @@ public partial class InvoiceGenerator
         DateOnly PeriodTo,
         string MonthTitle,
         bool IsInterim,
+        DateOnly DueDate,
         string OperatorName,
         string OperatorTaxId,
         string OperatorIban,
@@ -422,11 +467,56 @@ public partial class InvoiceGenerator
         decimal SwichShareTotal,
         decimal ParkShareTotal,
         decimal TransferredTotal,
+        decimal PaidExternallyTotal,
         decimal OutstandingTotal,
         int OutstandingCount,
+        bool ViaLicensee,
+        string? PaidOutsideNote,
         decimal SwichSharePercent,
         decimal? Phase1SharePercent,
         decimal? Phase1CapGel,
         decimal CumulativeFeesAtEnd,
         DateTime GeneratedAtLocal);
+}
+
+/// <summary>
+/// The free text the park's monthly invoice prints about its share. Built only from the park's OWN figures —
+/// by signature, nothing of the licensee's statement (its totals, costs, phase) can reach a park's document.
+/// </summary>
+public static class ParkInvoiceText
+{
+    public static string ServiceDetail(int cashoutCount, decimal feeTotal) =>
+        $"{cashoutCount} გამოტანა · მძღოლების საკომისიო სულ {feeTotal.ToString("N2", CultureInfo.InvariantCulture)}₾";
+
+    /// <summary>The park learns its own part and the rule — not the licensee's costs, totals or barrier phase.</summary>
+    public const string LicenseeParkTerms =
+        "პარკი PayTaxi-ს იყენებს ლიცენზიატის მეშვეობით. პლატფორმის მფლობელის კუთვნილი თანხა ყოველთვიურად " +
+        "გამოითვლება ლიცენზიატის ყველა პარკისთვის ერთად (სალიცენზიო ხელშეკრულება, მუხლი 2) და ირიცხება იმ " +
+        "პარკების ანგარიშებიდან, რომლებზეც საკომისიო დაგროვდა — თითოეულიდან მისი საკომისიო შემოსავლის პროპორციულად. " +
+        "დანარჩენი თანხის განაწილება ლიცენზიატსა და პარკს შორის მათი ხელშეკრულებით წესრიგდება.";
+
+    /// <summary>
+    /// The note on a debt paid outside the platform. Only a licensee's park is party to the licence agreement, so only
+    /// its invoice cites §2.5 (the licensee answering for its park); a Swich-direct park's never names a contract it
+    /// did not sign.
+    /// </summary>
+    public static string PaidOutsideNote(bool viaLicensee) => viaLicensee
+        ? "„დაფარულია პლატფორმის გარეთ“ — თანხა პლატფორმის მფლობელს უშუალოდ გადაეცა (სალიცენზიო ხელშეკრულება, მუხლი 2.5); მისი გადარიცხვა პარკის ანგარიშიდან აღარ განხორციელდება."
+        : "„დაფარულია პლატფორმის გარეთ“ — თანხა პლატფორმის მფლობელს უშუალოდ გადაეცა; მისი გადარიცხვა პარკის ანგარიშიდან აღარ განხორციელდება.";
+
+    /// <summary>
+    /// The note for one invoice's rows; null when none of them was paid outside the platform. It follows the rows that WERE
+    /// paid outside: fees are settled under the regime they were earned under, so a park reassigned mid-month has a
+    /// Swich-direct row and a licensee row on one invoice — and when only the direct one was paid outside, the note must not
+    /// cite §2.5 of an agreement that row is not under, though the month has a licensee row too.
+    /// </summary>
+    public static string? PaidOutsideNoteFor(IEnumerable<Settlement> rows)
+    {
+        var outside = rows.Where(r => r.Status == SettlementStatus.SettledExternally).ToList();
+        return outside.Count == 0 ? null : PaidOutsideNote(outside.Any(r => r.MonthlyStatementId is not null));
+    }
+
+    /// <summary>Who settled the line: "the licensee" only on a licensee park's row (a direct row cannot carry it — and an old one never says it).</summary>
+    public static string PaidOutsideLabel(string? payer, bool viaLicensee) =>
+        payer == "licensee" && viaLicensee ? "დაფარა ლიცენზიატმა" : "დაფარულია პლატფორმის გარეთ";
 }

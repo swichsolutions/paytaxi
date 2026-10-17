@@ -65,7 +65,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       return from(auth.refresh()).pipe(
         switchMap(ok => {
           if (ok) return send(auth.token());
-          router.navigate(['/login'], { queryParams: { reason: 'expired' } });
+          // Only a session the server ended sends the driver to the SMS screen; a refresh that merely failed
+          // (offline, rate limited) keeps the session and surfaces this request's error.
+          if (!auth.isAuthenticated()) router.navigate(['/login'], { queryParams: { reason: 'expired' } });
           return throwError(() => err);
         }),
       );

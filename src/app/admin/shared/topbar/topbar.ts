@@ -6,6 +6,7 @@ import { filter, map, startWith } from 'rxjs';
 import { AdminAuthService } from '../../services/admin-auth.service';
 import { AdminParkContextService } from '../../services/admin-park-context.service';
 import { AdminI18nService } from '../../services/admin-i18n.service';
+import { ApiPark } from '../../services/admin-api.service';
 
 @Component({
   selector: 'app-admin-topbar',
@@ -29,6 +30,13 @@ export class AdminTopbarComponent implements OnInit {
 
   ngOnInit() {
     this.parkCtx.ensureLoaded();
+  }
+
+  /** "Batumi Auto Park #1 · Suspended" — a park that cannot pay out is marked in the picker. */
+  parkOptionLabel(p: ApiPark): string {
+    if (p.status === 'Active') return p.name;
+    const label = (this.t as Record<string, string>)[p.status.toLowerCase()] ?? p.status;
+    return `${p.name} · ${label}`;
   }
 
   onParkChange(parkId: string) {

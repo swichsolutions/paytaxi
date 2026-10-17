@@ -103,7 +103,11 @@ function parsePayload(raw: string | null | undefined): NotificationPayload | nul
     return {
       amount: typeof obj.amount === 'number' ? obj.amount : null,
       destination: typeof obj.destination === 'string' ? obj.destination : null,
-      reason: typeof obj.reason === 'string' && obj.reason.trim() !== '' ? obj.reason.trim() : null,
+      // A `reason` in older rows is deliberately not read: it could carry a bank's text or an admin's note.
+      code: typeof obj.code === 'string' && obj.code.trim() !== '' ? obj.code.trim() : null,
+      change: obj.change === 'added' || obj.change === 'default' || obj.change === 'removed' ? obj.change : null,
+      by: obj.by === 'driver' || obj.by === 'park' ? obj.by : null,
+      isDefault: obj.isDefault === true,
     };
   } catch {
     return null;
@@ -114,12 +118,18 @@ function parsePayload(raw: string | null | undefined): NotificationPayload | nul
 export interface NotificationPayload {
   amount: number | null;
   destination: string | null;
-  reason: string | null;
+  /** Failure code for cashout_failed (e.g. CANCELLED — the payout was cancelled and the amount refunded on Yandex). */
+  code: string | null;
+  /** payout_account_changed: what happened to the account (`destination`), and who did it — the driver or the park. */
+  change: 'added' | 'default' | 'removed' | null;
+  by: 'driver' | 'park' | null;
+  /** payout_account_changed, change `added`: the account was made the default too — the payouts go there now. */
+  isDefault: boolean;
 }
 
 export interface DriverNotification {
   id: string;
-  /** cashout_completed | cashout_queued | cashout_failed | cashout_review | … */
+  /** cashout_completed | cashout_queued | cashout_failed | cashout_review | payout_account_changed | … */
   type: string;
   /** Server-rendered English fallbacks — used only when `payload` is null (old rows). */
   title: string;

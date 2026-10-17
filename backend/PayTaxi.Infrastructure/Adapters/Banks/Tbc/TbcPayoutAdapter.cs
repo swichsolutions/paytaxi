@@ -15,7 +15,12 @@ namespace PayTaxi.Infrastructure.Adapters.Banks.Tbc;
 ///     DUPLICATED_SINGLE_PAYMENT_REQUEST and we recover the original paymentId instead.
 ///   • Execution is asynchronous: after import we poll GetPaymentOrderStatus a few times.
 ///     F → Completed; FL/C/D/CPE → failed (non-retryable); anything else → Pending, and the
-///     saga keeps polling via GetTransferStatusAsync.
+///     saga keeps polling via GetTransferOutcomeAsync.
+///   • Insufficient funds (codes/phrases in <see cref="TbcDbiOptions.InsufficientFundsCodes"/>, to be
+///     confirmed in the sandbox) → our retryable INSUFFICIENT_FUNDS, wherever TBC says it: as a fault
+///     on import (no order exists), or as a failed status after import (the order exists and is dead —
+///     the saga then moves to a fresh document id, since TBC refuses a second order under the same
+///     singlePaymentRequestId).
 ///   • FindTransferByIdempotencyKey → GetSinglePaymentId + status (lost-response recovery).
 ///   • ListTransfers → GetAccountMovements (debits) for reconciliation, keyed by paymentId.
 ///   • GetBalance → GetAccountStatement(today).closingBalance.
@@ -29,6 +34,7 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
     private readonly TbcSoapClient _soap;
     private readonly TbcDbiOptions _opts;
     private readonly ILogger<TbcPayoutAdapter> _log;
+    private readonly string[] _insufficientFunds;
 
     public string BankType => "TBC";
 
@@ -37,6 +43,24 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
         _soap = soap;
         _opts = opts.Value;
         _log = log;
+        _insufficientFunds = (_opts.InsufficientFundsCodes is { Length: > 0 } c ? c : TbcDbiOptions.DefaultInsufficientFundsCodes)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim())
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Is this TBC answer "the account cannot cover it"? Exact match on the fault / status code first,
+    /// then the configured phrases inside the bank's text (codes are unconfirmed until the sandbox).
+    /// </summary>
+    public bool IsInsufficientFunds(string? code, string? text)
+    {
+        foreach (var entry in _insufficientFunds)
+        {
+            if (code is not null && string.Equals(code.Trim(), entry, StringComparison.OrdinalIgnoreCase)) return true;
+            if (text is not null && text.Contains(entry, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     public async Task<BankTransferResult> SendPayoutAsync(BankTransferRequest request, CancellationToken ct = default)
@@ -82,6 +106,13 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
         {
             return MapFault(ex);
         }
+        catch (TbcConfigurationException ex)
+        {
+            // The HTTP client could not even be built (certificate missing, unloadable, or outside the allowed
+            // directory) — nothing reached the bank. The same ops wait as unparseable credentials, never an unknown
+            // outcome: marking it one would hold the payout for review once the park fixed its certificate.
+            return new BankTransferResult(false, null, "TBC_NOT_CONFIGURED", ex.Message, IsRetryable: true);
+        }
         catch (TbcProtocolException ex)
         {
             // Outcome unknown → the caller will FindTransferByIdempotencyKey before retrying.
@@ -99,6 +130,22 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
         if (!long.TryParse(transferId, out var pid)) return BankTransferStatus.Unknown;
         var s = await _soap.GetPaymentOrderStatusAsync(creds, pid, ct);
         return MapStatus(s.Code);
+    }
+
+    /// <summary>
+    /// The status poll the cashout saga uses: same as <see cref="GetTransferStatusAsync"/>, plus why a
+    /// failed order failed — an order refused for lack of funds after it was accepted waits for a top-up.
+    /// </summary>
+    public async Task<BankTransferOutcome> GetTransferOutcomeAsync(BankAccountContext source, string transferId, CancellationToken ct = default)
+    {
+        var creds = TbcCredentials.Parse(source.CredentialsJson, source.ParkId);
+        if (!long.TryParse(transferId, out var pid)) return new BankTransferOutcome(BankTransferStatus.Unknown);
+        var s = await _soap.GetPaymentOrderStatusAsync(creds, pid, ct);
+        var status = MapStatus(s.Code);
+        if (status != BankTransferStatus.Failed) return new BankTransferOutcome(status);
+        return IsInsufficientFunds(s.Code, s.ErrorDetail)
+            ? new BankTransferOutcome(status, BankErrorCodes.InsufficientFunds, s.ErrorDetail ?? $"Insufficient funds (status {s.Code})")
+            : new BankTransferOutcome(status, "TBC_" + s.Code, s.ErrorDetail);
     }
 
     public async Task<BankTransferLookup?> FindTransferByIdempotencyKeyAsync(BankAccountContext source, string idempotencyKey, CancellationToken ct = default)
@@ -154,12 +201,17 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
         return last;
     }
 
-    private static BankTransferResult ToResult(long paymentId, TbcSoapClient.PaymentStatus s)
+    private BankTransferResult ToResult(long paymentId, TbcSoapClient.PaymentStatus s)
     {
         var id = paymentId.ToString();
         return MapStatus(s.Code) switch
         {
             BankTransferStatus.Completed => new BankTransferResult(true, id, null, null),
+            // The order exists and is dead, but only for lack of money: "not now". The transfer id goes
+            // back with it so the saga knows to send the retry as a new document.
+            BankTransferStatus.Failed when IsInsufficientFunds(s.Code, s.ErrorDetail) =>
+                new BankTransferResult(false, id, BankErrorCodes.InsufficientFunds,
+                    s.ErrorDetail ?? $"Insufficient funds (status {s.Code})", IsRetryable: true),
             BankTransferStatus.Failed => new BankTransferResult(false, id, "TBC_" + s.Code,
                 s.ErrorDetail ?? $"Bank rejected the payment (status {s.Code})", IsRetryable: false),
             _ => new BankTransferResult(true, id, null, null, IsRetryable: false, IsPending: true),
@@ -174,8 +226,12 @@ public class TbcPayoutAdapter : IBankPayoutAdapter
         _ => BankTransferStatus.Unknown,
     };
 
-    private static BankTransferResult MapFault(TbcFaultException ex) => ex.FaultCode switch
+    private BankTransferResult MapFault(TbcFaultException ex) => ex.FaultCode switch
     {
+        // Refused at import for lack of funds: no order exists, the same request id can go again
+        // after a top-up. Checked first so a phrase in a generic fault's text still counts.
+        _ when IsInsufficientFunds(ex.FaultCode, ex.Message) =>
+            new BankTransferResult(false, null, BankErrorCodes.InsufficientFunds, ex.Message, IsRetryable: true),
         // Bad data: never going to work with the same input.
         "VALIDATION_ERROR" or "INCORRECT_INPUT_DATA" =>
             new BankTransferResult(false, null, "TBC_" + ex.FaultCode, ex.Message, IsRetryable: false),

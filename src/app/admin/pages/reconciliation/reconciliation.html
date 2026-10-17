@@ -169,6 +169,13 @@
               }
             </div>
 
+            @if (d.parkNote) {
+              <div class="rec-disc__park-note">
+                <span><b>{{ t.recParkNote }}</b>@if (d.parkNoteBy) { · {{ d.parkNoteBy }} } · {{ formatIso(d.parkNoteAt) }}</span>
+                <p>{{ d.parkNote }}</p>
+              </div>
+            }
+
             @if (d.isResolved) {
               <div class="rec-disc__resolved">
                 <span><b>{{ t.resolvedBy }}</b> {{ d.resolvedBy || '—' }} · {{ formatIso(d.resolvedAt) }}</span>
@@ -182,7 +189,10 @@
                   class="btn-admin btn-admin--secondary"
                   (click)="toggleResolveFor(d.id)"
                 >
-                  @if (openResolveFor() === d.id) { {{ t.cancel }} } @else { {{ t.markResolved }} }
+                  @if (openResolveFor() === d.id) { {{ t.cancel }} }
+                  @else if (canResolve()) { {{ t.markResolved }} }
+                  @else if (d.parkNote) { {{ t.recEditNote }} }
+                  @else { {{ t.recAddNote }} }
                 </button>
               </div>
 
@@ -190,17 +200,27 @@
                 <div class="rec-resolve">
                   <textarea
                     class="rec-resolve__notes"
-                    [placeholder]="t.resolvePlaceholder"
+                    [placeholder]="canResolve() ? t.resolvePlaceholder : t.recNotePlaceholder"
                     [value]="resolveNotes()"
-                    (input)="resolveNotes.set($any($event.target).value)"
+                    (input)="resolveNotes.set($any($event.target).value); formError.set(null)"
+                    [attr.aria-invalid]="formError()?.id === d.id"
                     rows="3"
                   ></textarea>
+                  @if (formError()?.id === d.id) {
+                    <p class="rec-resolve__error" role="alert">{{ formError()!.text }}</p>
+                  } @else if (canResolve()) {
+                    <p class="rec-resolve__hint">{{ t.recReasonHint.replace('{n}', '' + minReason) }}</p>
+                  } @else {
+                    <p class="rec-resolve__hint">{{ t.recNoteStaysOpen }}</p>
+                  }
                   <button
                     class="btn-admin btn-admin--brand"
-                    [disabled]="resolving() === d.id"
+                    [disabled]="resolving() === d.id || (canResolve() ? !reasonOk() : resolveNotes().trim() === '')"
                     (click)="submitResolve(d.id)"
                   >
-                    @if (resolving() === d.id) { {{ t.resolving }} } @else { {{ t.confirmResolution }} }
+                    @if (resolving() === d.id) { {{ canResolve() ? t.resolving : t.saving }} }
+                    @else if (canResolve()) { {{ t.confirmResolution }} }
+                    @else { {{ t.recSaveNote }} }
                   </button>
                 </div>
               }

@@ -35,10 +35,16 @@ public class FieldEncryptorTests : IDisposable
     }
 
     [Fact]
-    public void Already_encrypted_is_not_double_encrypted()
+    public void A_value_that_only_looks_encrypted_is_encrypted_like_any_other()
     {
-        var once = FieldEncryptor.Encrypt("x");
-        Assert.Equal(once, FieldEncryptor.Encrypt(once));
+        // The converter hands Encrypt what a caller typed. Passing a look-alike through unencrypted let a park manager
+        // store "enc:v1:x" verbatim — undecryptable, so every later read of the row (the whole park list) threw.
+        foreach (var lookAlike in new[] { "enc:v1:x", FieldEncryptor.Encrypt("x") })
+        {
+            var stored = FieldEncryptor.Encrypt(lookAlike);
+            Assert.NotEqual(lookAlike, stored);
+            Assert.Equal(lookAlike, FieldEncryptor.Decrypt(stored));
+        }
     }
 
     [Fact]
@@ -58,12 +64,5 @@ public class FieldEncryptorTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => FieldEncryptor.Configure(Convert.ToBase64String(new byte[16])));
     }
 
-    [Fact]
-    public void Hash_is_stable_lowercase_hex()
-    {
-        var h = FieldEncryptor.Hash("GE62TB0011223344556677");
-        Assert.Equal(64, h.Length);
-        Assert.Equal(h, FieldEncryptor.Hash("GE62TB0011223344556677"));
-        Assert.Equal(h, h.ToLowerInvariant());
-    }
+    // The lookup hashes beside the encrypted columns are keyed now: LookupHasherTests.
 }

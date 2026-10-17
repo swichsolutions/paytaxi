@@ -159,6 +159,17 @@ TLS 1.2 and a client certificate.
 **Why:** we poll every 20 s today; a callback would make completion faster and cheaper.
 **Answer:** ______________________________________________
 
+### 22. Insufficient funds: what exactly does the service answer? [CODE]
+**KA:** თუ ანგარიშზე საკმარისი თანხა არ არის, რას აბრუნებს სერვისი: `ImportSinglePaymentOrders` უარყოფს დავალებას (რა შეცდომის კოდით და ტექსტით), თუ იღებს და შემდეგ სტატუსი ხდება FL / CPE (რა `errorDetail`-ით)? ანგარიშის შევსების შემდეგ შეიძლება თუ არა იმავე `singlePaymentRequestId`-ით ხელახლა გაგზავნა?
+**Why:** a payout the park's account cannot cover must wait for a top-up and then go out automatically, not be
+given back to the driver (licence agreement, Annex 3 §5). We recognise the answer through
+`BankPayout:Tbc:InsufficientFundsCodes` — today educated guesses (`INSUFFICIENT_FUNDS`, "Insufficient funds",
+"არასაკმარისი თანხა", …). If TBC accepts the order and fails it later, we resend under a new request id after the
+top-up; if the same id may be reused, that path is not needed.
+**Need:** the exact fault code and/or status + `errorDetail` text (EN and GE), and whether a failed request id can be
+reused. Then reproduce it in the sandbox with an order larger than the test account's balance.
+**Answer:** ______________________________________________
+
 ---
 
 ## Leave the branch with
@@ -184,3 +195,4 @@ TLS 1.2 and a client certificate.
 | Q12 idempotency scope | short-lived | prefix request ids with a date component and keep our own dedupe as the last line of defence (already there) |
 | Q13 failure shape | debit + refund pair | teach reconciliation to pair them as one failed transfer |
 | Q20 IP whitelist | required | fixed outbound IP on the chosen host (NAT gateway / static IP) before go-live |
+| Q22 insufficient funds | a code / text other than our guesses | put it in `BankPayout:Tbc:InsufficientFundsCodes` (replaces the guesses) and add a sandbox test for both shapes (refused at import, failed after acceptance) |

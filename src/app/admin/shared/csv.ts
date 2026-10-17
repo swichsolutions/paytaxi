@@ -1,11 +1,17 @@
 /**
  * Client-side CSV export. Prepends a UTF-8 BOM so Excel opens Georgian text
  * correctly, quotes cells that need it, and triggers a browser download.
+ *
+ * Text that starts with = + - @ (or a tab / carriage return) is prefixed with a quote so a spreadsheet shows it as
+ * text instead of running it as a formula: driver names and car plates come from the Yandex roster, which the park's
+ * staff — not we — control, and `=HYPERLINK(…)` in a name would otherwise be live in the exported file. Plain numbers
+ * (including negative ones written as text) are left as they are.
  */
 export function downloadCsv(filename: string, header: string[], rows: (string | number | null | undefined)[][]): void {
   if (typeof document === 'undefined') return;
   const escape = (v: string | number | null | undefined): string => {
-    const s = v === null || v === undefined ? '' : String(v);
+    let s = v === null || v === undefined ? '' : String(v);
+    if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+([.,]\d+)?$/.test(s)) s = `'${s}`;
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const body = [header, ...rows].map(r => r.map(escape).join(',')).join('\r\n');

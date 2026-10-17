@@ -2,7 +2,7 @@
 
 > Snapshot for resuming work in a fresh session. Read CLAUDE.md for the project brief and the `Business Model and Multi-Tenancy` section; this file is the current "where are we" log.
 
-**Last updated:** 2026-09-21 (sixth test pass: double-retry paid twice, fixed; monthly invoice; N2 banner — newest sections first)
+**Last updated:** 2026-10-16 (smsoffice.ge SMS gateway; owner's security decisions: no test rails live, payout-account notices, sign-in limits, operator scoping — newest sections first)
 
 ---
 
@@ -11,6 +11,215 @@
 The product is functionally complete for everything that doesn't require external API access. Both driver and admin apps have real login (phone+OTP for drivers, email+password for admins), every page is backed by real Postgres data through the .NET 8 backend, the cashout saga moves money end-to-end through mock bank + mock Yandex, three background workers (balance sync, reconciliation, the saga itself) are running, an admin can generate a Georgian PDF invoice for any completed cashout and a monthly PT-YYYY-MM invoice per park, and the whole admin console is mobile-responsive.
 
 The remaining work is **almost entirely external-dependency-blocked** (real bank API, real Yandex Fleet API, real SMS gateway, real legal entity) plus translation work and one open business-model question we're waiting on a lawyer to resolve.
+
+---
+
+## Session 2026-10-16 (part 3) — smsoffice.ge SMS gateway
+
+**Live-tested 2026-10-16:** sender name `PayTaxi` approved by smsoffice (activation form signed and e-mailed the same
+day); a real sign-in code reached the owner's phone and signed the test driver in; the earlier `SENDER_REJECTED` gateway
+incident (INC-0001, raised while the sender was still unapproved) closed itself on the first accepted send. Balance 500.
+The key and `Sender=PayTaxi` live in the gitignored `appsettings.Development.json` with `Sms:Provider=log`; a live run
+uses the env var `Sms__Provider=smsoffice`. Privacy policy: `LEGAL_DETAILS.sms` filled (შპს „ირკა“ / smsoffice.ge).
+
+**Status:** uncommitted, in the main working tree with part 2. The real SMS gateway is wired behind the existing
+`ISmsSender` seam: `SmsOfficeSender` (`Infrastructure/Adapters/Sms/`, POST form-encoded to `https://smsoffice.ge/api/v2/send/`,
+named `IHttpClientFactory` client, 10 s timeout, request logging off because `getBalance` carries the key in its query).
+Registered when `Sms:Provider=smsoffice` **and** `Sms:SmsOffice:Key` is set (`Sms__SmsOffice__Key`; docker-compose
+`SMS_OFFICE_KEY`); otherwise `LoggingSmsSender` as before. `appsettings.Production.json` sets `smsoffice`; the startup guard
+refuses a non-Development host with the log sender or an empty/placeholder key unless `Sms:AllowLogSender=true` (dry run).
+
+- **devCode rule changed**: request-otp returns/logs the code only while the registered sender is the log one
+  (`ISmsSender.DeliversForReal` false) — no longer "when Development". With a gateway configured in Development the
+  code is sent as a real SMS and shown nowhere (the app's "DEV CODE" line stays; it is null then). Tests and e2e (no
+  key) keep getting `devCode`; `ApiFixture` pins `Sms__Provider=log` so a developer's `appsettings.Development.json`
+  key can never make a test run send.
+- **request-otp now sends the code** (it only logged before): `SignInCodeSms`, one segment, ka/en/ru from
+  `Drivers.PreferredLanguage` ("PayTaxi: თქვენი კოდია 123456. მოქმედებს 5 წუთი."), best effort with the same 5 s wait
+  as the payout notices. Destination `+995…` → `995…`; non-Georgian numbers are refused locally (smsoffice is
+  Georgia-only). Reference tag `signin-k7m2p9qx` / `payoutaccou-…` (≤ 20 chars, never the phone). Log lines carry
+  purpose, caller reference, tag and error code + meaning — never the text or the phone.
+- **Operator alert**: errors 20/80/120/150/110 (and a balance below `LowBalanceWarnAt`, default 50, read at start and
+  every 6 h by `SmsOfficeBalanceCheck`) open one platform-wide P2 auto incident, dedupe key `sms-gateway`
+  (`SmsGatewayIncident`) — on every console's banner as `incident_open`, no UI change; closed by the gateway itself when
+  a message is accepted again / the balance reads healthy. A moved incident is left to a person, like the monitor's.
+- **Payout-notice texts shortened** to ≤ 134 chars (two Unicode segments) with a "TBC **** 1234" label: ka added-by-park,
+  ka/ru added-as-default (now "payouts now go there" wording). `PayoutAccountNoticeTests` updated accordingly.
+- Tests: `Sms/SmsOfficeSenderTests` (fake `HttpMessageHandler`: form fields, codes, no-throw, no phone/text in the log,
+  balance parse + check), `StartupGuardTests` (new rules), `Integration/SmsGatewayTests` (real adapter over a fake
+  gateway in a derived host: devCode null, SMS holds the code in the driver's language, verify-otp signs in; the
+  incident opens/closes; low balance not closed by a send). New package: `Microsoft.Extensions.Http` 10.0.8 in
+  Infrastructure.
+- **Open**: delivery-report callback (needs a public URL; `DEPLOY.md §2a.5`), a custom sender needs smsoffice's approval
+  first (150 until then), no retry on `-100` (temporary failure — a queue would be the place), the alert texts
+  (`auto_sms_*` update codes) fall back to their English text in the console (no translations added).
+  `docs/DEPLOY.md` §2a has the operator steps.
+
+## Session 2026-10-16 (part 2) — the owner's security decisions
+
+**Status:** everything since 8a9962e (contract alignment, Terms of Use, security review and these decisions) is in the
+main working tree, **uncommitted**. Checked in main: 415/415 backend (Release), tsc, ng build; the e2e ran 34/34 in the
+worktree on the identical files. Backup of the pre-apply state: `ptwt/_notes/backup/`. Local
+`appsettings.Development.json` now has `Encryption:HashKey` (the dev DB is re-hashed once on the next start) and the raised
+dev sign-in caps. When committing: `git add -A` is safe, because `*.pdf` is ignored and `docs/invoice.pdf` must never
+be committed. Lawyer and owner points: `docs/LAWYER-NOTES.md`, DEPLOY.md steps 7 and 9.
+
+Implemented as the owner decided them, each with tests (`RealRailsTests`, `TbcTestEnvironmentTests`, `BankRailPolicyTests`,
+`PayoutAccountNoticeTests`, `SignInLimitTests`, `ParkScopeTests`; seen failing on the pre-change code first):
+
+- **No test rails on the live server** (`BankRailPolicy`): with real rails (not Development, no `AllowMockRails`) the mock
+  bank is not registered; every `?? MOCK` fallback is gone — an account whose provider has no adapter makes payouts wait
+  (`BANK_ADAPTER_MISSING`), fails its settlement, and is reported unread by reconciliation. Park creation and payout-account
+  create/update refuse `mock` (`invalid_provider`) and banks other than TBC/BoG (`unsupported_bank`); the console offers
+  what the server takes (`allowedProviders` on the account list; add-park hides mock in production builds). TBC
+  `environment` defaults to **production**; test credentials are refused on write (`test_environment_not_allowed`) and
+  in the SOAP client before any call (`TBC_TEST_ENVIRONMENT_NOT_ALLOWED`). Sandbox tests: staging with
+  `BankPayout:AllowTestEnvironment=true` (refused in Production). Startup refuses an active mock account with real rails
+  (`PayoutRailCheck`) and logs TBC accounts with test credentials.
+- **Payout-account notices**: every add / make-default / remove — the driver's in the app or the park side's in the
+  console — writes an in-app notice (`payout_account_changed`, shown in the app's Notifications) and an SMS through the new
+  `ISmsSender` (`LoggingSmsSender` until a gateway is wired: it only logs) in the driver's language
+  (`Drivers.PreferredLanguage`, taken from the app's Accept-Language at sign-in, refresh and account changes; Georgian
+  when unknown): masked account, "you" or "your taxi park", "contact your park". Best effort, never fails the change.
+- **Sign-in limits + sign-out**: `PhoneSignInEvents` (per phone hash, every phone, kept a day): ≤ 10 codes per rolling day
+  (`Auth:OtpMaxPerDay`, `429 daily_code_limit`); 10 verifications that did not sign in lock the phone for 4 h
+  (`Auth:SignInFailuresBeforeLock`, `Auth:SignInLockHours`; `429 sign_in_locked`; counted over the rolling day, so a miss
+  after a lock re-locks while the day's ten still count), unknown phones alike; a lock is logged
+  and shown on the park's banner (`signin_locked`). Verify runs under the same per-phone advisory lock as request.
+  Leaving Active or a phone change revokes every session (`admin_revoked`) in the same save; driver tokens carry their
+  session (`sessionId`) and `DriverTokenCheck` refuses them once the driver is not Active, the phone changed or the session
+  ended (sign-out included).
+- **Who sees what**: an operator reaches only its own licensee's parks, only while the licensee is in force (resolved
+  with the account by `AdminTokenCheck`, cached 30 s) — no Swich-direct or other licensee's park on any path. An operator
+  whose licensee is not in force (deactivated, or none bound) is cut off altogether: no sign-in (`403
+  licensee_not_in_force`), every token refused — incidents, metrics, statements and costs included; the licensee's PATCH
+  drops its operators' cached checks; accounts stay active, so reactivating restores them. Discrepancies are resolved only by Swich or the
+  park's licensee's operator, with a reason (≥ 5 chars, `reason_required`); park managers add a note instead (stays open).
+  `SeesAllParks` became `IsSwichOrOperator` (a role, not a scope); `ParkFilter` is the scope.
+
+**Model**: `PhoneSignInEvents`, `Drivers.PreferredLanguage`, `ReconciliationDiscrepancies.ParkNote/ParkNoteBy/ParkNoteAt`
+— in the one combined `ContractAlignment` migration. **Deploy-visible**: TBC credentials saved without `environment` now
+go to the PRODUCTION host; production refuses to start while an active account is `mock`; SMS for payout-account
+changes are only logged until a gateway exists.
+
+---
+
+## Session 2026-10-16 — security review fixes
+
+Fixed in code, each pinned by a test (`SecurityReviewTests`, `StartupGuardTests`, `TbcCertificatePathTests`,
+`ResilientWriteTests`, `IntegrationErrorMiddlewareTests`): sign-in code attempts and the per-phone code cap are atomic
+(parallel guesses get 5 tries per code, not dozens); the admin 5-strike lock reserves an attempt before BCrypt; unknown
+admin e-mails cost a BCrypt too; admin tokens are re-checked against the account (inactive / other role / other park →
+401 within ~30 s); a refresh race between two tabs is 409, not "theft"; `/me?fresh=true` reaches Yandex at most once per
+driver per 30 s, plus a per-driver limit (`RateLimit:DriverPerMinute`, 300) and a separate refresh bucket
+(`RateLimit:RefreshPerMinute`, 60); "enc:v1:"-looking input is encrypted like any other; a wrong `Encryption:Key` stops
+the start; client idempotency keys may not look like server document ids (`settle:`, `rev:`, `retry:`, `#n`); a payout
+whose document's answer was lost is held for review instead of being re-sent through another account or bank user;
+TBC `certificatePath` only inside `BankPayout:Tbc:CertificateDirectory`; report windows ≤ 366 days; append-only ledger
+in code; `ParkConfigEvents` trail of rail / credential / limit / driver-link changes (names only); upstream error text
+not sent to drivers; no driver names in logs; CSV formula guard; SSR frame/nosniff headers.
+
+**Deploy-visible (docs/DEPLOY.md updated):** the start-up guard now runs in every environment except Development and
+also refuses the CI/test keys, a mock rail without `AllowMockRails=true`, and `Proxy:TrustForwardedHeaders` without
+`Proxy:KnownNetworks`/`KnownProxies` — **production needs `Proxy__KnownNetworks__0` set before it will start**.
+`appsettings.json` ships `Jwt:Key` blank. docker-compose binds 127.0.0.1 and defaults to the real rails.
+
+**Left for the owner** (they change who can do what; part 2 above settles the mock provider, the TBC environment, the
+OTP limits, session revocation, operator scoping, payout-account notices and who resolves reconciliation): phone
+enumeration; destination step-up and third-party payouts (the owner chose notices only); the Yandex-binding powers of a
+park manager; 423 vs 401 for a locked admin and per-(account, IP) locks;
+admin password change/reset endpoints. **`docs/invoice.pdf`** (a real paypro invoice with a driver's personal data) is
+now gitignored and CI fails on a tracked PDF — but it is still in the snapshot commit 9eba8e7: never push that commit,
+build the final commit on 8a9962e, and confirm `git ls-files '*.pdf'` is empty before pushing.
+
+---
+
+## Session 2026-10-13 (part 3) — the lawyer's licence agreement vs the code
+
+The lawyer's draft (OneDrive Desktop: `ხელშეკრულება.docx` dated 09.10.2026 + `დანართები-1-3.docx`) was read.
+Privacy policy updated from it: Annex 3 §6 makes **each taxi park the data controller and Swich the processor**;
+Swich's legal name (შპს სვიჩსოლუშენსი), ს/კ 405848882, address and e-mail are filled in `LEGAL_DETAILS`
+(per-language values now supported); requests go "through your park or to us"; breaches are reported to the park;
+30-day return-and-delete when a park leaves (§10.1.9). Blanks left: operator name, SMS + hosting vendor and country,
+financial-record years, effective date (10 per language).
+
+**Contract terms the code does NOT follow yet — decision pending with the user** (details in memory
+`project_license_agreement`): monthly settlement within [5] days, pro rata from parks (code: nightly per park);
+aggregate split over all licensee parks with shared common costs and an equalising amount, barrier = 20,000 GEL
+actually received by Swich across all parks (code: per-park phase, no costs); queued cashouts must wait for funds
+indefinitely (code: abandons after 30 attempts / 12 h and fails bank rejections at once); an incident log in the
+admin panel (Annex 1 §4) is required and not built. Licensee's own data role is undefined in the contract.
+
+---
+
+## Session 2026-10-13 (part 2) — privacy policy page, park pick remembered, cleanup
+
+**Privacy policy** (asked for because banks look for one before granting API access). Public, no login, prerendered
+static HTML per language: `/privacy` (Georgian, the governing text), `/privacy/en`, `/privacy/ru`; section anchors
+(`/privacy/en#retention`) are stable across languages. Files: `src/app/features/legal/` — `privacy-content.ts`
+(the text, all three languages), `legal-config.ts` (`LEGAL_DETAILS`: every fact only the business/lawyer can supply),
+`legal-text.ts` (renders `{placeholders}`), `privacy.*` (page). Linked from the driver login (in the app language),
+driver Profile, and the admin login footer. Every statement was checked against the code (5-min hashed OTPs, 90-day
+devices, AES-256-GCM on phone/IBAN/credentials, rides cached 60 s in memory, IP only in memory for rate limiting,
+no cookies/analytics, Google Fonts loads from Google). While any `LEGAL_DETAILS` value is null the page shows a
+"Draft — not yet in force" banner and highlights the blanks (20 per language) — it cannot pass for final.
+
+**Before publishing it for real** (also in the session summary): fill `LEGAL_DETAILS` (controller and its ID/address,
+operator name, Swich ID code, privacy e-mail, SMS + hosting vendors and region, financial-records years, effective
+date); lawyer reviews the text and decides who the controller is (park / operator / Swich, or joint) and the basis
+for transfers to Yandex. The policy promises retention the code does not enforce yet: nothing deletes audit logs or
+sign-in history after 2 years, and there is no account-closure flow — a retention job is owed. Bulk onboarding sets
+`ConsentGiven = true` without the driver seeing anything (misleading record; the policy relies on the contract, not
+consent — better to record "policy version acknowledged" at first sign-in). Self-hosting Noto Sans would drop Google
+from the recipients list.
+
+**Park pick remembered.** A reload (or new tab) used to drop the admin console back to the first park — that is how
+an e2e draft suspended Batumi by accident. `AdminParkContextService` now stores the pick per admin
+(`paytaxi.admin.park.{adminId}`), so a colleague on the same browser does not inherit it. e2e first (failed: fell
+back to Batumi), then the fix.
+
+**Cleanup.** Duplicate `errOpenInvoice` key removed from admin en/ka (kept the "…Try again." wording); orphaned
+smoke-test doc comment removed from `AdminParksController`. No duplicate keys left in any i18n file.
+
+**Tests**: 128 backend, 16 e2e (+2: park pick survives reload; privacy page — public, linked from login in the app
+language, three languages, deep link, draft blanks visible, no overflow at 360 px). Production build prerenders
+5 routes (2 logins + 3 privacy pages).
+
+---
+
+## Session 2026-10-13 — suspend / reactivate a park
+
+**What it does.** `POST /api/admin/parks/{id}/status` `{ status: "Suspended" | "Active", reason }`. Swich and the
+operator only (403 for a park manager); a reason is required to suspend (≤ 500 chars). Pending → Active is allowed
+(activation); Pending → Suspended is a 409 `invalid_transition`; a Terminated park answers 409 `park_terminated`.
+Termination itself is NOT offered in the console (it ends a contract). Asking for the status the park already has is
+a no-op (`changed: false`) that keeps the first reason/author. New columns on `Parks` (migration `ParkStatusChange`):
+`StatusReason`, `StatusChangedAt`, `StatusChangedBy` (`admin:{email}`); the legacy `IsActive` mirror follows.
+
+**What suspension stops, and what it deliberately does not.**
+- Stops NEW cashouts: the saga already refused non-Active parks (`park_inactive`), driver and manual alike.
+- Queued payouts keep draining — the driver's Yandex balance was already debited, so they are owed that money
+  (the payout worker never looked at park status; now covered by a test).
+- **Changed:** the nightly settlement sweep and reconciliation now include Suspended parks (they were Active-only, so
+  a suspension silently stopped fee collection and stopped checking the in-flight payouts). Balance sync still skips
+  them (no cashouts → no need to warm the cache; `/me` reads live anyway).
+- Driver `/me` returns `park.cashoutsPaused`; the dashboard swaps the Cashout button for a "Cashouts are paused"
+  notice and the cashout screen locks the keypad (en/ka/ru). Drivers never see the reason.
+
+**Console.** Settings → new "Park status" card: pill, Suspend / Reactivate button (Swich + operator), inline confirm
+with a required reason, then reason · since · changed-by (the park manager sees reason and date, not who). Amber
+banner line `park_suspended` for everyone who sees the park (its Open link switches the topbar to that park first);
+the warning banner title is now "Items to review" (it said "Reconciliation items" and is no longer only that). Topbar
+picker shows "Park name · Suspended".
+
+**Tests**: 128 backend (+3: roles/validation/alerts, terminated, and suspend-with-a-queued-payout → still paid,
+settlement sweep and reconciliation still cover it, reactivation pays again — verified to fail on the old worker
+filters), 14 e2e (+1: suspend with reason → banner + picker label → reactivate).
+
+**Dev quirks found.** Port 4200 was taken by another project's `ng serve`; ran PayTaxi on 4300 with the API started
+with `Cors__AllowedOrigins__1=http://localhost:4300` and a scratch Playwright config pointing at :4300. A full page
+load (`page.goto`) resets the topbar park pick to the first park — pick the park after navigating (the first e2e
+draft suspended Batumi by accident; restored, so Batumi's dev row now carries a status-change trail).
 
 ---
 
@@ -442,7 +651,7 @@ before editing anything, so nothing under `src/` changed in this block.
 - `GeorgianPhone` (Core.Identity): the ONE normaliser + hash. "599123456", "+995 599 123 456", "995599123456",
   "0599123456" all → `+995599123456`. Used by AuthController, AdminParksController, SeedData.
 - OTP: per-phone cap 3 per 10 min (429 `too_many_requests` + Retry-After) on top of the per-IP limiter; the
-  "Dev OTP … code" log line is Development-only (prod logs the phone hash prefix only).
+  "Dev OTP … code" log line is Development-only (prod logs only the last 8 hex of the keyed phone hash, `LookupHash.ForLog`).
 - Seeding: `EnsureSeededAsync` (demo parks + dev logins) runs ONLY in Development. Other environments run
   `EnsureProductionReadyAsync`: migrate + encryption backfill + first super_admin from `Bootstrap:SuperAdminEmail`
   / `Bootstrap:SuperAdminPassword` (≥12 chars) when AdminUsers is empty.
@@ -529,7 +738,12 @@ The driver dashboard and the History tab were the last driver screens reading `M
   applied by an EF value converter to `Drivers.PhoneEncrypted`, `Parks.YandexClientIdEncrypted / YandexApiKeyEncrypted /
   BankCredentialsEncrypted`, `ParkBankAccounts.CredentialsEncrypted`, `BankCards.Iban / TokenReferenceEncrypted`.
   Legacy plaintext reads transparently; `EncryptionMigrator` re-encrypts old rows at startup (idempotent) and back-fills
-  `BankCards.IbanHash` (SHA-256) which replaces IBAN equality lookups (index `(DriverId, IbanHash)`). Key =
+  `BankCards.IbanHash`, which replaces IBAN equality lookups (index `(DriverId, IbanHash)`). **Lookup hashes are keyed**
+  (`Infrastructure/Security/LookupHash`, HMAC-SHA256 with `Encryption:HashKey`, a separate key; Production refuses to start
+  without it): `Drivers/OtpCodes.PhoneHash`, `BankCards.IbanHash` and `OtpCodes.CodeHash` (bound to the row), stored as
+  `h1:<key id>:<hex>` (columns 80 chars). `LookupHashMigrator` (first step of EncryptionMigrator) re-hashes rows not made by
+  the current key from the decrypted values and deletes such sign-in codes — plain SHA-256 before, or a rotated key; no hash
+  key (dev) = plain SHA-256. Sign-in codes are purged 24 h after issue on every RetentionWorker poll. Key =
   `Encryption:Key` (base64 32 bytes); dev key is in the gitignored appsettings.Development.json; no key → plaintext
   passthrough with a loud warning (dev only). Empty strings stay empty so `!= ''` SQL checks keep working.
   **Never filter an encrypted column by equality** — use PhoneHash / IbanHash. `dotnet run -- --new-encryption-key`
@@ -987,7 +1201,10 @@ Since the file is gitignored, anyone cloning fresh needs to create it with this 
     "OperatingEntityTaxId": "405848882"
   },
   "Cors": { "AllowedOrigins": [ "http://localhost:4200" ] },
-  "Encryption": { "Key": "<base64 32 bytes — `dotnet run --project backend/PayTaxi.Api -- --new-encryption-key`; KEEP the one already in your local file or existing encrypted rows become unreadable>" },
+  "Encryption": {
+    "Key": "<base64 32 bytes — `dotnet run --project backend/PayTaxi.Api -- --new-encryption-key`; KEEP the one already in your local file or existing encrypted rows become unreadable>",
+    "HashKey": "<a second, DIFFERENT base64 32-byte key from the same command — keys the phone/IBAN/OTP lookup hashes as production does (docs/DEPLOY.md); without it dev falls back to plain SHA-256. The startup migrator re-hashes existing rows when it changes>"
+  },
   "Cashout": { "MaxPayoutAttempts": 30, "MaxQueueAgeHours": 12, "PendingPollSeconds": 20, "BackoffSeconds": [10, 20, 30, 60, 120] },
   "PayoutQueue": { "Enabled": true, "PollIntervalSeconds": 10 },
   "Settlement": { "Enabled": true, "SwichIban": "GE12TB7100000000000001", "TimeZoneId": "Georgian Standard Time", "RunAtLocalTime": "00:30" }

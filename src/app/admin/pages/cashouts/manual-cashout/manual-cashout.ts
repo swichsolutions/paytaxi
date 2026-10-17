@@ -252,6 +252,7 @@ export class ManualCashoutComponent implements OnInit {
         case 'driver_not_linked':       return this.t.rejDriverNotLinked;
         case 'driver_inactive':         return this.t.rejDriverInactive;
         case 'park_inactive':           return this.t.rejParkInactive;
+        case 'authorisation_revoked':   return this.t.rejAuthorisationRevoked;
         case 'destination_removed':     return this.t.rejDestinationRemoved;
         case 'destination_no_iban':     return this.t.rejDestinationNoIban;
         case 'balance_unavailable':     return this.t.rejBalanceUnavailable;

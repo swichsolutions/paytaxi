@@ -1,0 +1,106 @@
+@if (metrics(); as m) {
+  <section class="inc-contract" data-testid="incident-contract" [class.inc-contract--alarm]="m.chronicBreach.flag || m.abandonment.flag">
+    <header class="inc-contract__head">
+      <div class="inc-contract__heading">
+        <span class="inc-contract__eyebrow">{{ t.incContractEyebrow }}</span>
+        <div class="inc-contract__month">
+          <button class="inc-contract__step" (click)="shift.emit(-1)" [attr.aria-label]="t.incPrevMonth">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <h2>{{ monthLabel(m.month) }}</h2>
+          <button class="inc-contract__step" (click)="shift.emit(1)" [disabled]="m.isCurrent" [attr.aria-label]="t.incNextMonth">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="inc-stamps">
+        @if (m.chronicBreach.flag) { <span class="inc-stamp inc-stamp--bad">{{ t.incContractBreach }}</span> }
+        @if (m.abandonment.flag) { <span class="inc-stamp inc-stamp--bad">{{ t.incContractAbandon }}</span> }
+        @if (!m.chronicBreach.flag && !m.abandonment.flag) { <span class="inc-stamp inc-stamp--ok">{{ t.incContractWithin }}</span> }
+      </div>
+    </header>
+
+    <div class="inc-contract__grid">
+      <!-- §5(a) -->
+      <div class="inc-cell" [class.inc-cell--bad]="m.chronicBreach.byCount">
+        <span class="inc-cell__clause">{{ t.incClause5a }}</span>
+        <span class="inc-cell__label">{{ t.incMetricMissed }}</span>
+        <span class="inc-cell__value">{{ m.ownerP1Missed.length }}<small> / {{ m.thresholds.chronicP1Count }}</small></span>
+        <div class="inc-seg" aria-hidden="true">
+          @for (on of segments(m.thresholds.chronicP1Count, m.ownerP1Missed.length); track $index) { <i [class.on]="on"></i> }
+        </div>
+        <span class="inc-cell__sub">{{ t.incMetricMissedSub.replace('{n}', '' + m.counts.ownerP1) }}</span>
+        @if (m.counts.undeterminedP1 > 0) {
+          <span class="inc-cell__sub inc-cell__sub--warn">{{ t.incMetricUndetermined.replace('{n}', '' + m.counts.undeterminedP1) }}</span>
+        }
+        @if (m.counts.outsideAgreementP1 > 0) {
+          <span class="inc-cell__sub">{{ t.incMetricOutside.replace('{n}', '' + m.counts.outsideAgreementP1) }}</span>
+        }
+        @if (m.ownerP1Missed.length > 0) {
+          <span class="inc-refs">@for (c of m.ownerP1Missed; track c.id) { <button class="inc-ref" (click)="open.emit(c.id)">{{ c.ref }}</button> }</span>
+        }
+      </div>
+
+      <!-- §5(b) -->
+      <div class="inc-cell" [class.inc-cell--bad]="m.chronicBreach.byHours">
+        <span class="inc-cell__clause">{{ t.incClause5b }}</span>
+        <span class="inc-cell__label">{{ t.incMetricHours }}</span>
+        <span class="inc-cell__value">{{ hours(m.ownerP1Hours) }}<small> / {{ m.thresholds.chronicP1Hours }} {{ t.incHoursUnit }}</small></span>
+        <div class="inc-bar" aria-hidden="true">
+          <i [style.width.%]="pct(m.ownerP1Hours, m.thresholds.chronicP1Hours)"></i>
+        </div>
+        <span class="inc-cell__sub">{{ t.incMetricHoursSub }}</span>
+      </div>
+
+      <!-- §6(a) -->
+      <div class="inc-cell" [class.inc-cell--bad]="m.abandonment.flag">
+        <span class="inc-cell__clause">{{ t.incClause6a }}</span>
+        <span class="inc-cell__label">{{ t.incMetricAbandon.replace('{h}', '' + m.thresholds.abandonmentResponseHours) }}</span>
+        <span class="inc-cell__value">{{ m.abandonment.unanswered.length }}</span>
+        <span class="inc-cell__sub">{{ m.abandonment.flag ? t.incMetricAbandonSome : t.incMetricAbandonNone }}</span>
+        @if (m.abandonment.unanswered.length > 0) {
+          <span class="inc-refs">@for (c of m.abandonment.unanswered; track c.id) { <button class="inc-ref" (click)="open.emit(c.id)">{{ c.ref }} · {{ hours(c.hours ?? 0) }} {{ t.incHoursUnit }}</button> }</span>
+        }
+      </div>
+
+      <!-- §7 -->
+      <div class="inc-cell">
+        <span class="inc-cell__clause">{{ t.incClause7 }}</span>
+        <span class="inc-cell__label">{{ t.incMetricTrial }}</span>
+        @switch (m.trial.state) {
+          @case ('not_set') { <span class="inc-cell__value inc-cell__value--text">{{ t.incTrialNotSet }}</span> }
+          @case ('upcoming') { <span class="inc-cell__value inc-cell__value--text">{{ t.incTrialUpcoming.replace('{date}', date(m.trial.launchDate)) }}</span> }
+          @case ('running') { <span class="inc-cell__value inc-cell__value--text">{{ t.incTrialRunning.replace('{d}', '' + m.trial.day).replace('{n}', '' + m.trial.trialDays) }}</span> }
+          @case ('ended') { <span class="inc-cell__value inc-cell__value--text">{{ t.incTrialEnded.replace('{date}', trialLastDay(m)) }}</span> }
+        }
+        @if (m.trial.state !== 'not_set') {
+          <!-- Never a definite "none qualifies" while a P1 whose fault nobody established missed its target:
+               if it was the owner's, the licensee owes nothing on withdrawal (8.5.1). -->
+          @if (m.trial.licenseeReleased) {
+            <span class="inc-cell__sub inc-cell__sub--good">{{ t.incTrialReleased }}</span>
+          } @else if (m.trial.undetermined) {
+            <span class="inc-cell__sub inc-cell__sub--warn" data-testid="trial-undetermined">{{ t.incTrialUndetermined.replace('{n}', '' + m.trial.undeterminedMissed.length) }}</span>
+          } @else {
+            <span class="inc-cell__sub">{{ t.incTrialNotReleased }}</span>
+          }
+          @if (m.trial.ownerP1Open > 0) { <span class="inc-cell__sub inc-cell__sub--warn">{{ t.incTrialOpen.replace('{n}', '' + m.trial.ownerP1Open) }}</span> }
+          @if (m.trial.undeterminedOpen > 0) { <span class="inc-cell__sub inc-cell__sub--warn">{{ t.incTrialUndeterminedOpen.replace('{n}', '' + m.trial.undeterminedOpen) }}</span> }
+          @if (m.trial.qualifying.length > 0 || m.trial.undeterminedMissed.length > 0) {
+            <span class="inc-refs">
+              @for (c of m.trial.qualifying; track c.id) { <button class="inc-ref" (click)="open.emit(c.id)">{{ c.ref }}</button> }
+              @for (c of m.trial.undeterminedMissed; track c.id) {
+                <button class="inc-ref" [attr.title]="t.incFaultUnknown" (click)="open.emit(c.id)">{{ c.ref }} · ?</button>
+              }
+            </span>
+          }
+        } @else {
+          <span class="inc-cell__sub">{{ t.incTrialNotSetHint }}</span>
+        }
+      </div>
+    </div>
+
+    <p class="inc-contract__note">
+      {{ t.incContractNote.replace('{days}', '' + m.thresholds.abandonmentSupportDays).replace('{cure}', '' + m.thresholds.abandonmentCureDays) }}
+    </p>
+  </section>
+}
